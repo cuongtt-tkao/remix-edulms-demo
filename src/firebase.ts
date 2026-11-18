@@ -43,10 +43,8 @@ export const auth = getAuth(app);
 
 /**
  * Cơ sở dữ liệu Firestore.
- * Mặc định dùng database "(default)" (nằm trong hạn mức miễn phí của gói Spark).
- * Nếu muốn dùng database có tên riêng, đặt biến môi trường VITE_FIRESTORE_DATABASE_ID trên Vercel.
- *
- * Bộ nhớ đệm IndexedDB giúp tiết kiệm lượt đọc (mở lại web không phải tải lại toàn bộ dữ liệu).
+ * Chỉ sử dụng database "(default)" theo cấu hình chốt của hệ thống
+ * (có thể ghi đè qua biến môi trường VITE_FIRESTORE_DATABASE_ID nếu cần).
  */
 const databaseId: string =
   ((import.meta as any).env?.VITE_FIRESTORE_DATABASE_ID as string | undefined) || '(default)';

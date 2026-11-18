@@ -35,9 +35,9 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ kpi }) => {
       badge: '+18 tuần này',
     },
     {
-      title: 'Tổng số mục tiêu',
+      title: 'Tổng lượt báo cáo ngày',
       value: formatNumber(kpi.totalTargets),
-      unit: 'mục tiêu',
+      unit: 'báo cáo',
       icon: Target,
       bgColor: 'bg-emerald-50',
       iconBg: 'bg-emerald-500',

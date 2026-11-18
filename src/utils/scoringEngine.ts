@@ -237,7 +237,10 @@ export function computeAreaRankings(areas: Area[], members: Member[]): AreaRankI
 
   areas.forEach((area, index) => {
     const areaMembers = members.filter(
-      (m) => m.areaCode === area.code && m.active
+      (m) =>
+        m.areaCode === area.code &&
+        (!area.companyCode || m.companyCode === area.companyCode) &&
+        m.active
     );
     const count = areaMembers.length;
     const totalScore = areaMembers.reduce((acc, m) => acc + m.score, 0);
@@ -269,3 +272,58 @@ export function computeAreaRankings(areas: Area[], members: Member[]): AreaRankI
     color: r.color,
   }));
 }
+
+/**
+ * Cộng dồn các chỉ số báo cáo hằng ngày từ một danh sách bản ghi DailyReportRecord.
+ */
+export function sumDailyReportMetrics(
+  records: Array<{ results?: Partial<Record<keyof import('../types/edulms').DailyReportMetrics, number>> }>
+): import('../types/edulms').DailyReportMetrics {
+  const sum: import('../types/edulms').DailyReportMetrics = {
+    kn: 0,
+    tham: 0,
+    gm: 0,
+    dt: 0,
+    hh: 0,
+    kt: 0,
+    wsNew: 0,
+  };
+  for (const r of records) {
+    if (!r.results) continue;
+    sum.kn += Number(r.results.kn) || 0;
+    sum.tham += Number(r.results.tham) || 0;
+    sum.gm += Number(r.results.gm) || 0;
+    sum.dt += Number(r.results.dt) || 0;
+    sum.hh += Number(r.results.hh) || 0;
+    sum.kt += Number(r.results.kt) || 0;
+    sum.wsNew += Number(r.results.wsNew) || 0;
+  }
+  return sum;
+}
+
+/**
+ * Tính điểm lễ hội trực tiếp từ kết quả báo cáo hằng ngày theo bảng trọng số (của Event hoặc mặc định).
+ */
+export function computeDailyMetricsScore(
+  results: import('../types/edulms').DailyReportMetrics,
+  weights: import('../types/edulms').DailyReportMetrics = {
+    kn: 5,
+    tham: 50,
+    gm: 200,
+    dt: 20,
+    hh: 15,
+    kt: 10,
+    wsNew: 300,
+  }
+): number {
+  return (
+    (Number(results.kn) || 0) * (Number(weights.kn) || 0) +
+    (Number(results.tham) || 0) * (Number(weights.tham) || 0) +
+    (Number(results.gm) || 0) * (Number(weights.gm) || 0) +
+    (Number(results.dt) || 0) * (Number(weights.dt) || 0) +
+    (Number(results.hh) || 0) * (Number(weights.hh) || 0) +
+    (Number(results.kt) || 0) * (Number(weights.kt) || 0) +
+    (Number(results.wsNew) || 0) * (Number(weights.wsNew) || 0)
+  );
+}
+

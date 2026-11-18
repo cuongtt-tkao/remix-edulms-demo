@@ -23,8 +23,19 @@ import {
   AlertCircle,
   Info,
   Crown,
+  Image as ImageIcon,
 } from 'lucide-react';
-import { Company, Area, Department, Member, UserAccount, UserRole, RoleAssignment } from '../types/edulms';
+import {
+  Company,
+  Area,
+  Department,
+  Member,
+  UserAccount,
+  UserRole,
+  RoleAssignment,
+  SystemBannerConfig,
+  FestivalEvent,
+} from '../types/edulms';
 import {
   exportSystemConfigExcel,
   exportMembersAndTargetsExcel,
@@ -34,6 +45,7 @@ import {
   parseMembersExcel,
 } from '../utils/excelManager';
 import { RoleManagementTab } from './RoleManagementTab';
+import { AdminBannerEventTab } from './AdminBannerEventTab';
 
 interface AdminPanelProps {
   companies: Company[];
@@ -60,10 +72,25 @@ interface AdminPanelProps {
   onShowNotification: (msg: string) => void;
   currentUser?: UserAccount | null;
   usersList?: UserAccount[];
-  onUpdateUserRole?: (targetUserId: string, newRole: UserRole, targetName: string) => Promise<void>;
+  onUpdateUserRole?: (
+    targetUserId: string,
+    newRole: UserRole,
+    targetName: string,
+    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
+  ) => Promise<void>;
   preAssignedRoles?: RoleAssignment[];
-  onPreAssignRole?: (email: string, role: UserRole, note?: string) => Promise<void>;
+  onPreAssignRole?: (
+    email: string,
+    role: UserRole,
+    note?: string,
+    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
+  ) => Promise<void>;
   onDeletePreAssignedRole?: (email: string) => Promise<void>;
+  bannerConfig?: SystemBannerConfig | null;
+  events?: FestivalEvent[];
+  onSaveBannerConfig?: (config: SystemBannerConfig) => Promise<void>;
+  onSaveEvent?: (event: FestivalEvent) => Promise<void>;
+  onDeleteEvent?: (eventId: string) => Promise<void>;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -95,9 +122,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   preAssignedRoles,
   onPreAssignRole,
   onDeletePreAssignedRole,
+  bannerConfig = null,
+  events = [],
+  onSaveBannerConfig,
+  onSaveEvent,
+  onDeleteEvent,
 }) => {
-  const [activeTab, setActiveTab] = useState<'COMPANIES' | 'AREAS' | 'DEPARTMENTS' | 'MEMBERS' | 'EXCEL_SYNC' | 'ROLES'>('COMPANIES');
+  const [activeTab, setActiveTab] = useState<
+    'COMPANIES' | 'AREAS' | 'DEPARTMENTS' | 'MEMBERS' | 'BANNER_EVENTS' | 'EXCEL_SYNC' | 'ROLES'
+  >('BANNER_EVENTS');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{
+    title: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // File input refs
   const configFileRef = useRef<HTMLInputElement>(null);
@@ -334,19 +372,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-50 px-3 py-1 rounded-full w-fit mb-2">
               <Shield className="w-3.5 h-3.5 text-purple-600" />
-              <span>Hệ thống Quản trị EduLMS</span>
+              <span>Hệ thống Quản trị Hành Thực Lục</span>
             </div>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <span>Quản Lý Công Ty, Khu Vực, Ban Ngành & Cá Nhân</span>
+              <span>Quản Lý Banner, Event, Đơn Vị &amp; Nhân Sự</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Thêm, sửa, xóa các đơn vị tổ chức, dữ liệu thành viên và đồng bộ Excel qua tab chuyên dụng bên dưới.
+              Quản trị chiến dịch Event, chỉnh sửa Banner trang chủ, đơn vị tổ chức, thành viên và phân quyền.
             </p>
           </div>
         </div>
 
         {/* Tab Selector */}
         <div className="flex items-center gap-2 overflow-x-auto py-4 border-b border-slate-100 text-xs font-bold">
+          <button
+            onClick={() => setActiveTab('BANNER_EVENTS')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
+              activeTab === 'BANNER_EVENTS'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs'
+                : 'text-amber-700 hover:text-amber-900 hover:bg-amber-50'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4" />
+            <span>Banner &amp; Event ({events.length})</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('COMPANIES')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
@@ -523,13 +573,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Xóa công ty ${comp.name}?`)) {
-                                onDeleteCompany(comp.id);
-                                onShowNotification(`Đã xóa công ty ${comp.name}.`);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
+                            onClick={() =>
+                              setConfirmDeleteTarget({
+                                title: `Xóa công ty ${comp.name}?`,
+                                onConfirm: () => {
+                                  onDeleteCompany(comp.id);
+                                  onShowNotification(`Đã xóa công ty ${comp.name}.`);
+                                },
+                              })
+                            }
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
                             title="Xóa công ty"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -702,13 +755,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Xóa khu vực ${area.name}?`)) {
-                                onDeleteArea(area.id);
-                                onShowNotification(`Đã xóa khu vực ${area.name}.`);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
+                            onClick={() =>
+                              setConfirmDeleteTarget({
+                                title: `Xóa khu vực ${area.name}?`,
+                                onConfirm: () => {
+                                  onDeleteArea(area.id);
+                                  onShowNotification(`Đã xóa khu vực ${area.name}.`);
+                                },
+                              })
+                            }
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
                             title="Xóa khu vực"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -877,13 +933,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Xóa ban ngành ${dept.name}?`)) {
-                                onDeleteDepartment(dept.id);
-                                onShowNotification(`Đã xóa ban ngành ${dept.name}.`);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
+                            onClick={() =>
+                              setConfirmDeleteTarget({
+                                title: `Xóa ban ngành ${dept.name}?`,
+                                onConfirm: () => {
+                                  onDeleteDepartment(dept.id);
+                                  onShowNotification(`Đã xóa ban ngành ${dept.name}.`);
+                                },
+                              })
+                            }
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
                             title="Xóa ban ngành"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1101,13 +1160,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Xóa thành viên ${mem.fullName}?`)) {
-                                onDeleteMember(mem.id);
-                                onShowNotification(`Đã xóa thành viên ${mem.fullName}.`);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
+                            onClick={() =>
+                              setConfirmDeleteTarget({
+                                title: `Xóa thành viên ${mem.fullName}?`,
+                                onConfirm: () => {
+                                  onDeleteMember(mem.id);
+                                  onShowNotification(`Đã xóa thành viên ${mem.fullName}.`);
+                                },
+                              })
+                            }
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
                             title="Xóa thành viên"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1644,6 +1706,62 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onDeletePreAssignedRole={onDeletePreAssignedRole}
               onShowNotification={onShowNotification}
             />
+          </div>
+        )}
+
+        {/* TAB 7: QUẢN LÝ BANNER & CHIẾN DỊCH EVENT */}
+        {activeTab === 'BANNER_EVENTS' && (
+          <div className="mt-6">
+            <AdminBannerEventTab
+              bannerConfig={bannerConfig || null}
+              events={events}
+              members={members}
+              companies={companies}
+              areas={areas}
+              onSaveBannerConfig={onSaveBannerConfig || (async () => {})}
+              onSaveEvent={onSaveEvent || (async () => {})}
+              onDeleteEvent={onDeleteEvent || (async () => {})}
+              onShowNotification={onShowNotification}
+            />
+          </div>
+        )}
+
+        {/* IN-APP DELETE CONFIRMATION MODAL */}
+        {confirmDeleteTarget && (
+          <div
+            onClick={() => setConfirmDeleteTarget(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+            >
+              <div className="font-extrabold text-sm text-slate-900 dark:text-white">
+                Xác nhận thao tác xóa
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                {confirmDeleteTarget.title}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteTarget(null)}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    confirmDeleteTarget.onConfirm();
+                    setConfirmDeleteTarget(null);
+                  }}
+                  className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                >
+                  Xóa ngay
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

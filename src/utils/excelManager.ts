@@ -47,7 +47,7 @@ export function exportSystemConfigExcel(
 
   const now = new Date();
   const dateStr = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
-  XLSX.writeFile(wb, `EduLMS_DanhMuc_HeThong_${dateStr}.xlsx`);
+  XLSX.writeFile(wb, `HanhThucLuc_DanhMuc_HeThong_${dateStr}.xlsx`);
 }
 
 /**
@@ -106,7 +106,7 @@ export function exportMembersAndTargetsExcel(members: Member[]): void {
 
   const now = new Date();
   const dateStr = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
-  XLSX.writeFile(wb, `EduLMS_NhanSu_DiemThiDua_${dateStr}.xlsx`);
+  XLSX.writeFile(wb, `HanhThucLuc_NhanSu_DiemThiDua_${dateStr}.xlsx`);
 }
 
 /**
@@ -137,7 +137,7 @@ export function downloadConfigTemplateExcel(): void {
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deptSample), 'Ban Ngành');
 
-  XLSX.writeFile(wb, 'EduLMS_Mau_DanhMuc_HeThong.xlsx');
+  XLSX.writeFile(wb, 'HanhThucLuc_Mau_DanhMuc_HeThong.xlsx');
 }
 
 /**
@@ -178,7 +178,7 @@ export function downloadMembersTemplateExcel(): void {
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(membersSample), 'Thành Viên');
 
-  XLSX.writeFile(wb, 'EduLMS_Mau_Danh_Sach_Thanh_Vien.xlsx');
+  XLSX.writeFile(wb, 'HanhThucLuc_Mau_Danh_Sach_Thanh_Vien.xlsx');
 }
 
 /**

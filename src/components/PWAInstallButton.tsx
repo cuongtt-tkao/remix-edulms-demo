@@ -23,7 +23,7 @@ export const PWAInstallButton: React.FC<{ variant?: 'navbar' | 'banner' | 'foote
               <Smartphone className="w-5 h-5" />
             </div>
             <div>
-              <div className="font-extrabold text-xs sm:text-sm">Cài đặt EduLMS lên màn hình điện thoại</div>
+              <div className="font-extrabold text-xs sm:text-sm">Cài đặt Hành Thực Lục lên màn hình điện thoại</div>
               <div className="text-[11px] text-blue-200">Mở toàn màn hình, ghi nhận ngoại tuyến và mượt mà như app native</div>
             </div>
           </div>
@@ -43,7 +43,7 @@ export const PWAInstallButton: React.FC<{ variant?: 'navbar' | 'banner' | 'foote
       <button
         onClick={install}
         className="px-2.5 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer border border-blue-500/30"
-        title="Cài đặt ứng dụng EduLMS lên màn hình chính"
+        title="Cài đặt ứng dụng Hành Thực Lục lên màn hình chính"
       >
         <Smartphone className="w-3.5 h-3.5 text-amber-300" />
         <span className="hidden sm:inline">Cài App</span>
@@ -76,11 +76,11 @@ export const PWAInstallButton: React.FC<{ variant?: 'navbar' | 'banner' | 'foote
 
               <div className="flex items-center gap-2 mb-2 text-blue-900">
                 <Apple className="w-6 h-6 text-slate-800" />
-                <h3 className="font-extrabold text-base text-slate-900">Cài đặt EduLMS trên iPhone</h3>
+                <h3 className="font-extrabold text-base text-slate-900">Cài đặt Hành Thực Lục trên iPhone</h3>
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                Để sử dụng EduLMS như ứng dụng chính thức trên iOS Safari:
+                Để sử dụng Hành Thực Lục như ứng dụng chính thức trên iOS Safari:
               </p>
 
               <div className="space-y-2.5 text-xs text-slate-700">

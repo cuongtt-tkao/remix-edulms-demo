@@ -455,13 +455,13 @@ export const ResultEntrySection: React.FC<ResultEntrySectionProps> = ({
                 >
                   {companyAreas.length > 0 ? (
                     companyAreas.map((area) => (
-                      <option key={area.code} value={area.code}>
+                      <option key={area.id} value={area.code}>
                         {area.name} ({area.code})
                       </option>
                     ))
                   ) : (
                     areas.map((area) => (
-                      <option key={area.code} value={area.code}>
+                      <option key={area.id} value={area.code}>
                         {area.name} ({area.code})
                       </option>
                     ))

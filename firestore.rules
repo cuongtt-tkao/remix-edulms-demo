@@ -1,10 +1,12 @@
 rules_version = '2';
 
 // ============================================================
-//  EduLMS - Quy tắc bảo mật Firestore
-//  - Quản trị viên tổng (SUPER_ADMIN): Toàn quyền cấu hình, phân quyền cho quản trị viên khác.
-//  - Ban Quản Trị (ADMIN): Quản lý danh mục, thành viên, duyệt và quản lý thi đua.
-//  - Thành viên (MEMBER): Xem dữ liệu thi đua, ghi nhận và cập nhật đối tượng của mình.
+//  Hành Thực Lục - Quy tắc bảo mật Firestore (5 cấp phân quyền)
+//  - Quản trị viên tổng (SUPER_ADMIN): Toàn quyền cấu hình, phân quyền tất cả các cấp.
+//  - Ban Quản Trị (ADMIN): Quản lý danh mục, banner, sự kiện, thành viên và toàn bộ dữ liệu MĐ.
+//  - Nhà quản lý (MANAGER): Xem & hỗ trợ cập nhật tiến độ/ghi chú MĐ tại các khu vực/công ty được giao.
+//  - Khu vực trưởng (AREA_LEADER): Xem & hỗ trợ cập nhật tiến độ/ghi chú MĐ trong khu vực mình.
+//  - Thành viên (MEMBER): Tự quản lý hồ sơ MĐ của chính mình, nhập báo cáo hằng ngày.
 // ============================================================
 
 service cloud.firestore {
@@ -18,6 +20,10 @@ service cloud.firestore {
     // ---------- Các hàm trợ giúp bảo mật ----------
     function isSignedIn() {
       return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function userDocPath() {
@@ -37,10 +43,7 @@ service cloud.firestore {
       );
     }
 
-    // Quản trị viên tổng (SUPER_ADMIN):
-    // 1. Email khởi tạo chính thức
-    // 2. Hoặc tài khoản có role == 'SUPER_ADMIN' trong Firestore
-    // 3. Hoặc email nằm trong mảng superAdmins của system_config/roles
+    // Quản trị viên tổng (SUPER_ADMIN)
     function isSuperAdmin() {
       return isSignedIn() && (
         (request.auth.token.email != null && isSuperAdminEmail(request.auth.token.email))
@@ -54,8 +57,7 @@ service cloud.firestore {
       );
     }
 
-    // Ban Quản trị (ADMIN & SUPER_ADMIN):
-    // Bao gồm Quản trị viên tổng hoặc thành viên được phân quyền ADMIN
+    // Ban Quản trị (ADMIN & SUPER_ADMIN)
     function isAdmin() {
       return isSuperAdmin() || (
         isSignedIn() && (
@@ -70,26 +72,154 @@ service cloud.firestore {
       );
     }
 
+    // Khu vực trưởng (AREA_LEADER)
+    function isAreaLeader() {
+      return isSignedIn()
+        && exists(userDocPath())
+        && get(userDocPath()).data.role == 'AREA_LEADER';
+    }
+
+    // Nhà quản lý (MANAGER)
+    function isManager() {
+      return isSignedIn()
+        && exists(userDocPath())
+        && get(userDocPath()).data.role == 'MANAGER';
+    }
+
+    // Kiểm tra quyền giám sát theo khu vực / công ty đối với hồ sơ MĐ
+    function canSupervisorAccessDisciple(data) {
+      return (
+        isAreaLeader()
+        && get(userDocPath()).data.areaCode == data.areaCode
+        && get(userDocPath()).data.companyCode == data.companyCode
+      ) || (
+        isManager()
+        && (
+          ('managedAreaCodes' in get(userDocPath()).data && data.areaCode in get(userDocPath()).data.managedAreaCodes)
+          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+        )
+      );
+    }
+
+    // Kiểm tra cấu trúc hợp lệ của hồ sơ MĐ (chống ghi thừa trường, sai kiểu hoặc quá dung lượng)
+    function isValidDisciple(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'companyCode', 'areaCode', 'nickname',
+          'ageMode', 'ageRange', 'progress', 'isStopped', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'ownerMemberId', 'ownerName', 'companyCode', 'areaCode',
+          'nickname', 'ageMode', 'ageRange', 'exactAge', 'job', 'traits',
+          'progress', 'isStopped', 'statusNote', 'createdAt', 'updatedAt', 'updatedBy'
+        ])
+        && data.ownerUid is string && data.ownerUid.size() > 0 && data.ownerUid.size() <= 128
+        && (!('ownerMemberId' in data) || (data.ownerMemberId is string && data.ownerMemberId.size() <= 128))
+        && (!('ownerName' in data) || (data.ownerName is string && data.ownerName.size() <= 100))
+        && data.companyCode is string && data.companyCode.size() <= 30
+        && data.areaCode is string && data.areaCode.size() <= 30
+        && data.nickname is string && data.nickname.size() > 0 && data.nickname.size() <= 60
+        && data.ageMode in ['RANGE', 'EXACT']
+        && data.ageRange in ['<18', '18-22', '23-30', '31-45', '>45']
+        && (!('exactAge' in data) || data.exactAge == null || (data.exactAge is number && data.exactAge >= 1 && data.exactAge <= 120))
+        && (!('job' in data) || (data.job is string && data.job.size() <= 100))
+        && (!('traits' in data) || (data.traits is string && data.traits.size() <= 400))
+        && data.progress is list
+        && data.progress.size() <= 9
+        && data.progress.hasOnly(['KN', 'Thăm', 'Ăn Cơm', 'GM', 'ĐT', 'HH', 'KT', 'WS', 'Dừng'])
+        && data.isStopped is bool
+        && (!('statusNote' in data) || (data.statusNote is string && data.statusNote.size() <= 600))
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 100));
+    }
+
     // Mã thành viên của chính người dùng đang đăng nhập
     function ownMemberId() {
       return 'm-' + request.auth.uid;
     }
 
-    // ---------- Cấu hình phân quyền hệ thống (system_config/roles) ----------
+    // ---------- Cấu hình hệ thống (system_config/roles, system_config/banner) ----------
     match /system_config/{id} {
-      // Đọc để đồng bộ quyền cho người dùng đã đăng nhập
-      allow read: if isSignedIn();
-      // Chỉ Quản trị viên tổng mới có quyền ghi/sửa cấu hình phân quyền
-      allow write: if isSuperAdmin() || (isSignedIn() && isSuperAdminEmail(request.auth.token.email));
+      allow read: if id == 'banner' || isSignedIn();
+      allow write: if (id == 'banner' && isAdmin()) || isSuperAdmin();
     }
 
-    // ---------- users/{uid}: hồ sơ tài khoản & phân quyền ----------
+    // ---------- Sự kiện & Chiến dịch thi đua (events/{id}) ----------
+    match /events/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---------- Trang thông tin Môn Đồ (disciples/{discipleId}) ----------
+    match /disciples/{discipleId} {
+      allow get: if isValidId(discipleId) && isSignedIn() && (
+        isAdmin()
+        || resource.data.ownerUid == request.auth.uid
+        || canSupervisorAccessDisciple(resource.data)
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin()
+        || resource.data.ownerUid == request.auth.uid
+        || canSupervisorAccessDisciple(resource.data)
+      );
+
+      allow create: if isValidId(discipleId)
+        && isSignedIn()
+        && isValidDisciple(request.resource.data)
+        && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+
+      allow update: if isValidId(discipleId)
+        && isSignedIn()
+        && isValidDisciple(request.resource.data)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          isAdmin()
+          || resource.data.ownerUid == request.auth.uid
+          || (
+            canSupervisorAccessDisciple(resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['progress', 'isStopped', 'statusNote', 'updatedAt', 'updatedBy'])
+          )
+        );
+
+      allow delete: if isValidId(discipleId) && isSignedIn() && (
+        isAdmin() || resource.data.ownerUid == request.auth.uid
+      );
+    }
+
+    // ---------- Báo cáo hằng ngày (dailyReports/{id}) ----------
+    match /dailyReports/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (
+        isAdmin() || request.resource.data.uid == request.auth.uid
+      );
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // ---------- Mục tiêu Tháng / Năm (periodGoals/{id}) ----------
+    match /periodGoals/{id} {
+      allow get: if isSignedIn() && (
+        isAdmin()
+        || id.matches('^' + request.auth.uid + '_.*')
+        || resource.data.uid == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        isAdmin()
+        || resource.data.uid == request.auth.uid
+      );
+      allow create, update: if isSignedIn() && (
+        isAdmin() || request.resource.data.uid == request.auth.uid
+      );
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // ---------- users/{uid}: hồ sơ tài khoản & phân quyền 5 cấp ----------
     match /users/{uid} {
-      // Cho phép đọc thông tin tài khoản công khai nếu đã đăng nhập; Admin được list toàn bộ
       allow get: if isSignedIn();
       allow list: if isAdmin();
 
-      // Tạo hồ sơ cá nhân khi đăng ký hoặc đăng nhập Google
       allow create: if isSignedIn()
         && request.auth.uid == uid
         && request.resource.data.fullName is string
@@ -97,19 +227,20 @@ service cloud.firestore {
         && request.resource.data.fullName.size() <= 100
         && (
           (request.resource.data.role == 'MEMBER') ||
-          (request.resource.data.role in ['ADMIN', 'SUPER_ADMIN'] && (isSuperAdmin() || isSuperAdminEmail(request.auth.token.email)))
+          (request.resource.data.role in ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'AREA_LEADER'] && (isSuperAdmin() || isSuperAdminEmail(request.auth.token.email)))
         );
 
-      // Cập nhật hồ sơ:
-      // - Quản trị viên tổng (SUPER_ADMIN) có toàn quyền phân quyền mọi tài khoản.
-      // - Ban Quản trị sửa được thông tin cơ bản nhưng không được can thiệp SUPER_ADMIN.
-      // - Người dùng tự sửa thông tin của mình (được nâng lên SUPER_ADMIN nếu email là bootstrap email).
       allow update: if isSignedIn() && (
         isSuperAdmin()
         || isSuperAdminEmail(request.auth.token.email)
-        || (isAdmin() && request.resource.data.role != 'SUPER_ADMIN' && resource.data.role != 'SUPER_ADMIN')
+        || (
+          isAdmin()
+          && request.resource.data.role != 'SUPER_ADMIN'
+          && resource.data.role != 'SUPER_ADMIN'
+        )
         || (
           request.auth.uid == uid
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['managedCompanyCodes', 'managedAreaCodes'])
           && (
             request.resource.data.role == resource.data.role
             || (request.resource.data.role == 'SUPER_ADMIN' && isSuperAdminEmail(request.auth.token.email))
@@ -120,7 +251,7 @@ service cloud.firestore {
       allow delete: if isSuperAdmin() || isSuperAdminEmail(request.auth.token.email);
     }
 
-    // ---------- Danh mục: công ty, khu vực, ban ngành (Đọc công khai để hiển thị) ----------
+    // ---------- Danh mục: công ty, khu vực, ban ngành ----------
     match /companies/{id} {
       allow read: if true;
       allow write: if isAdmin();
@@ -137,7 +268,6 @@ service cloud.firestore {
     }
 
     // ---------- members/{id}: thành viên & điểm số thi đua ----------
-    // Đọc công khai để phục vụ bảng xếp hạng và bục vinh danh
     match /members/{id} {
       allow read: if true;
 
@@ -156,7 +286,7 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // ---------- targets/{id}: nhật ký đối tượng chi tiết ----------
+    // ---------- targets/{id}: nhật ký đối tượng chi tiết (legacy) ----------
     match /targets/{id} {
       allow read: if true;
       allow create, update: if isSignedIn();
@@ -167,13 +297,11 @@ service cloud.firestore {
     match /huongKhi/{id} {
       allow read: if true;
 
-      // Người dùng đã đăng nhập được đăng bài
       allow create: if isSignedIn()
         && request.resource.data.title is string
         && request.resource.data.title.size() <= 300
         && request.resource.data.content is string;
 
-      // Tác giả/ADMIN sửa bài; mọi người dùng đã đăng nhập được thả cảm xúc & bình luận
       allow update: if isSignedIn() && (
         isAdmin()
         || resource.data.authorId == ownMemberId()

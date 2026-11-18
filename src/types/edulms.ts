@@ -109,9 +109,11 @@ export interface Member {
   avatarUrl?: string;
   coverUrl?: string;
   bio?: string;
+  dailyResults?: DailyReportMetrics;
+  dailyGoals?: DailyReportMetrics;
 }
 
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MEMBER';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'AREA_LEADER' | 'MEMBER';
 
 export interface RoleAssignment {
   email: string;
@@ -119,6 +121,8 @@ export interface RoleAssignment {
   grantedBy: string;
   grantedAt: string;
   note?: string;
+  managedCompanyCodes?: string[];
+  managedAreaCodes?: string[];
 }
 
 export interface SystemRolesConfig {
@@ -142,6 +146,8 @@ export interface UserAccount {
   companyCode: string;
   areaCode: string;
   departmentCode: string;
+  managedCompanyCodes?: string[];
+  managedAreaCodes?: string[];
   avatarUrl?: string;
   coverUrl?: string;
   bio?: string;
@@ -252,6 +258,183 @@ export interface DailyVerse {
   reflection?: string;
 }
 
+export type DailyMetricKey = 'kn' | 'tham' | 'gm' | 'dt' | 'hh' | 'kt' | 'wsNew';
+
+export interface DailyReportMetrics {
+  kn: number;
+  tham: number;
+  gm: number;
+  dt: number;
+  hh: number;
+  kt: number;
+  wsNew: number;
+}
+
+export const EMPTY_DAILY_METRICS: DailyReportMetrics = {
+  kn: 0,
+  tham: 0,
+  gm: 0,
+  dt: 0,
+  hh: 0,
+  kt: 0,
+  wsNew: 0,
+};
+
+export const DEFAULT_DAILY_GOALS: DailyReportMetrics = {
+  kn: 5,
+  tham: 1,
+  gm: 1,
+  dt: 2,
+  hh: 1,
+  kt: 1,
+  wsNew: 1,
+};
+
+export const DEFAULT_EVENT_WEIGHTS: DailyReportMetrics = {
+  kn: 5,
+  tham: 50,
+  gm: 200,
+  dt: 20,
+  hh: 15,
+  kt: 10,
+  wsNew: 300,
+};
+
+export interface DailyMetricDefinition {
+  key: DailyMetricKey;
+  label: string;
+  colorClass: string;
+  dotColor: string;
+}
+
+export const DAILY_METRIC_DEFINITIONS: DailyMetricDefinition[] = [
+  { key: 'kn', label: 'KN', colorClass: 'text-sky-600 dark:text-sky-400', dotColor: 'bg-sky-500' },
+  { key: 'tham', label: 'Thăm', colorClass: 'text-emerald-600 dark:text-emerald-400', dotColor: 'bg-emerald-500' },
+  { key: 'gm', label: 'GM', colorClass: 'text-amber-600 dark:text-amber-400', dotColor: 'bg-amber-500' },
+  { key: 'dt', label: 'ĐT', colorClass: 'text-indigo-600 dark:text-indigo-400', dotColor: 'bg-indigo-500' },
+  { key: 'hh', label: 'HH', colorClass: 'text-rose-600 dark:text-rose-400', dotColor: 'bg-rose-500' },
+  { key: 'kt', label: 'KT', colorClass: 'text-purple-600 dark:text-purple-400', dotColor: 'bg-purple-500' },
+  { key: 'wsNew', label: 'WS New', colorClass: 'text-teal-600 dark:text-teal-400', dotColor: 'bg-teal-500' },
+];
+
+export interface DailyReportRecord {
+  id: string; // `${uid}_${date}`
+  uid: string;
+  memberId: string;
+  date: string; // YYYY-MM-DD
+  month: string; // YYYY-MM
+  year: string; // YYYY
+  goals: DailyReportMetrics;
+  results: DailyReportMetrics;
+  updatedAt: string;
+}
+
+export interface PeriodGoalRecord {
+  id: string; // `${uid}_${periodType}_${periodKey}`
+  uid: string;
+  periodType: 'MONTH' | 'YEAR';
+  periodKey: string; // YYYY-MM or YYYY
+  goals: DailyReportMetrics;
+  updatedAt: string;
+}
+
+export interface BannerSlide {
+  id: string;
+  title: string;
+  subtitle: string;
+  url: string;
+}
+
+export interface SystemBannerConfig {
+  id?: string;
+  mainTitle: string;
+  highlightTitle: string;
+  description: string;
+  tagline: string;
+  slides: BannerSlide[];
+  autoSlideSeconds?: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface FestivalEvent {
+  id: string;
+  title: string;
+  description: string;
+  rulesText: string;
+  bannerUrl?: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  isActive: boolean;
+  isPinned: boolean;
+  restrictParticipants: boolean;
+  participantIds: string[]; // Danh sách memberId được duyệt tham gia sự kiện
+  weights: DailyReportMetrics; // Điểm quy đổi cho từng chỉ số trong Event
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type DiscipleProgressStep =
+  | 'KN'
+  | 'Thăm'
+  | 'Ăn Cơm'
+  | 'GM'
+  | 'ĐT'
+  | 'HH'
+  | 'KT'
+  | 'WS'
+  | 'Dừng';
+
+export const DISCIPLE_PROGRESS_STEPS: Array<{
+  key: DiscipleProgressStep;
+  label: string;
+  isStop?: boolean;
+}> = [
+  { key: 'KN', label: 'KN' },
+  { key: 'Thăm', label: 'Thăm' },
+  { key: 'Ăn Cơm', label: 'Ăn Cơm' },
+  { key: 'GM', label: 'GM' },
+  { key: 'ĐT', label: 'ĐT' },
+  { key: 'HH', label: 'HH' },
+  { key: 'KT', label: 'KT' },
+  { key: 'WS', label: 'WS' },
+  { key: 'Dừng', label: 'Dừng', isStop: true },
+];
+
+export type DiscipleAgeMode = 'RANGE' | 'EXACT';
+export type DiscipleAgeRange = '<18' | '18-22' | '23-30' | '31-45' | '>45';
+export const DISCIPLE_AGE_RANGES: DiscipleAgeRange[] = ['<18', '18-22', '23-30', '31-45', '>45'];
+
+export function mapAgeToRange(age: number): DiscipleAgeRange {
+  if (age < 18) return '<18';
+  if (age <= 22) return '18-22';
+  if (age <= 30) return '23-30';
+  if (age <= 45) return '31-45';
+  return '>45';
+}
+
+export interface DiscipleRecord {
+  id: string;
+  ownerUid: string;
+  ownerMemberId: string;
+  ownerName: string;
+  companyCode: string;
+  areaCode: string;
+  nickname: string;
+  ageMode: DiscipleAgeMode;
+  ageRange: DiscipleAgeRange;
+  exactAge?: number | null;
+  job: string;
+  traits: string;
+  progress: DiscipleProgressStep[];
+  isStopped: boolean;
+  statusNote: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
 export const STEP_DEFINITIONS: StepMetric[] = [
   { id: 1, name: 'Kết bạn', points: 5 },
   { id: 2, name: 'Tương tác', points: 2 },
@@ -260,3 +443,4 @@ export const STEP_DEFINITIONS: StepMetric[] = [
   { id: 5, name: 'Cơm', points: 100 },
   { id: 6, name: 'Gợi mở', points: 500 },
 ];
+

@@ -59,7 +59,7 @@ export function exportCompetitionToExcel(
 
   const now = new Date();
   const dateStr = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
-  XLSX.writeFile(wb, `EduLMS_Bao_Cao_Thi_Dua_${dateStr}.xlsx`);
+  XLSX.writeFile(wb, `HanhThucLuc_Bao_Cao_Thi_Dua_${dateStr}.xlsx`);
 }
 
 /**

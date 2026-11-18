@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'EduLMS — Website Vinh danh Lễ hội Truyền Đạo',
-          short_name: 'EduLMS',
-          description: 'Cổng thông tin vinh danh và bảng xếp hạng trực tiếp Lễ hội thi đua Truyền Đạo EduLMS.',
+          name: 'Hành Thực Lục — Báo cáo hằng ngày & Thi đua',
+          short_name: 'Hành Thực Lục',
+          description: 'Hệ thống Báo cáo hằng ngày và Bảng xếp hạng thi đua trực tiếp Hành Thực Lục.',
           theme_color: '#1e3a8a',
           background_color: '#f3f6fb',
           display: 'standalone',
@@ -32,6 +32,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         },
         devOptions: {

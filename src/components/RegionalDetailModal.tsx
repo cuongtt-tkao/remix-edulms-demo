@@ -77,8 +77,8 @@ export const RegionalDetailModal: React.FC<RegionalDetailModalProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {areaRankings.map((area) => (
-                <tr key={area.areaCode} className="hover:bg-slate-50 transition">
+              {areaRankings.map((area, idx) => (
+                <tr key={`${area.companyCode}_${area.areaCode}_${idx}`} className="hover:bg-slate-50 transition">
                   <td className="py-3 px-3 font-bold text-slate-900">#{area.rank}</td>
                   <td className="py-3 px-3">
                     <div className="flex items-center gap-2">

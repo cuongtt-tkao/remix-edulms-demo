@@ -4,22 +4,23 @@ import {
   RefreshCw,
   BookOpen,
   Sun,
-  Flame,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck,
-  Compass,
+  Calendar,
+  Award,
+  Users,
 } from 'lucide-react';
 import heroSpotlightImage from '../assets/images/hero_spotlight_1792173345769.jpg';
 import { getDailyVerse, getNextVerse } from '../utils/dailyScripture';
-import { DailyVerse } from '../types/edulms';
+import { DailyVerse, SystemBannerConfig, FestivalEvent } from '../types/edulms';
 
 interface HeroBannerProps {
   festivalName?: string;
+  bannerConfig?: SystemBannerConfig | null;
+  activeEvent?: FestivalEvent | null;
   onOpenRules?: () => void;
 }
 
-// 4 Majestic Spotlight covers without any crucifix or cross symbol
 export const SPOTLIGHT_COVERS = [
   {
     id: 1,
@@ -48,25 +49,51 @@ export const SPOTLIGHT_COVERS = [
 ];
 
 export const HeroBanner: React.FC<HeroBannerProps> = ({
-  festivalName = 'TRUYỀN ĐẠO',
+  festivalName,
+  bannerConfig,
+  activeEvent,
   onOpenRules,
 }) => {
   const [dailyVerse, setDailyVerse] = useState<DailyVerse>(() => getDailyVerse());
   const [isRotatingVerse, setIsRotatingVerse] = useState(false);
   const [currentCoverIndex, setCurrentCoverIndex] = useState(0);
 
-  // Auto rotate daily verse based on today's date
+  const slides =
+    bannerConfig?.slides && bannerConfig.slides.length > 0
+      ? bannerConfig.slides
+      : SPOTLIGHT_COVERS.map((c) => ({
+          id: String(c.id),
+          title: c.title,
+          subtitle: c.subtitle,
+          url: c.url,
+        }));
+
+  const slideIntervalMs = Math.max(3, bannerConfig?.autoSlideSeconds || 7) * 1000;
+  const heroTitle = bannerConfig?.mainTitle || festivalName || 'HÀNH THỰC LỤC';
+  const heroHighlight = bannerConfig?.highlightTitle || 'Lễ hội thi đua';
+  const heroTagline =
+    bannerConfig?.tagline || 'Báo cáo hằng ngày • Lan tỏa thực hành • Tiến bước vững vàng';
+  const heroDescription =
+    bannerConfig?.description ||
+    'Ghi nhận báo cáo hằng ngày, theo dõi tiến độ mục tiêu và vinh danh thành tích thi đua.';
+
   useEffect(() => {
     setDailyVerse(getDailyVerse());
   }, []);
 
-  // Auto rotate Spotlight cover every 7 seconds
   useEffect(() => {
+    if (currentCoverIndex >= slides.length) {
+      setCurrentCoverIndex(0);
+    }
+  }, [slides.length, currentCoverIndex]);
+
+  useEffect(() => {
+    if (slides.length <= 1) return;
     const timer = setInterval(() => {
-      setCurrentCoverIndex((prev) => (prev + 1) % SPOTLIGHT_COVERS.length);
-    }, 7000);
+      setCurrentCoverIndex((prev) => (prev + 1) % slides.length);
+    }, slideIntervalMs);
     return () => clearInterval(timer);
-  }, []);
+  }, [slides.length, slideIntervalMs]);
 
   const handleNextVerse = () => {
     setIsRotatingVerse(true);
@@ -75,23 +102,23 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   };
 
   const handlePrevCover = () => {
-    setCurrentCoverIndex((prev) =>
-      prev === 0 ? SPOTLIGHT_COVERS.length - 1 : prev - 1
-    );
+    setCurrentCoverIndex((prev) => (prev === 0 ? slides.length - 1 : prev - 1));
   };
 
   const handleNextCover = () => {
-    setCurrentCoverIndex((prev) => (prev + 1) % SPOTLIGHT_COVERS.length);
+    setCurrentCoverIndex((prev) => (prev + 1) % slides.length);
   };
 
-  const currentCover = SPOTLIGHT_COVERS[currentCoverIndex];
+  const currentCover = slides[currentCoverIndex] || slides[0];
+
+  const formatDate = (d: string) => d.split('-').reverse().join('/');
 
   return (
-    <div className="relative w-full overflow-hidden bg-slate-950 min-h-[380px] sm:min-h-[440px] md:min-h-[480px] flex items-center shadow-xl select-none">
+    <div className="relative w-full overflow-hidden bg-slate-950 min-h-[360px] sm:min-h-[420px] md:min-h-[460px] flex items-center shadow-xl select-none">
       {/* Background Slides with Crossfade */}
-      {SPOTLIGHT_COVERS.map((cover, idx) => (
+      {slides.map((cover, idx) => (
         <div
-          key={cover.id}
+          key={cover.id || idx}
           className={`absolute inset-0 z-0 transition-opacity duration-1000 ease-in-out ${
             idx === currentCoverIndex ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
@@ -105,62 +132,66 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             referrerPolicy="no-referrer"
           />
 
-          {/* Layered cinematic gradients to guarantee both rich background visibility and crisp text contrast */}
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/55 to-slate-950/25" />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-black/30" />
-          <div className="absolute inset-0 bg-radial from-amber-400/25 via-transparent to-black/50 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/60 to-slate-950/30" />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-black/35" />
+          <div className="absolute inset-0 bg-radial from-amber-400/20 via-transparent to-black/50 pointer-events-none" />
         </div>
       ))}
 
-      {/* Dynamic Animated Spotlight Cones / Light Sweeps */}
-      <div className="absolute -top-32 left-1/4 w-[420px] h-[700px] bg-gradient-to-b from-amber-300/25 via-amber-200/10 to-transparent blur-3xl transform -rotate-12 pointer-events-none animate-pulse duration-1000" />
-      <div className="absolute top-0 right-1/4 w-96 h-[600px] bg-gradient-to-b from-yellow-100/15 via-amber-300/5 to-transparent blur-2xl pointer-events-none" />
+      {/* Dynamic Animated Spotlight Cones */}
+      <div className="absolute -top-32 left-1/4 w-[420px] h-[700px] bg-gradient-to-b from-amber-300/20 via-amber-200/10 to-transparent blur-3xl transform -rotate-12 pointer-events-none animate-pulse duration-1000" />
 
-      {/* Manual Spotlight Slider Controls (Prev / Next Buttons) */}
-      <button
-        onClick={handlePrevCover}
-        aria-label="Ảnh trước"
-        className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-black/40 hover:bg-black/70 text-amber-200 hover:text-white flex items-center justify-center backdrop-blur-md border border-white/10 transition opacity-60 hover:opacity-100"
-      >
-        <ChevronLeft className="w-5 h-5" />
-      </button>
+      {/* Manual Spotlight Slider Controls */}
+      {slides.length > 1 && (
+        <>
+          <button
+            onClick={handlePrevCover}
+            aria-label="Ảnh trước"
+            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-black/40 hover:bg-black/70 text-amber-200 hover:text-white flex items-center justify-center backdrop-blur-md border border-white/10 transition opacity-60 hover:opacity-100 cursor-pointer"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
 
-      <button
-        onClick={handleNextCover}
-        aria-label="Ảnh tiếp theo"
-        className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-black/40 hover:bg-black/70 text-amber-200 hover:text-white flex items-center justify-center backdrop-blur-md border border-white/10 transition opacity-60 hover:opacity-100"
-      >
-        <ChevronRight className="w-5 h-5" />
-      </button>
+          <button
+            onClick={handleNextCover}
+            aria-label="Ảnh tiếp theo"
+            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-black/40 hover:bg-black/70 text-amber-200 hover:text-white flex items-center justify-center backdrop-blur-md border border-white/10 transition opacity-60 hover:opacity-100 cursor-pointer"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </>
+      )}
 
       {/* Main Content Container */}
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-8 md:py-12">
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-8 md:py-10">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 md:gap-8">
-          
-          {/* Left Column: Script Calligraphy, Golden Title & Daily Scripture Box */}
+          {/* Left Column */}
           <div className="max-w-2xl text-left">
-            {/* Elegant Calligraphy & Spotlight Status Indicator */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-script text-3xl sm:text-4xl md:text-5xl text-amber-300 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] tracking-wide select-none">
-                Lễ hội thi đua
+              <span className="font-script text-2xl sm:text-3xl md:text-4xl text-amber-300 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] tracking-wide select-none">
+                {heroHighlight}
               </span>
               <div className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-200 text-[10px] font-extrabold uppercase tracking-wider border border-amber-300/30 backdrop-blur-xs flex items-center gap-1.5">
                 <Sun className="w-3.5 h-3.5 text-amber-300 animate-spin" />
-                <span>Spotlight Tự Động ({currentCoverIndex + 1}/{SPOTLIGHT_COVERS.length})</span>
+                <span>
+                  Spotlight ({currentCoverIndex + 1}/{slides.length})
+                </span>
               </div>
             </div>
 
-            {/* Main Title: TRUYỀN ĐẠO with luxurious hover ripple and zoom effect */}
-            <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-wider uppercase font-cinzel my-1 md:my-2 leading-none group cursor-pointer inline-block transition-transform duration-500 ease-out hover:scale-105 active:scale-98">
+            <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-wider uppercase font-cinzel my-1 md:my-2 leading-tight group cursor-pointer inline-block transition-transform duration-500 ease-out hover:scale-103">
               <span className="gold-gradient-title select-none inline-block drop-shadow-[0_4px_16px_rgba(245,158,11,0.4)] transition-all duration-500 group-hover:drop-shadow-[0_8px_32px_rgba(251,191,36,0.9)] group-hover:brightness-110 relative">
-                {festivalName}
-                {/* Subtle golden shimmer ripple underline */}
+                {heroTitle}
                 <span className="absolute -bottom-1 left-0 w-0 h-1 bg-gradient-to-r from-amber-400 via-yellow-200 to-amber-500 rounded-full transition-all duration-500 group-hover:w-full opacity-80" />
               </span>
             </h1>
 
-            {/* Daily Scripture Box (Tự động câu Kinh Thánh mỗi ngày) */}
-            <div className="mt-3 md:mt-4 p-4 rounded-2xl bg-slate-900/75 backdrop-blur-md border border-amber-400/30 shadow-2xl relative group">
+            <p className="text-xs sm:text-sm text-slate-200/90 max-w-xl leading-relaxed mb-3">
+              {heroDescription}
+            </p>
+
+            {/* Daily Scripture Box */}
+            <div className="p-4 rounded-2xl bg-slate-900/75 backdrop-blur-md border border-amber-400/30 shadow-2xl relative">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 text-xs">
                 <div className="flex items-center gap-1.5 text-amber-300 font-bold uppercase tracking-wider text-[11px]">
                   <BookOpen className="w-3.5 h-3.5 text-amber-400" />
@@ -177,11 +208,11 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                 </button>
               </div>
 
-              <blockquote className="text-amber-50 text-sm sm:text-base md:text-lg font-normal italic leading-relaxed">
+              <blockquote className="text-amber-50 text-sm sm:text-base font-normal italic leading-relaxed">
                 “{dailyVerse.verse}”
               </blockquote>
 
-              <div className="mt-2 text-amber-300 font-extrabold text-xs sm:text-sm tracking-wide flex items-center justify-between">
+              <div className="mt-2 text-amber-300 font-extrabold text-xs tracking-wide flex items-center justify-between">
                 <span>{dailyVerse.reference}</span>
                 {dailyVerse.reflection && (
                   <span className="text-slate-300 font-normal italic text-[11px] hidden sm:inline truncate max-w-xs">
@@ -191,9 +222,9 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
               </div>
             </div>
 
-            {/* Indicator Dots for Spotlight Slides */}
+            {/* Indicator Dots */}
             <div className="flex items-center gap-1.5 mt-3">
-              {SPOTLIGHT_COVERS.map((_, i) => (
+              {slides.map((_, i) => (
                 <button
                   key={i}
                   onClick={() => setCurrentCoverIndex(i)}
@@ -205,34 +236,94 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                   aria-label={`Chuyển tới ảnh bìa ${i + 1}`}
                 />
               ))}
-              <span className="text-[10px] text-amber-200/60 ml-2 font-medium">
-                {currentCover.title}
+              <span className="text-[10px] text-amber-200/65 ml-2 font-medium truncate">
+                {currentCover?.title}
               </span>
             </div>
           </div>
 
-          {/* Right Column: Slogan & Spotlight Callout Block */}
-          <div className="hidden md:flex flex-col items-end text-right max-w-xs lg:max-w-sm space-y-3">
-            <div className="bg-slate-900/75 backdrop-blur-md p-5 rounded-3xl border border-amber-300/25 shadow-2xl">
-              <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-amber-300 uppercase tracking-wider mb-1.5">
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <span>Lan tỏa hương thơm</span>
-              </div>
-              <p className="text-base lg:text-lg text-amber-50 font-medium leading-snug">
-                “Đẹp thay những bàn chân của kẻ rao truyền <br />
-                <span className="font-extrabold text-amber-300">Tin Lành bình an!</span>”
-              </p>
-              
-              <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-amber-200/90">
-                <span className="text-[11px] text-slate-400">Rô-ma 10:15</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="font-semibold uppercase tracking-wider text-[10px]">Trực tuyến 24/7</span>
+          {/* Right Column: Active Pinned Event or Slogan Block */}
+          <div className="flex flex-col items-stretch md:items-end text-left md:text-right w-full md:max-w-xs lg:max-w-sm space-y-3">
+            {activeEvent ? (
+              <div className="bg-slate-900/80 backdrop-blur-md rounded-3xl border border-amber-400/35 shadow-2xl overflow-hidden text-left">
+                {activeEvent.bannerUrl && (
+                  <div className="h-28 w-full relative overflow-hidden">
+                    <img
+                      src={activeEvent.bannerUrl}
+                      alt={activeEvent.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent" />
+                    <span className="absolute top-2.5 left-3 px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                      <Award className="w-3 h-3" />
+                      Chiến dịch đang mở
+                    </span>
+                  </div>
+                )}
+
+                <div className="p-4 sm:p-5 space-y-2.5">
+                  {!activeEvent.bannerUrl && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-black text-amber-300 uppercase tracking-wider">
+                      <Award className="w-4 h-4 text-amber-400" />
+                      <span>Chiến dịch thi đua đang mở</span>
+                    </div>
+                  )}
+
+                  <h3 className="text-base font-black text-white leading-snug">
+                    {activeEvent.title}
+                  </h3>
+
+                  {activeEvent.description && (
+                    <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                      {activeEvent.description}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-[11px] text-amber-200">
+                    <span className="flex items-center gap-1 font-mono">
+                      <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                      {formatDate(activeEvent.startDate)} → {formatDate(activeEvent.endDate)}
+                    </span>
+                    {activeEvent.restrictParticipants && (
+                      <span className="flex items-center gap-1 text-emerald-300 font-bold">
+                        <Users className="w-3.5 h-3.5" />
+                        {activeEvent.participantIds?.length || 0} TV
+                      </span>
+                    )}
+                  </div>
+
+                  {onOpenRules && (
+                    <button
+                      type="button"
+                      onClick={onOpenRules}
+                      className="w-full py-2 px-3 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-300/30 text-amber-200 text-xs font-bold transition cursor-pointer"
+                    >
+                      Xem thể lệ quy đổi điểm sự kiện →
+                    </button>
+                  )}
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="hidden md:block bg-slate-900/75 backdrop-blur-md p-5 rounded-3xl border border-amber-300/25 shadow-2xl">
+                <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-amber-300 uppercase tracking-wider mb-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Hành Thực Lục</span>
+                </div>
+                <p className="text-base text-amber-50 font-medium leading-snug">
+                  “{heroTagline}”
+                </p>
+                <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-amber-200/90">
+                  <span className="text-[11px] text-slate-400">Rô-ma 10:15</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="font-semibold uppercase tracking-wider text-[10px]">
+                      Trực tuyến 24/7
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-
         </div>
       </div>
     </div>

@@ -94,7 +94,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ member, onClose }) => 
         <div className="my-5 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-50 to-orange-500/10 border border-amber-200/80 flex items-center justify-between">
           <div>
             <div className="text-xs text-amber-900 font-semibold uppercase tracking-wider">
-              Tổng điểm thành viên (Cộng từ đối tượng)
+              Tổng điểm thi đua (Từ báo cáo hằng ngày)
             </div>
             <div className="text-3xl font-black text-amber-950 mt-0.5">
               {formatNumber(member.score)} <span className="text-sm font-semibold text-amber-700">điểm</span>
@@ -102,47 +102,77 @@ export const DetailModal: React.FC<DetailModalProps> = ({ member, onClose }) => 
           </div>
 
           <div className="text-right">
-            <div className="text-xs text-slate-500 font-medium">Số đối tượng tiếp cận</div>
+            <div className="text-xs text-slate-500 font-medium">Lượt báo cáo / Đối tượng</div>
             <div className="text-lg font-black text-slate-900 mt-0.5">
-              {member.targets?.length || 0} đối tượng
+              {member.targets?.length || 0} mục
             </div>
           </div>
         </div>
 
-        {/* Goals & Progress (6 steps) */}
+        {/* Daily Metrics Summary */}
         <div className="space-y-4">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <Target className="w-4 h-4 text-emerald-600" />
-            <span>Mục tiêu và Tiến độ hoàn thành (6 Bước)</span>
+            <span>Tổng hợp 7 chỉ số Báo cáo hằng ngày</span>
           </h4>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {STEP_DEFINITIONS.map((s) => {
-              const stepKey = `s${s.id}` as keyof typeof member.goals;
-              const goalVal = member.goals?.[stepKey] || 1;
-              const resVal = member.results?.[stepKey] || 0;
-              const percent = goalVal > 0 ? Math.min(100, Math.round((resVal / goalVal) * 100)) : 0;
+          {member.dailyResults ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {[
+                { key: 'kn', label: 'KN' },
+                { key: 'tham', label: 'Thăm' },
+                { key: 'gm', label: 'GM' },
+                { key: 'dt', label: 'ĐT' },
+                { key: 'hh', label: 'HH' },
+                { key: 'kt', label: 'KT' },
+                { key: 'wsNew', label: 'WS New' },
+              ].map((m) => {
+                const k = m.key as keyof NonNullable<Member['dailyResults']>;
+                const resVal = member.dailyResults?.[k] || 0;
+                const goalVal = member.dailyGoals?.[k] || 0;
+                const percent = goalVal > 0 ? Math.min(100, Math.round((resVal / goalVal) * 100)) : 0;
+                return (
+                  <div key={m.key} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+                    <div className="flex justify-between font-bold text-slate-800 mb-1">
+                      <span>{m.label}</span>
+                      <span className="text-blue-700">{goalVal > 0 ? `${percent}%` : `${resVal}`}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Kết quả: <strong className="text-slate-900">{resVal}</strong>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {STEP_DEFINITIONS.map((s) => {
+                const stepKey = `s${s.id}` as keyof typeof member.goals;
+                const goalVal = member.goals?.[stepKey] || 1;
+                const resVal = member.results?.[stepKey] || 0;
+                const percent = goalVal > 0 ? Math.min(100, Math.round((resVal / goalVal) * 100)) : 0;
 
-              return (
-                <div key={s.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
-                  <div className="flex justify-between font-bold text-slate-800 mb-1">
-                    <span>B{s.id}: {s.name}</span>
-                    <span className="text-blue-700">{percent}%</span>
+                return (
+                  <div key={s.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+                    <div className="flex justify-between font-bold text-slate-800 mb-1">
+                      <span>B{s.id}: {s.name}</span>
+                      <span className="text-blue-700">{percent}%</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-500 mb-1.5">
+                      <span>Đạt: {resVal}</span>
+                      <span>Mục tiêu: {goalVal}</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full bg-blue-600 rounded-full"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="flex justify-between text-[11px] text-slate-500 mb-1.5">
-                    <span>Đạt: {resVal}</span>
-                    <span>Mục tiêu: {goalVal}</span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full bg-blue-600 rounded-full"
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Target Records List */}
           <div>

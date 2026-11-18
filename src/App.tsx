@@ -2,9 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   doc,
   collection,
+  query,
+  where,
   onSnapshot,
   updateDoc,
   setDoc,
+  deleteDoc,
   writeBatch,
   getDocFromServer,
 } from 'firebase/firestore';
@@ -18,11 +21,6 @@ import {
   Area,
   Department,
   Member,
-  TargetRecord,
-  TargetSteps,
-  StepDates,
-  MemberGoals,
-  MemberResults,
   UserAccount,
   UserRole,
   RoleAssignment,
@@ -31,22 +29,39 @@ import {
   ReactionType,
   ReactionCounts,
   HuongKhiComment,
+  DailyReportMetrics,
+  DailyReportRecord,
+  PeriodGoalRecord,
+  SystemBannerConfig,
+  FestivalEvent,
+  DEFAULT_EVENT_WEIGHTS,
+  DiscipleRecord,
+  DiscipleProgressStep,
+  DiscipleAgeMode,
+  DiscipleAgeRange,
 } from './types/edulms';
 import {
-  calculateTargetScore,
-  computeMemberScore,
   rankMembers,
   computeCompanyRankings,
   computeAreaRankings,
+  sumDailyReportMetrics,
+  computeDailyMetricsScore,
 } from './utils/scoringEngine';
+import {
+  OperationType,
+  handleFirestoreError,
+  testFirestoreConnection,
+} from './utils/firestoreError';
 
-import { Navbar } from './components/Navbar';
+import { TopHeader, SideNavigation, AppTab } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { KpiCards } from './components/KpiCards';
 import { LeaderboardTable } from './components/LeaderboardTable';
 import { PodiumTop3 } from './components/PodiumTop3';
 import { RegionalStats } from './components/RegionalStats';
-import { ResultEntrySection } from './components/ResultEntrySection';
+import { DailyReportSection } from './components/DailyReportSection';
+import { DisciplesPage } from './components/DisciplesPage';
+import { EventHubPage } from './components/EventHubPage';
 import { AdminPanel } from './components/AdminPanel';
 import { ProfilePage } from './components/ProfilePage';
 import { AuthModal, RegistrationData } from './components/AuthModal';
@@ -55,7 +70,7 @@ import { RegionalDetailModal } from './components/RegionalDetailModal';
 import { RulesModal } from './components/RulesModal';
 import { NewsSection } from './components/NewsSection';
 import { Footer } from './components/Footer';
-import { Shield, Lock, ArrowRight } from 'lucide-react';
+import { Shield, Lock, ArrowRight, Calendar, Award, Users } from 'lucide-react';
 import {
   auth,
   db,
@@ -66,7 +81,6 @@ import {
   changeCurrentPassword,
   describeAuthError,
   BOOTSTRAP_SUPER_ADMIN_EMAILS,
-  BOOTSTRAP_ADMIN_EMAILS,
   isBootstrapSuperAdminEmail,
 } from './firebase';
 
@@ -81,9 +95,16 @@ export default function App() {
   const welcomedUidRef = useRef<string | null>(null);
   const signedIn = !!firebaseUser;
 
-  // ---------- Dữ liệu dùng chung (Cloud Firestore, cập nhật thời gian thực) ----------
-  const reportError = (msg: string) => showNotification(msg);
-  const [companies, setCompanies, companiesLoaded] = useCloudCollection<Company>('companies', {
+  // ---------- Toast ----------
+  const [notification, setNotification] = useState<string | null>(null);
+  const showNotification = useCallback((msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3500);
+  }, []);
+
+  // ---------- Dữ liệu dùng chung (Cloud Firestore) ----------
+  const reportError = useCallback((msg: string) => showNotification(msg), [showNotification]);
+  const [companies, setCompanies] = useCloudCollection<Company>('companies', {
     enabled: signedIn,
     ordered: true,
     onError: reportError,
@@ -107,12 +128,80 @@ export default function App() {
     sort: sortHuongKhiNewestFirst,
     onError: reportError,
   });
+  const [events] = useCloudCollection<FestivalEvent>('events', {
+    enabled: true,
+    onError: reportError,
+  });
 
-  // Quản lý tài khoản người dùng & Danh sách cấp quyền trước cho Quản trị viên tổng
+  // Kiểm tra kết nối Firestore khi khởi chạy
+  useEffect(() => {
+    testFirestoreConnection();
+  }, []);
+
+  // Banner cấu hình trang chủ (công khai)
+  const [bannerConfig, setBannerConfig] = useState<SystemBannerConfig | null>(null);
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(db, 'system_config', 'banner'),
+      (snap) => {
+        if (snap.exists()) {
+          setBannerConfig({ ...(snap.data() as SystemBannerConfig), id: snap.id });
+        } else {
+          setBannerConfig(null);
+        }
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc system_config/banner:', err)
+    );
+    return unsubscribe;
+  }, []);
+
+  // Báo cáo hằng ngày (tất cả người dùng đã đăng nhập đọc để tính điểm thi đua trực tiếp)
+  const [dailyReports, setDailyReports] = useState<DailyReportRecord[]>([]);
+  useEffect(() => {
+    if (!signedIn) {
+      setDailyReports([]);
+      return;
+    }
+    const unsubscribe = onSnapshot(
+      collection(db, 'dailyReports'),
+      (snap) => {
+        const list: DailyReportRecord[] = snap.docs.map((d) => ({
+          ...(d.data() as Omit<DailyReportRecord, 'id'>),
+          id: d.id,
+        }));
+        setDailyReports(list);
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc dailyReports:', err)
+    );
+    return unsubscribe;
+  }, [signedIn]);
+
+  // Mục tiêu Tháng / Năm của cá nhân (lọc theo uid khớp firestore.rules)
+  const [periodGoals, setPeriodGoals] = useState<PeriodGoalRecord[]>([]);
+  useEffect(() => {
+    if (!signedIn || !firebaseUser?.uid) {
+      setPeriodGoals([]);
+      return;
+    }
+    const q = query(collection(db, 'periodGoals'), where('uid', '==', firebaseUser.uid));
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const list: PeriodGoalRecord[] = snap.docs.map((d) => ({
+          ...(d.data() as Omit<PeriodGoalRecord, 'id'>),
+          id: d.id,
+        }));
+        setPeriodGoals(list);
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc periodGoals:', err)
+    );
+    return unsubscribe;
+  }, [signedIn, firebaseUser?.uid]);
+
+  // Quản lý tài khoản người dùng & Danh sách cấp quyền trước
   const [usersList, setUsersList] = useState<UserAccount[]>([]);
   const [preAssignedRoles, setPreAssignedRoles] = useState<RoleAssignment[]>([]);
 
-  // Lắng nghe cấu hình phân quyền hệ thống (system_config/roles)
   useEffect(() => {
     if (!signedIn) return;
     const unsubscribe = onSnapshot(
@@ -130,7 +219,6 @@ export default function App() {
     return unsubscribe;
   }, [signedIn]);
 
-  // Lắng nghe danh sách tất cả tài khoản users cho Admin / Super Admin
   useEffect(() => {
     if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) {
       setUsersList([]);
@@ -153,7 +241,8 @@ export default function App() {
   // Theme Dark/Light mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('edulms_theme');
+      const saved =
+        localStorage.getItem('hanhthucluc_theme') || localStorage.getItem('edulms_theme');
       if (saved) return saved === 'dark';
       return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
@@ -163,23 +252,28 @@ export default function App() {
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('edulms_theme', 'dark');
+      localStorage.setItem('hanhthucluc_theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('edulms_theme', 'light');
+      localStorage.setItem('hanhthucluc_theme', 'light');
     }
   }, [isDarkMode]);
 
   const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
 
-  // Main Page View Tabs: 'HONORS' | 'ENTRY' | 'PROFILE' | 'ADMIN'
-  const [activeTab, setActiveTab] = useState<'HONORS' | 'ENTRY' | 'PROFILE' | 'ADMIN'>('HONORS');
+  // Navigation & Sidebar states
+  const [activeTab, setActiveTab] = useState<AppTab>('HONORS');
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState<boolean>(true);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
   // Timers & Refresh
-  const [countdown, setCountdown] = useState<number>(60);
-  const [isAutoRefreshPaused, setIsAutoRefreshPaused] = useState<boolean>(false);
-  const [lastUpdated, setLastUpdated] = useState<string>('16/10/2026 10:30');
-  const [notification, setNotification] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string>(() => {
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(
+      now.getHours()
+    )}:${pad(now.getMinutes())}`;
+  });
 
   // Modals
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
@@ -187,64 +281,6 @@ export default function App() {
   const [isRegionalModalOpen, setIsRegionalModalOpen] = useState<boolean>(false);
   const [selectedAreaCode, setSelectedAreaCode] = useState<string | null>(null);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-
-  // Show Toast
-  const showNotification = (msg: string) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(null), 3500);
-  };
-
-  // Re-rank members dynamically whenever members change
-  const rankedMembers = useMemo(() => {
-    return rankMembers(members);
-  }, [members]);
-
-  // Company Rankings (average score per active member)
-  const companyRankings = useMemo(() => {
-    return computeCompanyRankings(companies, rankedMembers);
-  }, [companies, rankedMembers]);
-
-  // Area Rankings (average score per active member)
-  const areaRankings = useMemo(() => {
-    return computeAreaRankings(areas, rankedMembers);
-  }, [areas, rankedMembers]);
-
-  // Current member data linked to logged-in user
-  const currentMemberData = useMemo(() => {
-    if (!currentUser) return null;
-    return rankedMembers.find((m) => m.id === currentUser.memberId) || null;
-  }, [currentUser, rankedMembers]);
-
-  // Reaction của riêng người đang đăng nhập (dữ liệu dùng chung lưu theo từng tài khoản)
-  const huongKhiView = useMemo<HuongKhiItem[]>(
-    () =>
-      huongKhiList.map((hk) => ({
-        ...hk,
-        userReaction: currentUser ? hk.userReactions?.[currentUser.id] : undefined,
-      })),
-    [huongKhiList, currentUser?.id]
-  );
-
-  // Personal Huong Khi list of current user
-  const myHuongKhiList = useMemo(() => {
-    if (!currentUser) return [];
-    return huongKhiView.filter((h) => h.authorId === currentUser.memberId);
-  }, [huongKhiView, currentUser]);
-
-  // Dynamic KPI
-  const kpiData = useMemo(() => {
-    const activeMembers = rankedMembers.filter((m) => m.active);
-    const totalTargets = activeMembers.reduce((acc, m) => acc + (m.targets?.length || 0), 0);
-    const totalPoints = activeMembers.reduce((acc, m) => acc + (m.score || 0), 0);
-
-    return {
-      totalTeams: companies.length,
-      totalMembers: activeMembers.length,
-      totalTargets,
-      totalPoints,
-      lastUpdated,
-    };
-  }, [rankedMembers, companies, lastUpdated]);
 
   const getCurrentFormattedTime = () => {
     const now = new Date();
@@ -254,29 +290,79 @@ export default function App() {
     )}:${pad(now.getMinutes())}`;
   };
 
-  // Refresh handler
   const handleRefresh = useCallback(() => {
-    setCountdown(60);
     setLastUpdated(getCurrentFormattedTime());
-    showNotification('Đã cập nhật bảng xếp hạng thi đua thành công!');
-  }, []);
+    showNotification('Đã làm mới giao diện & bảng xếp hạng!');
+  }, [showNotification]);
 
-  // 60-Second Auto-refresh timer
-  useEffect(() => {
-    if (isAutoRefreshPaused) return;
+  // ---------- Chiến dịch Event hiện hành ----------
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((a, b) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return (b.startDate || '').localeCompare(a.startDate || '');
+    });
+  }, [events]);
 
-    const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          handleRefresh();
-          return 60;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+  const activeEvent = useMemo<FestivalEvent | null>(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const pinnedActive = sortedEvents.find((e) => e.isActive && e.isPinned);
+    if (pinnedActive) return pinnedActive;
+    const ongoing = sortedEvents.find(
+      (e) => e.isActive && e.startDate <= todayStr && e.endDate >= todayStr
+    );
+    if (ongoing) return ongoing;
+    return sortedEvents.find((e) => e.isActive) || null;
+  }, [sortedEvents]);
 
-    return () => clearInterval(interval);
-  }, [isAutoRefreshPaused, handleRefresh]);
+  // ---------- Tính điểm thi đua trực tiếp từ Báo cáo hằng ngày ----------
+  const computedAllMembers = useMemo(() => {
+    const weights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+    const reportsByMember = new Map<string, DailyReportRecord[]>();
+
+    dailyReports.forEach((rep) => {
+      if (activeEvent) {
+        if (rep.date < activeEvent.startDate || rep.date > activeEvent.endDate) return;
+      }
+      const key = rep.memberId || `m-${rep.uid}`;
+      const list = reportsByMember.get(key) || [];
+      list.push(rep);
+      reportsByMember.set(key, list);
+    });
+
+    return members.map((m) => {
+      const mReports = reportsByMember.get(m.id) || [];
+      const aggregated = sumDailyReportMetrics(mReports);
+      const dailyScore = computeDailyMetricsScore(aggregated, weights);
+      return {
+        ...m,
+        dailyResults: aggregated,
+        score: dailyScore,
+      };
+    });
+  }, [members, dailyReports, activeEvent]);
+
+  // Thành viên đủ điều kiện dự thi Event (lọc người tham gia nếu Event bật giới hạn)
+  const competingMembers = useMemo(() => {
+    if (activeEvent?.restrictParticipants) {
+      const allowedSet = new Set(activeEvent.participantIds || []);
+      return computedAllMembers.filter((m) => allowedSet.has(m.id));
+    }
+    return computedAllMembers;
+  }, [computedAllMembers, activeEvent]);
+
+  const rankedMembers = useMemo(() => rankMembers(competingMembers), [competingMembers]);
+  const allMembersRanked = useMemo(() => rankMembers(computedAllMembers), [computedAllMembers]);
+
+  const companyRankings = useMemo(
+    () => computeCompanyRankings(companies, rankedMembers),
+    [companies, rankedMembers]
+  );
+
+  const areaRankings = useMemo(
+    () => computeAreaRankings(areas, rankedMembers),
+    [areas, rankedMembers]
+  );
 
   // ---------- Theo dõi trạng thái đăng nhập ----------
   useEffect(() => {
@@ -292,7 +378,7 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // Đọc hồ sơ tài khoản (users/{uid}) theo thời gian thực
+  // Đọc hồ sơ tài khoản (users/{uid})
   useEffect(() => {
     if (!firebaseUser) return;
     const unsubscribe = onSnapshot(
@@ -301,24 +387,41 @@ export default function App() {
         if (snap.exists()) {
           const raw = snap.data() as Omit<UserAccount, 'id'>;
           const emailLower = (firebaseUser.email || raw.email || '').toLowerCase().trim();
+          const preMatch = preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower);
           const isSuper =
             isBootstrapSuperAdminEmail(emailLower) ||
-            preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'SUPER_ADMIN') ||
+            preMatch?.role === 'SUPER_ADMIN' ||
             raw.role === 'SUPER_ADMIN';
           const isAdmin =
-            isSuper ||
-            raw.role === 'ADMIN' ||
-            preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'ADMIN');
-          const resolvedRole: UserRole = isSuper ? 'SUPER_ADMIN' : isAdmin ? 'ADMIN' : (raw.role || 'MEMBER');
+            isSuper || raw.role === 'ADMIN' || preMatch?.role === 'ADMIN';
+          const resolvedRole: UserRole = isSuper
+            ? 'SUPER_ADMIN'
+            : isAdmin
+            ? 'ADMIN'
+            : raw.role === 'MANAGER' || preMatch?.role === 'MANAGER'
+            ? 'MANAGER'
+            : raw.role === 'AREA_LEADER' || preMatch?.role === 'AREA_LEADER'
+            ? 'AREA_LEADER'
+            : raw.role || 'MEMBER';
+
+          const managedCompanyCodes =
+            raw.managedCompanyCodes?.length
+              ? raw.managedCompanyCodes
+              : preMatch?.managedCompanyCodes || [];
+          const managedAreaCodes =
+            raw.managedAreaCodes?.length
+              ? raw.managedAreaCodes
+              : preMatch?.managedAreaCodes || [];
 
           setCurrentUser({
             ...raw,
             id: snap.id,
             role: resolvedRole,
+            managedCompanyCodes,
+            managedAreaCodes,
           });
           setProfileState('READY');
         } else if (!snap.metadata.fromCache) {
-          // Máy chủ xác nhận chưa có hồ sơ -> sẽ tạo ở effect bên dưới
           setCurrentUser(null);
           setProfileState('MISSING');
         }
@@ -329,9 +432,9 @@ export default function App() {
       }
     );
     return unsubscribe;
-  }, [firebaseUser?.uid, preAssignedRoles]);
+  }, [firebaseUser?.uid, preAssignedRoles, showNotification]);
 
-  // Tạo hồ sơ + thành viên thi đua cho tài khoản mới (Google hoặc email/mật khẩu)
+  // Tạo hồ sơ + thành viên cho tài khoản mới
   useEffect(() => {
     if (!firebaseUser || profileState !== 'MISSING' || creatingProfileRef.current) return;
     creatingProfileRef.current = true;
@@ -355,18 +458,13 @@ export default function App() {
       const today = new Date().toISOString().split('T')[0];
       const memberId = `m-${firebaseUser.uid}`;
       const emailLower = email.toLowerCase();
+      const preMatch = preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower);
       const isSuperAdminEmail =
-        isBootstrapSuperAdminEmail(emailLower) ||
-        preAssignedRoles.some(
-          (p) => p.email.toLowerCase() === emailLower && p.role === 'SUPER_ADMIN'
-        );
-      const isAdminPreAssigned = preAssignedRoles.some(
-        (p) => p.email.toLowerCase() === emailLower && p.role === 'ADMIN'
-      );
+        isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
 
       let initialRole: UserRole = 'MEMBER';
       if (isSuperAdminEmail) initialRole = 'SUPER_ADMIN';
-      else if (isAdminPreAssigned) initialRole = 'ADMIN';
+      else if (preMatch?.role) initialRole = preMatch.role;
 
       const account = JSON.parse(
         JSON.stringify({
@@ -378,6 +476,8 @@ export default function App() {
           companyCode,
           areaCode,
           departmentCode,
+          managedCompanyCodes: preMatch?.managedCompanyCodes || [],
+          managedAreaCodes: preMatch?.managedAreaCodes || [],
           avatarUrl: firebaseUser.photoURL || undefined,
           emailVerified: firebaseUser.emailVerified,
           createdAt: today,
@@ -407,8 +507,8 @@ export default function App() {
       await batch.commit();
 
       pendingRegistrationRef.current = null;
+      setActiveTab('ENTRY');
       if (reg) {
-        setActiveTab('PROFILE');
         showNotification(
           'Đăng ký thành công! Thư xác thực đã được gửi tới email của bạn (kiểm tra cả mục Spam).'
         );
@@ -420,24 +520,31 @@ export default function App() {
       showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
       creatingProfileRef.current = false;
     });
-  }, [firebaseUser, profileState, preAssignedRoles]);
+  }, [firebaseUser, profileState, preAssignedRoles, companies, areas, departments, showNotification]);
 
-  // Lời chào khi đăng nhập
+  // Khi đăng nhập thành công -> chuyển thẳng sang trang Báo cáo hằng ngày (ENTRY)
   useEffect(() => {
     if (currentUser && welcomedUidRef.current !== currentUser.id) {
       welcomedUidRef.current = currentUser.id;
+      setActiveTab('ENTRY');
       showNotification(`Xin chào, ${currentUser.fullName}!`);
     }
-    if (!currentUser) welcomedUidRef.current = null;
-  }, [currentUser?.id]);
+    if (!currentUser) {
+      welcomedUidRef.current = null;
+    }
+  }, [currentUser?.id, currentUser?.fullName, showNotification]);
 
-  // Helper xác định quyền Super Admin & Admin tổng quát và nhất quán
+  // Helper xác định quyền Super Admin & Admin
   const isSuperAdminUser = useMemo(() => {
     if (!currentUser && !firebaseUser) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
     if (isBootstrapSuperAdminEmail(emailLower)) return true;
     if (currentUser?.role === 'SUPER_ADMIN') return true;
-    if (preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'SUPER_ADMIN')) {
+    if (
+      preAssignedRoles.some(
+        (p) => p.email.toLowerCase() === emailLower && p.role === 'SUPER_ADMIN'
+      )
+    ) {
       return true;
     }
     return false;
@@ -448,7 +555,9 @@ export default function App() {
     if (!currentUser && !firebaseUser) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
     if (currentUser?.role === 'ADMIN') return true;
-    if (preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'ADMIN')) {
+    if (
+      preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'ADMIN')
+    ) {
       return true;
     }
     return false;
@@ -456,24 +565,30 @@ export default function App() {
 
   const effectiveCurrentUser = useMemo(() => {
     if (!currentUser) return null;
-    const effectiveRole: UserRole = isSuperAdminUser ? 'SUPER_ADMIN' : isAdminUser ? 'ADMIN' : (currentUser.role || 'MEMBER');
+    const effectiveRole: UserRole = isSuperAdminUser
+      ? 'SUPER_ADMIN'
+      : isAdminUser
+      ? 'ADMIN'
+      : currentUser.role || 'MEMBER';
     return {
       ...currentUser,
       role: effectiveRole,
     };
   }, [currentUser, isSuperAdminUser, isAdminUser]);
 
-  // Đồng bộ: cấp quyền SUPER_ADMIN / ADMIN cho email quản trị khởi tạo hoặc cấp trước; cập nhật xác thực email
+  // Đồng bộ role & emailVerified lên Firestore
   useEffect(() => {
     if (!currentUser || !firebaseUser || currentUser.id !== firebaseUser.uid) return;
     const emailLower = (firebaseUser.email || currentUser.email || '').toLowerCase().trim();
+    const preMatch = preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower);
     const shouldBeSuper =
-      isBootstrapSuperAdminEmail(emailLower) ||
-      preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'SUPER_ADMIN');
-    const shouldBeAdmin =
-      preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'ADMIN');
+      isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
 
-    const expectedRole: UserRole = shouldBeSuper ? 'SUPER_ADMIN' : shouldBeAdmin ? 'ADMIN' : currentUser.role;
+    const expectedRole: UserRole = shouldBeSuper
+      ? 'SUPER_ADMIN'
+      : preMatch?.role
+      ? preMatch.role
+      : currentUser.role;
 
     if (currentUser.role !== expectedRole) {
       setCurrentUser((prev) => (prev ? { ...prev, role: expectedRole } : null));
@@ -482,8 +597,14 @@ export default function App() {
     const patch: Record<string, unknown> = {};
     if (shouldBeSuper && currentUser.role !== 'SUPER_ADMIN') {
       patch.role = 'SUPER_ADMIN';
-    } else if (shouldBeAdmin && currentUser.role === 'MEMBER') {
-      patch.role = 'ADMIN';
+    } else if (preMatch && currentUser.role === 'MEMBER' && preMatch.role !== 'MEMBER') {
+      patch.role = preMatch.role;
+      if (preMatch.managedCompanyCodes?.length) {
+        patch.managedCompanyCodes = preMatch.managedCompanyCodes;
+      }
+      if (preMatch.managedAreaCodes?.length) {
+        patch.managedAreaCodes = preMatch.managedAreaCodes;
+      }
     }
 
     if (firebaseUser.emailVerified && !currentUser.emailVerified) patch.emailVerified = true;
@@ -494,50 +615,426 @@ export default function App() {
     }
   }, [currentUser?.role, currentUser?.emailVerified, firebaseUser?.emailVerified, preAssignedRoles]);
 
-  // Quản lý vai trò người dùng (cho Super Admin)
+  // ---------- Trang thông tin MĐ (disciples) - Truy vấn theo cấp bậc ----------
+  const [disciples, setDisciples] = useState<DiscipleRecord[]>([]);
+  const [disciplesLoading, setDisciplesLoading] = useState<boolean>(false);
+
+  const managedCompKey = JSON.stringify(effectiveCurrentUser?.managedCompanyCodes || []);
+  const managedAreaKey = JSON.stringify(effectiveCurrentUser?.managedAreaCodes || []);
+
+  useEffect(() => {
+    if (!signedIn || !firebaseUser?.uid || !effectiveCurrentUser) {
+      setDisciples([]);
+      setDisciplesLoading(false);
+      return;
+    }
+
+    setDisciplesLoading(true);
+    const uid = firebaseUser.uid;
+    const role = effectiveCurrentUser.role;
+    const buckets = new Map<string, Map<string, DiscipleRecord>>();
+    const unsubs: Array<() => void> = [];
+
+    const syncMerged = () => {
+      const merged = new Map<string, DiscipleRecord>();
+      buckets.forEach((b) => {
+        b.forEach((rec, id) => merged.set(id, rec));
+      });
+      setDisciples(Array.from(merged.values()));
+    };
+
+    const attachQuery = (bucketKey: string, qRef: any) => {
+      const unsub = onSnapshot(
+        qRef,
+        (snap: any) => {
+          const map = new Map<string, DiscipleRecord>();
+          snap.docs.forEach((d: any) => {
+            map.set(d.id, { ...(d.data() as Omit<DiscipleRecord, 'id'>), id: d.id });
+          });
+          buckets.set(bucketKey, map);
+          syncMerged();
+          setDisciplesLoading(false);
+        },
+        (err: any) => {
+          setDisciplesLoading(false);
+          console.error(`[Firestore] Lỗi đọc disciples (${bucketKey}):`, err);
+          showNotification(`Không đọc được danh sách MĐ (${bucketKey}): ${err.message}`);
+        }
+      );
+      unsubs.push(unsub);
+    };
+
+    if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      attachQuery('all', collection(db, 'disciples'));
+    } else if (role === 'MANAGER') {
+      attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      compCodes.forEach((cCode) => {
+        if (cCode) {
+          attachQuery(
+            `comp_${cCode}`,
+            query(collection(db, 'disciples'), where('companyCode', '==', cCode))
+          );
+        }
+      });
+      areaCodes.forEach((aCode) => {
+        if (aCode) {
+          attachQuery(
+            `area_${aCode}`,
+            query(collection(db, 'disciples'), where('areaCode', '==', aCode))
+          );
+        }
+      });
+    } else if (role === 'AREA_LEADER') {
+      attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
+      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
+        attachQuery(
+          'leader_area',
+          query(
+            collection(db, 'disciples'),
+            where('companyCode', '==', effectiveCurrentUser.companyCode),
+            where('areaCode', '==', effectiveCurrentUser.areaCode)
+          )
+        );
+      }
+    } else {
+      attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
+    }
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [
+    signedIn,
+    firebaseUser?.uid,
+    effectiveCurrentUser?.role,
+    effectiveCurrentUser?.companyCode,
+    effectiveCurrentUser?.areaCode,
+    managedCompKey,
+    managedAreaKey,
+    showNotification,
+  ]);
+
+  const currentMemberData = useMemo(() => {
+    if (!currentUser) return null;
+    return (
+      rankedMembers.find((m) => m.id === currentUser.memberId) ||
+      allMembersRanked.find((m) => m.id === currentUser.memberId) ||
+      null
+    );
+  }, [currentUser, rankedMembers, allMembersRanked]);
+
+  const huongKhiView = useMemo<HuongKhiItem[]>(
+    () =>
+      huongKhiList.map((hk) => ({
+        ...hk,
+        userReaction: currentUser ? hk.userReactions?.[currentUser.id] : undefined,
+      })),
+    [huongKhiList, currentUser?.id]
+  );
+
+  const myHuongKhiList = useMemo(() => {
+    if (!currentUser) return [];
+    return huongKhiView.filter((h) => h.authorId === currentUser.memberId);
+  }, [huongKhiView, currentUser]);
+
+  const kpiData = useMemo(() => {
+    const activeMembers = rankedMembers.filter((m) => m.active);
+    const totalReportsInEvent = dailyReports.filter((r) => {
+      if (!activeEvent) return true;
+      return r.date >= activeEvent.startDate && r.date <= activeEvent.endDate;
+    }).length;
+    const totalPoints = activeMembers.reduce((acc, m) => acc + (m.score || 0), 0);
+
+    return {
+      totalTeams: companies.length,
+      totalMembers: activeMembers.length,
+      totalTargets: totalReportsInEvent,
+      totalPoints,
+      lastUpdated,
+    };
+  }, [rankedMembers, companies, dailyReports, activeEvent, lastUpdated]);
+
+  // ---------- Lưu Báo cáo hằng ngày & Mục tiêu Tháng/Năm ----------
+  const handleSaveDailyReport = async (
+    date: string,
+    goals: DailyReportMetrics,
+    results: DailyReportMetrics
+  ) => {
+    if (!firebaseUser || !currentUser) return;
+    const uid = firebaseUser.uid;
+    const memberId = currentUser.memberId || `m-${uid}`;
+    const [year, month] = date.split('-');
+    const reportId = `${uid}_${date}`;
+    const payload: Omit<DailyReportRecord, 'id'> = {
+      uid,
+      memberId,
+      date,
+      month: `${year}-${month}`,
+      year,
+      goals,
+      results,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await setDoc(doc(db, 'dailyReports', reportId), payload);
+
+    // Cập nhật tức thì tổng điểm lên document member để đồng bộ dữ liệu
+    const mergedReports = [
+      ...dailyReports.filter((r) => r.id !== reportId),
+      { id: reportId, ...payload },
+    ].filter((r) => {
+      if (r.uid !== uid) return false;
+      if (activeEvent) return r.date >= activeEvent.startDate && r.date <= activeEvent.endDate;
+      return true;
+    });
+    const aggregated = sumDailyReportMetrics(mergedReports);
+    const weights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+    const newScore = computeDailyMetricsScore(aggregated, weights);
+
+    updateDoc(doc(db, 'members', memberId), {
+      dailyResults: aggregated,
+      dailyGoals: goals,
+      score: newScore,
+    }).catch((err) => console.warn('Cập nhật điểm member:', err));
+    setLastUpdated(getCurrentFormattedTime());
+  };
+
+  const handleSavePeriodGoal = async (
+    periodType: 'MONTH' | 'YEAR',
+    periodKey: string,
+    goals: DailyReportMetrics
+  ) => {
+    if (!firebaseUser) return;
+    const uid = firebaseUser.uid;
+    const goalId = `${uid}_${periodType}_${periodKey}`;
+    await setDoc(doc(db, 'periodGoals', goalId), {
+      uid,
+      periodType,
+      periodKey,
+      goals,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  // ---------- CRUD Trang thông tin MĐ (disciples) ----------
+  const handleCreateDisciple = async (payload: {
+    nickname: string;
+    ageMode: DiscipleAgeMode;
+    ageRange: DiscipleAgeRange;
+    exactAge?: number | null;
+    job: string;
+    traits: string;
+    progress: DiscipleProgressStep[];
+    isStopped: boolean;
+    statusNote: string;
+  }) => {
+    if (!firebaseUser || !effectiveCurrentUser) return;
+    const now = new Date().toISOString();
+    const discipleId = `disc_${firebaseUser.uid}_${Date.now()}`;
+    const docBody = JSON.parse(
+      JSON.stringify({
+        ownerUid: firebaseUser.uid,
+        ownerMemberId: effectiveCurrentUser.memberId || `m-${firebaseUser.uid}`,
+        ownerName: effectiveCurrentUser.fullName.slice(0, 100),
+        companyCode: effectiveCurrentUser.companyCode.slice(0, 30),
+        areaCode: effectiveCurrentUser.areaCode.slice(0, 30),
+        nickname: payload.nickname.trim().slice(0, 60),
+        ageMode: payload.ageMode,
+        ageRange: payload.ageRange,
+        exactAge: payload.exactAge ?? null,
+        job: payload.job.trim().slice(0, 100),
+        traits: payload.traits.trim().slice(0, 400),
+        progress: payload.progress,
+        isStopped: payload.isStopped,
+        statusNote: payload.statusNote.trim().slice(0, 600),
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: effectiveCurrentUser.fullName.slice(0, 100),
+      })
+    );
+    try {
+      await setDoc(doc(db, 'disciples', discipleId), docBody);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `disciples/${discipleId}`);
+    }
+  };
+
+  const handleUpdateDiscipleFull = async (
+    disciple: DiscipleRecord,
+    payload: {
+      nickname: string;
+      ageMode: DiscipleAgeMode;
+      ageRange: DiscipleAgeRange;
+      exactAge: number | null;
+      job: string;
+      traits: string;
+      progress: DiscipleProgressStep[];
+      isStopped: boolean;
+      statusNote: string;
+    }
+  ) => {
+    if (!effectiveCurrentUser) return;
+    const patch = JSON.parse(
+      JSON.stringify({
+        nickname: payload.nickname.trim().slice(0, 60),
+        ageMode: payload.ageMode,
+        ageRange: payload.ageRange,
+        exactAge: payload.exactAge ?? null,
+        job: payload.job.trim().slice(0, 100),
+        traits: payload.traits.trim().slice(0, 400),
+        progress: payload.progress,
+        isStopped: payload.isStopped,
+        statusNote: payload.statusNote.trim().slice(0, 600),
+        updatedAt: new Date().toISOString(),
+        updatedBy: effectiveCurrentUser.fullName.slice(0, 100),
+      })
+    );
+    try {
+      await updateDoc(doc(db, 'disciples', disciple.id), patch);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `disciples/${disciple.id}`);
+    }
+  };
+
+  const handleUpdateDiscipleProgressNote = async (
+    disciple: DiscipleRecord,
+    payload: {
+      progress: DiscipleProgressStep[];
+      isStopped: boolean;
+      statusNote: string;
+    }
+  ) => {
+    if (!effectiveCurrentUser) return;
+    const patch = JSON.parse(
+      JSON.stringify({
+        progress: payload.progress,
+        isStopped: payload.isStopped,
+        statusNote: payload.statusNote.trim().slice(0, 600),
+        updatedAt: new Date().toISOString(),
+        updatedBy: effectiveCurrentUser.fullName.slice(0, 100),
+      })
+    );
+    try {
+      await updateDoc(doc(db, 'disciples', disciple.id), patch);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `disciples/${disciple.id}`);
+    }
+  };
+
+  const handleDeleteDisciple = async (discipleId: string) => {
+    try {
+      await deleteDoc(doc(db, 'disciples', discipleId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `disciples/${discipleId}`);
+    }
+  };
+
+  // ---------- Quản lý Banner & Event (Admin) ----------
+  const handleSaveBannerConfig = async (config: SystemBannerConfig) => {
+    const clean = JSON.parse(
+      JSON.stringify({
+        ...config,
+        updatedBy: effectiveCurrentUser?.fullName || 'Admin',
+        updatedAt: new Date().toISOString(),
+      })
+    );
+    await setDoc(doc(db, 'system_config', 'banner'), clean);
+  };
+
+  const handleSaveEvent = async (ev: FestivalEvent) => {
+    const { id, ...rest } = ev;
+    const clean = JSON.parse(
+      JSON.stringify({
+        ...rest,
+        createdBy: ev.createdBy || effectiveCurrentUser?.fullName || 'Admin',
+        updatedAt: new Date().toISOString(),
+      })
+    );
+    await setDoc(doc(db, 'events', id), clean);
+  };
+
+  const handleDeleteEvent = async (eventId: string) => {
+    await deleteDoc(doc(db, 'events', eventId));
+    showNotification('Đã xóa chiến dịch Event.');
+  };
+
+  // ---------- Quản lý vai trò người dùng (5 cấp + phạm vi khu vực) ----------
   const handleUpdateUserRole = async (
     targetUserId: string,
     newRole: UserRole,
-    targetName: string
+    targetName: string,
+    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
   ) => {
-    // Cập nhật ngay trong state local để giao diện phản hồi tức thì
+    const cleanPatch = JSON.parse(
+      JSON.stringify({
+        role: newRole,
+        ...(scope?.managedCompanyCodes !== undefined
+          ? { managedCompanyCodes: scope.managedCompanyCodes }
+          : {}),
+        ...(scope?.managedAreaCodes !== undefined
+          ? { managedAreaCodes: scope.managedAreaCodes }
+          : {}),
+      })
+    );
+
     setUsersList((prev) =>
-      prev.map((u) => (u.id === targetUserId ? { ...u, role: newRole } : u))
+      prev.map((u) => (u.id === targetUserId ? { ...u, ...cleanPatch } : u))
     );
     if (currentUser && currentUser.id === targetUserId) {
-      setCurrentUser((prev) => (prev ? { ...prev, role: newRole } : null));
+      setCurrentUser((prev) => (prev ? { ...prev, ...cleanPatch } : null));
     }
 
     try {
-      await updateDoc(doc(db, 'users', targetUserId), { role: newRole });
-      showNotification(`Đã phân quyền ${newRole} cho "${targetName}" thành công!`);
+      await updateDoc(doc(db, 'users', targetUserId), cleanPatch);
+      showNotification(`Đã cập nhật quyền cho "${targetName}" thành công!`);
     } catch (err: any) {
       console.error('[Firestore] Lỗi phân quyền:', err);
       showNotification(`Lỗi phân quyền: ${err?.message || 'Không thể cập nhật quyền'}`);
     }
   };
 
-  const handlePreAssignRole = async (email: string, role: UserRole, note?: string) => {
+  const handlePreAssignRole = async (
+    email: string,
+    role: UserRole,
+    note?: string,
+    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
+  ) => {
     const cleanEmail = email.trim().toLowerCase();
-    const newAssignment: RoleAssignment = {
-      email: cleanEmail,
-      role,
-      grantedBy: currentUser?.fullName || 'Quản trị viên tổng',
-      grantedAt: new Date().toISOString().split('T')[0],
-      note: note || undefined,
-    };
+    const newAssignment: RoleAssignment = JSON.parse(
+      JSON.stringify({
+        email: cleanEmail,
+        role,
+        grantedBy: currentUser?.fullName || 'Quản trị viên tổng',
+        grantedAt: new Date().toISOString().split('T')[0],
+        note: note || undefined,
+        managedCompanyCodes: scope?.managedCompanyCodes,
+        managedAreaCodes: scope?.managedAreaCodes,
+      })
+    );
 
     const updated = preAssignedRoles.filter((a) => a.email.toLowerCase() !== cleanEmail);
     updated.push(newAssignment);
     setPreAssignedRoles(updated);
 
-    // Cập nhật nếu tài khoản đó đã tồn tại trong danh sách
     const target = usersList.find((u) => (u.email || '').toLowerCase().trim() === cleanEmail);
     if (target) {
-      setUsersList((prev) =>
-        prev.map((u) => (u.id === target.id ? { ...u, role } : u))
+      const targetPatch = JSON.parse(
+        JSON.stringify({
+          role,
+          ...(scope?.managedCompanyCodes !== undefined
+            ? { managedCompanyCodes: scope.managedCompanyCodes }
+            : {}),
+          ...(scope?.managedAreaCodes !== undefined
+            ? { managedAreaCodes: scope.managedAreaCodes }
+            : {}),
+        })
       );
-      updateDoc(doc(db, 'users', target.id), { role }).catch((e) =>
+      setUsersList((prev) =>
+        prev.map((u) => (u.id === target.id ? { ...u, ...targetPatch } : u))
+      );
+      updateDoc(doc(db, 'users', target.id), targetPatch).catch((e) =>
         console.warn('Lỗi phân quyền trực tiếp:', e)
       );
     }
@@ -605,7 +1102,6 @@ export default function App() {
   };
 
   // ---------- Đăng ký / Đăng xuất ----------
-  // Đăng ký bằng email + mật khẩu. Hồ sơ được tạo ở effect phía trên ngay khi tài khoản Firebase xuất hiện.
   const handleRegister = async (data: RegistrationData): Promise<void> => {
     pendingRegistrationRef.current = data;
     try {
@@ -618,10 +1114,10 @@ export default function App() {
 
   const handleLogout = () => {
     logOutFirebase().catch((err) => console.warn('Firebase logout notice:', err));
+    setActiveTab('HONORS');
     showNotification('Đã đăng xuất tài khoản.');
   };
 
-  // Profile update handler (trả về true nếu lưu thành công)
   const handleUpdateProfile = async (updated: {
     fullName: string;
     avatarUrl?: string;
@@ -634,7 +1130,6 @@ export default function App() {
   }): Promise<boolean> => {
     if (!currentUser) return false;
 
-    // Đổi mật khẩu (Firebase Auth)
     if (updated.newPassword) {
       try {
         const result = await changeCurrentPassword(updated.newPassword);
@@ -662,34 +1157,56 @@ export default function App() {
     );
 
     try {
-      await updateDoc(doc(db, 'users', currentUser.id), patch);
+      // Đồng bộ nguyên tử hồ sơ tài khoản, thành viên và các MĐ của chính mình để không lệch khu vực
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'users', currentUser.id), patch);
+
+      if (currentUser.memberId) {
+        batch.set(
+          doc(db, 'members', currentUser.memberId),
+          JSON.parse(
+            JSON.stringify({
+              fullName: updated.fullName,
+              avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
+              coverUrl: updated.coverUrl || currentUser.coverUrl,
+              bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
+              companyCode: updated.companyCode,
+              areaCode: updated.areaCode,
+              departmentCode: updated.departmentCode,
+            })
+          ),
+          { merge: true }
+        );
+      }
+
+      const areaOrNameChanged =
+        updated.companyCode !== currentUser.companyCode ||
+        updated.areaCode !== currentUser.areaCode ||
+        updated.fullName !== currentUser.fullName;
+
+      if (areaOrNameChanged) {
+        const ownDisciples = disciples.filter((d) => d.ownerUid === currentUser.id);
+        ownDisciples.slice(0, 350).forEach((d) => {
+          batch.update(doc(db, 'disciples', d.id), {
+            companyCode: updated.companyCode,
+            areaCode: updated.areaCode,
+            ownerName: updated.fullName,
+            updatedAt: new Date().toISOString(),
+          });
+        });
+      }
+
+      await batch.commit();
     } catch (err: any) {
       console.error(err);
       showNotification(`Không lưu được hồ sơ: ${err.message}`);
       return false;
     }
 
-    // Đồng bộ sang hồ sơ thành viên thi đua của chính mình
-    setMembers((prev) =>
-      prev.map((m) =>
-        m.id === currentUser.memberId
-          ? {
-              ...m,
-              fullName: updated.fullName,
-              avatarUrl: updated.avatarUrl || m.avatarUrl,
-              coverUrl: updated.coverUrl || m.coverUrl,
-              bio: updated.bio !== undefined ? updated.bio : m.bio,
-              companyCode: updated.companyCode,
-              areaCode: updated.areaCode,
-              departmentCode: updated.departmentCode,
-            }
-          : m
-      )
-    );
     return true;
   };
 
-  // Huong Khi Handlers: Add, React (Facebook-style), and Comment
+  // ---------- Hương Khí Handlers ----------
   const handleAddHuongKhi = (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => {
     if (!currentUser) {
       showNotification('Vui lòng đăng nhập để đăng bài hương khí.');
@@ -739,12 +1256,10 @@ export default function App() {
         let likesCount = hk.likesCount;
 
         if (prevUserReaction === reaction) {
-          // Toggle off reaction
           reactions[reaction] = Math.max(0, (reactions[reaction] || 1) - 1);
           delete userReactions[uid];
           likesCount = Math.max(0, likesCount - 1);
         } else {
-          // Switching from previous reaction (or first reaction)
           if (prevUserReaction) {
             reactions[prevUserReaction] = Math.max(0, (reactions[prevUserReaction] || 1) - 1);
           } else {
@@ -791,174 +1306,9 @@ export default function App() {
     showNotification('Đã đăng bình luận khích lệ thành công!');
   };
 
-  // Target Management (Add / Update / Delete) with Step Dates
-  const handleAddOrUpdateTarget = (
-    memberId: string,
-    targetName: string,
-    steps: TargetSteps,
-    stepDates?: StepDates
-  ) => {
-    const calc = calculateTargetScore(steps);
-    const newTarget: TargetRecord = {
-      id: `tgt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      memberId,
-      targetName,
-      steps,
-      stepDates,
-      score: calc.score,
-      status: calc.status,
-      explanation: calc.explanation,
-      recordedAt: getCurrentFormattedTime(),
-    };
-
-    setMembers((prev) => {
-      return prev.map((m) => {
-        if (m.id !== memberId) return m;
-
-        const updatedTargets = [newTarget, ...(m.targets || [])];
-        const newScore = computeMemberScore(updatedTargets);
-
-        const newResults: MemberResults = {
-          s1: (m.results?.s1 || 0) + (steps.s1 ? 1 : 0),
-          s2: (m.results?.s2 || 0) + (steps.s2 ? 1 : 0),
-          s3: (m.results?.s3 || 0) + (steps.s3 ? 1 : 0),
-          s4: (m.results?.s4 || 0) + (steps.s4 ? 1 : 0),
-          s5: (m.results?.s5 || 0) + (steps.s5 ? 1 : 0),
-          s6: (m.results?.s6 || 0) + (steps.s6 ? 1 : 0),
-        };
-
-        return {
-          ...m,
-          targets: updatedTargets,
-          score: newScore,
-          results: newResults,
-        };
-      });
-    });
-
-    setLastUpdated(getCurrentFormattedTime());
-  };
-
-  const handleEditTarget = (
-    memberId: string,
-    targetId: string,
-    targetName: string,
-    steps: TargetSteps,
-    stepDates?: StepDates
-  ) => {
-    const calc = calculateTargetScore(steps);
-
-    setMembers((prev) => {
-      return prev.map((m) => {
-        if (m.id !== memberId) return m;
-
-        const updatedTargets = (m.targets || []).map((t) => {
-          if (t.id !== targetId) return t;
-          return {
-            ...t,
-            targetName,
-            steps,
-            stepDates,
-            score: calc.score,
-            status: calc.status,
-            explanation: calc.explanation,
-          };
-        });
-
-        const newScore = computeMemberScore(updatedTargets);
-
-        const newResults: MemberResults = {
-          s1: updatedTargets.reduce((acc, t) => acc + (t.steps.s1 ? 1 : 0), 0),
-          s2: updatedTargets.reduce((acc, t) => acc + (t.steps.s2 ? 1 : 0), 0),
-          s3: updatedTargets.reduce((acc, t) => acc + (t.steps.s3 ? 1 : 0), 0),
-          s4: updatedTargets.reduce((acc, t) => acc + (t.steps.s4 ? 1 : 0), 0),
-          s5: updatedTargets.reduce((acc, t) => acc + (t.steps.s5 ? 1 : 0), 0),
-          s6: updatedTargets.reduce((acc, t) => acc + (t.steps.s6 ? 1 : 0), 0),
-        };
-
-        return {
-          ...m,
-          targets: updatedTargets,
-          score: newScore,
-          results: newResults,
-        };
-      });
-    });
-
-    setLastUpdated(getCurrentFormattedTime());
-    showNotification(`Đã cập nhật đối tượng "${targetName}" thành công!`);
-  };
-
-  const handleDeleteTarget = (memberId: string, targetId: string) => {
-    setMembers((prev) => {
-      return prev.map((m) => {
-        if (m.id !== memberId) return m;
-        const targetToDelete = m.targets?.find((t) => t.id === targetId);
-        const updatedTargets = (m.targets || []).filter((t) => t.id !== targetId);
-        const newScore = computeMemberScore(updatedTargets);
-
-        let newResults = { ...m.results };
-        if (targetToDelete) {
-          newResults = {
-            s1: Math.max(0, (newResults.s1 || 0) - (targetToDelete.steps.s1 ? 1 : 0)),
-            s2: Math.max(0, (newResults.s2 || 0) - (targetToDelete.steps.s2 ? 1 : 0)),
-            s3: Math.max(0, (newResults.s3 || 0) - (targetToDelete.steps.s3 ? 1 : 0)),
-            s4: Math.max(0, (newResults.s4 || 0) - (targetToDelete.steps.s4 ? 1 : 0)),
-            s5: Math.max(0, (newResults.s5 || 0) - (targetToDelete.steps.s5 ? 1 : 0)),
-            s6: Math.max(0, (newResults.s6 || 0) - (targetToDelete.steps.s6 ? 1 : 0)),
-          };
-        }
-
-        return {
-          ...m,
-          targets: updatedTargets,
-          score: newScore,
-          results: newResults,
-        };
-      });
-    });
-    showNotification('Đã xóa đối tượng và tính lại điểm thành viên.');
-  };
-
-  const handleUpdateGoals = (
-    memberId: string,
-    goals: MemberGoals,
-    results: MemberResults
-  ) => {
-    setMembers((prev) =>
-      prev.map((m) => (m.id === memberId ? { ...m, goals, results } : m))
-    );
-  };
-
-  const handleCreateQuickMember = (memberData: {
-    fullName: string;
-    companyCode: string;
-    areaCode: string;
-    departmentCode: string;
-  }): Member => {
-    const newMember: Member = {
-      id: `mem-${Date.now()}`,
-      code: `MEM-${(members.length + 1).toString().padStart(3, '0')}`,
-      fullName: memberData.fullName,
-      companyCode: memberData.companyCode,
-      areaCode: memberData.areaCode,
-      departmentCode: memberData.departmentCode,
-      active: true,
-      score: 0,
-      goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
-      results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
-      targets: [],
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-
-    setMembers((prev) => [newMember, ...prev]);
-    return newMember;
-  };
-
   // Admin CRUD functions
   const handleAddCompany = (company: Omit<Company, 'id'>) => {
-    const newComp: Company = { ...company, id: `c-${Date.now()}` };
-    setCompanies((prev) => [...prev, newComp]);
+    setCompanies((prev) => [...prev, { ...company, id: `c-${Date.now()}` }]);
   };
   const handleUpdateCompany = (company: Company) => {
     setCompanies((prev) => prev.map((c) => (c.id === company.id ? company : c)));
@@ -968,8 +1318,7 @@ export default function App() {
   };
 
   const handleAddArea = (area: Omit<Area, 'id'>) => {
-    const newArea: Area = { ...area, id: `a-${Date.now()}` };
-    setAreas((prev) => [...prev, newArea]);
+    setAreas((prev) => [...prev, { ...area, id: `a-${Date.now()}` }]);
   };
   const handleUpdateArea = (area: Area) => {
     setAreas((prev) => prev.map((a) => (a.id === area.id ? area : a)));
@@ -979,8 +1328,7 @@ export default function App() {
   };
 
   const handleAddDepartment = (dept: Omit<Department, 'id'>) => {
-    const newDept: Department = { ...dept, id: `d-${Date.now()}` };
-    setDepartments((prev) => [...prev, newDept]);
+    setDepartments((prev) => [...prev, { ...dept, id: `d-${Date.now()}` }]);
   };
   const handleUpdateDepartment = (dept: Department) => {
     setDepartments((prev) => prev.map((d) => (d.id === dept.id ? dept : d)));
@@ -1009,7 +1357,6 @@ export default function App() {
     setMembers((prev) => prev.filter((m) => m.id !== id));
   };
 
-  // Batch updates from Excel
   const handleBatchUpdateCompanies = (newCompanies: Company[], mode: 'MERGE' | 'REPLACE' = 'MERGE') => {
     setCompanies((prev) => {
       if (mode === 'REPLACE') return newCompanies;
@@ -1063,16 +1410,22 @@ export default function App() {
     showNotification(`Đã đồng bộ ${newMembers.length} thành viên từ file Excel!`);
   };
 
-  // Nạp danh mục mẫu (công ty / khu vực / ban ngành). Không xóa dữ liệu đang có.
   const handleResetData = () => {
     seedStructure()
       .then(() => showNotification('Đã nạp danh mục mẫu (công ty, khu vực, ban ngành).'))
       .catch((err) => showNotification(`Không nạp được danh mục mẫu: ${err.message}`));
   };
 
+  const handleToggleSidebar = () => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+      setIsDesktopSidebarOpen((prev) => !prev);
+    } else {
+      setIsMobileDrawerOpen((prev) => !prev);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f3f6fb] dark:bg-[#0b1120] text-slate-800 dark:text-slate-100 antialiased selection:bg-amber-200 selection:text-amber-900 transition-colors duration-300">
-      
       {/* Toast Notification */}
       {notification && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
@@ -1081,261 +1434,377 @@ export default function App() {
         </div>
       )}
 
-      {/* Navigation Header */}
-      <Navbar
-        countdown={countdown}
-        isAutoRefreshPaused={isAutoRefreshPaused}
-        onTogglePause={() => setIsAutoRefreshPaused(!isAutoRefreshPaused)}
-        onRefreshNow={handleRefresh}
+      {/* Minimal DB-independent Header */}
+      <TopHeader
+        isSidebarOpen={isDesktopSidebarOpen}
+        onToggleSidebar={handleToggleSidebar}
         onOpenRulesModal={() => setIsRulesModalOpen(true)}
+        onRefreshUI={handleRefresh}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        currentUser={effectiveCurrentUser}
-        onLogout={handleLogout}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
+        onNavigateHome={() => setActiveTab(currentUser ? 'ENTRY' : 'HONORS')}
       />
 
-      {/* Yêu cầu đăng nhập để xem dữ liệu dùng chung */}
-      {authReady && !firebaseUser && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-4">
-          <div className="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="text-xs text-blue-900 leading-relaxed">
-              <strong>Vui lòng đăng nhập để xem bảng xếp hạng và nhập kết quả thi đua.</strong>
-              <br />
-              Dữ liệu được lưu chung trên máy chủ, mọi thành viên cùng thấy một bảng xếp hạng.
+      {/* Shell: Vertical Left Sidebar (3 Mục Chính) + Main Workspace */}
+      <div className="flex flex-1 min-h-0">
+        <SideNavigation
+          isDesktopOpen={isDesktopSidebarOpen}
+          isMobileOpen={isMobileDrawerOpen}
+          onCloseMobile={() => setIsMobileDrawerOpen(false)}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          currentUser={effectiveCurrentUser}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onLogout={handleLogout}
+        />
+
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Prompt đăng nhập nếu chưa đăng nhập */}
+          {authReady && !firebaseUser && (
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-4">
+              <div className="rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+                  <strong>Vui lòng đăng nhập để nhập Báo cáo hằng ngày và xem Bảng xếp hạng trực tuyến.</strong>
+                  <br />
+                  Dữ liệu được đồng bộ an toàn trên máy chủ theo thời gian thực.
+                </div>
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="shrink-0 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Đăng nhập / Đăng ký
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => setIsAuthModalOpen(true)}
-              className="shrink-0 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-            >
-              Đăng nhập / Đăng ký
-            </button>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* TAB 1: VINH DANH (HONORS & DASHBOARD) */}
-      {activeTab === 'HONORS' && (
-        <div className="flex-1 pb-16">
-          {/* Hero Banner with Spotlight & Auto Daily Bible Verse */}
-          <HeroBanner onOpenRules={() => setIsRulesModalOpen(true)} />
+          {/* TAB: BÁO CÁO HẰNG NGÀY (Trang mặc định sau khi đăng nhập) */}
+          {activeTab === 'ENTRY' && (
+            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+              <DailyReportSection
+                currentUser={effectiveCurrentUser}
+                currentMember={currentMemberData}
+                dailyReports={dailyReports}
+                periodGoals={periodGoals}
+                activeEvent={activeEvent}
+                onSaveDailyReport={handleSaveDailyReport}
+                onSavePeriodGoal={handleSavePeriodGoal}
+                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onOpenRules={() => setIsRulesModalOpen(true)}
+                onShowNotification={showNotification}
+              />
+            </main>
+          )}
 
-          {/* 4 KPI Statistic Cards */}
-          <KpiCards kpi={kpiData} />
+          {/* TAB: BẢNG VINH DANH & SỰ KIỆN */}
+          {activeTab === 'HONORS' && (
+            <div className="flex-1 pb-16">
+              <HeroBanner
+                bannerConfig={bannerConfig}
+                activeEvent={activeEvent}
+                onOpenRules={() => setIsRulesModalOpen(true)}
+              />
 
-          {/* Main Layout */}
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-8 sm:mt-10">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              
-              {/* Right Column on Desktop, FIRST on Mobile (Top 3 Podium on Top for Mobile) */}
-              <div className="order-1 lg:order-2 lg:col-span-4 space-y-6">
-                
-                {/* Top 3 Podium with 3 Tabs (Cá nhân, Khu vực, Công ty) */}
-                <PodiumTop3
-                  members={rankedMembers}
-                  areaRankings={areaRankings}
-                  companyRankings={companyRankings}
-                  onSelectMember={setSelectedMember}
-                />
+              <KpiCards kpi={kpiData} />
 
-                {/* Regional Statistics */}
-                <RegionalStats
-                  areaRankings={areaRankings}
-                  selectedAreaCode={selectedAreaCode}
-                  onSelectAreaCode={setSelectedAreaCode}
-                  onOpenDetailsModal={() => setIsRegionalModalOpen(true)}
-                />
-
-                {/* Quick Actions Card */}
-                <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-3xl p-5 text-white shadow-md border border-slate-800 space-y-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
-                      <span>⚡ Thao tác nhanh</span>
+              <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-8 sm:mt-10 space-y-6">
+                {/* Upcoming / Active Events Showcase */}
+                {sortedEvents.length > 0 && (
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-xs border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                        <Award className="w-4 h-4 text-amber-500" />
+                        <span>Chiến dịch &amp; Sự kiện thi đua ({sortedEvents.length})</span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setIsRulesModalOpen(true)}
+                        className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                      >
+                        Xem quy đổi điểm →
+                      </button>
                     </div>
-                    <h4 className="font-extrabold text-sm text-white mb-1">
-                      Nhập mục tiêu & kết quả thi đua
-                    </h4>
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      Chuyển sang trang nhập kết quả để đăng ký mục tiêu và ghi nhận đối tượng với tùy chọn ngày thực tế.
-                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {sortedEvents.slice(0, 3).map((ev) => (
+                        <div
+                          key={ev.id}
+                          className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2 ${
+                            activeEvent?.id === ev.id
+                              ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700'
+                              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-800 dark:text-amber-300">
+                                {activeEvent?.id === ev.id ? 'Đang áp dụng' : ev.isActive ? 'Đang mở' : 'Tạm ngưng'}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                {ev.startDate.split('-').reverse().join('/')} - {ev.endDate.split('-').reverse().join('/')}
+                              </span>
+                            </div>
+                            <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
+                              {ev.title}
+                            </div>
+                            {ev.description && (
+                              <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 mt-0.5">
+                                {ev.description}
+                              </p>
+                            )}
+                          </div>
+                          {ev.restrictParticipants && (
+                            <div className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1">
+                              <Users className="w-3 h-3" />
+                              <span>{ev.participantIds?.length || 0} thành viên tham gia</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* Top 3 Podium on TOP for Mobile */}
+                  <div className="order-1 lg:order-2 lg:col-span-4 space-y-6">
+                    <PodiumTop3
+                      members={rankedMembers}
+                      areaRankings={areaRankings}
+                      companyRankings={companyRankings}
+                      onSelectMember={setSelectedMember}
+                    />
+
+                    <RegionalStats
+                      areaRankings={areaRankings}
+                      selectedAreaCode={selectedAreaCode}
+                      onSelectAreaCode={setSelectedAreaCode}
+                      onOpenDetailsModal={() => setIsRegionalModalOpen(true)}
+                    />
+
+                    <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-3xl p-5 text-white shadow-md border border-slate-800 space-y-3">
+                      <div>
+                        <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
+                          <span>⚡ Thao tác nhanh</span>
+                        </div>
+                        <h4 className="font-extrabold text-sm text-white mb-1">
+                          Nhập Báo cáo hằng ngày
+                        </h4>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          Ghi nhận kết quả ngày để tự động tổng hợp báo cáo tháng, năm và tính điểm thi đua lễ hội.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 pt-1">
+                        <button
+                          onClick={() => setActiveTab('ENTRY')}
+                          className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                        >
+                          <span>✏️ Mở Báo cáo hằng ngày</span>
+                        </button>
+
+                        <button
+                          onClick={() => setActiveTab('PROFILE')}
+                          className="w-full py-2 px-3 bg-white/10 hover:bg-white/20 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 border border-white/15 cursor-pointer"
+                        >
+                          <span>👤 Xem Hồ sơ cá nhân</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2 pt-1">
+                  {/* Leaderboard + News Section */}
+                  <div className="order-2 lg:order-1 lg:col-span-8 space-y-6">
+                    <LeaderboardTable
+                      members={rankedMembers}
+                      companyRankings={companyRankings}
+                      areaRankings={areaRankings}
+                      lastUpdated={lastUpdated}
+                      selectedAreaCode={selectedAreaCode}
+                      onSelectAreaCode={setSelectedAreaCode}
+                      onSelectMember={setSelectedMember}
+                      onOpenRules={() => setIsRulesModalOpen(true)}
+                    />
+
+                    <NewsSection
+                      huongKhiList={huongKhiView}
+                      currentUser={effectiveCurrentUser}
+                      onReactHuongKhi={handleReactHuongKhi}
+                      onAddComment={handleAddComment}
+                      onOpenRules={() => setIsRulesModalOpen(true)}
+                    />
+                  </div>
+                </div>
+              </main>
+            </div>
+          )}
+
+          {/* TAB: TRANG THÔNG TIN MĐ (Mục Turbo) */}
+          {activeTab === 'DISCIPLES' && (
+            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+              <DisciplesPage
+                currentUser={effectiveCurrentUser}
+                disciples={disciples}
+                isLoading={disciplesLoading}
+                companies={companies}
+                areas={areas}
+                onCreateDisciple={handleCreateDisciple}
+                onUpdateDiscipleFull={handleUpdateDiscipleFull}
+                onUpdateDiscipleProgressNote={handleUpdateDiscipleProgressNote}
+                onDeleteDisciple={handleDeleteDisciple}
+                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onShowNotification={showNotification}
+              />
+            </main>
+          )}
+
+          {/* TAB: CHIẾN DỊCH & THỂ LỆ (Mục Event) */}
+          {activeTab === 'EVENT_HUB' && (
+            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+              <EventHubPage
+                events={sortedEvents}
+                activeEvent={activeEvent}
+                currentUser={effectiveCurrentUser}
+                currentMember={currentMemberData}
+                onOpenRulesModal={() => setIsRulesModalOpen(true)}
+                onNavigateToEntry={() => setActiveTab('ENTRY')}
+                onNavigateToAdmin={isAdminUser ? () => setActiveTab('ADMIN') : undefined}
+              />
+            </main>
+          )}
+
+          {/* TAB: HỒ SƠ CÁ NHÂN (Mục Công Việc) */}
+          {activeTab === 'PROFILE' && (
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
+              {effectiveCurrentUser ? (
+                <ProfilePage
+                  currentUser={effectiveCurrentUser}
+                  memberData={currentMemberData}
+                  myHuongKhiList={myHuongKhiList}
+                  dailyReports={dailyReports}
+                  periodGoals={periodGoals}
+                  activeEvent={activeEvent}
+                  disciples={disciples}
+                  companies={companies}
+                  areas={areas}
+                  departments={departments}
+                  onNavigateToEntry={() => setActiveTab('ENTRY')}
+                  onNavigateToDisciples={() => setActiveTab('DISCIPLES')}
+                  onNavigateToHonors={() => setActiveTab('HONORS')}
+                  onLogout={handleLogout}
+                  onOpenRules={() => setIsRulesModalOpen(true)}
+                  onAddHuongKhi={handleAddHuongKhi}
+                  onReactHuongKhi={handleReactHuongKhi}
+                  onAddComment={handleAddComment}
+                  onUpdateProfile={handleUpdateProfile}
+                  onShowNotification={showNotification}
+                />
+              ) : (
+                <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-md mx-auto text-center shadow-sm border border-slate-100 dark:border-slate-800 my-12">
+                  <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-4">
+                    <Lock className="w-8 h-8" />
+                  </div>
+                  <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-1">
+                    Chưa đăng nhập
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
+                    Vui lòng đăng nhập hoặc đăng ký tài khoản cá nhân để xem trang hồ sơ của bạn.
+                  </p>
+                  <button
+                    onClick={() => setIsAuthModalOpen(true)}
+                    className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    Đăng nhập / Đăng ký ngay
+                  </button>
+                </div>
+              )}
+            </main>
+          )}
+
+          {/* TAB: TRANG QUẢN TRỊ */}
+          {activeTab === 'ADMIN' && (
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
+              {isAdminUser ? (
+                <AdminPanel
+                  companies={companies}
+                  areas={areas}
+                  departments={departments}
+                  members={allMembersRanked}
+                  onAddCompany={handleAddCompany}
+                  onUpdateCompany={handleUpdateCompany}
+                  onDeleteCompany={handleDeleteCompany}
+                  onAddArea={handleAddArea}
+                  onUpdateArea={handleUpdateArea}
+                  onDeleteArea={handleDeleteArea}
+                  onAddDepartment={handleAddDepartment}
+                  onUpdateDepartment={handleUpdateDepartment}
+                  onDeleteDepartment={handleDeleteDepartment}
+                  onAddMember={handleAddMember}
+                  onUpdateMember={handleUpdateMember}
+                  onDeleteMember={handleDeleteMember}
+                  onBatchUpdateCompanies={handleBatchUpdateCompanies}
+                  onBatchUpdateAreas={handleBatchUpdateAreas}
+                  onBatchUpdateDepartments={handleBatchUpdateDepartments}
+                  onBatchUpdateMembers={handleBatchUpdateMembers}
+                  onResetData={handleResetData}
+                  onShowNotification={showNotification}
+                  currentUser={effectiveCurrentUser}
+                  usersList={usersList}
+                  onUpdateUserRole={handleUpdateUserRole}
+                  preAssignedRoles={preAssignedRoles}
+                  onPreAssignRole={handlePreAssignRole}
+                  onDeletePreAssignedRole={handleDeletePreAssignedRole}
+                  bannerConfig={bannerConfig}
+                  events={sortedEvents}
+                  onSaveBannerConfig={handleSaveBannerConfig}
+                  onSaveEvent={handleSaveEvent}
+                  onDeleteEvent={handleDeleteEvent}
+                />
+              ) : (
+                <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-lg mx-auto text-center shadow-sm border border-slate-100 dark:border-slate-800 my-12">
+                  <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200">
+                    <Shield className="w-8 h-8" />
+                  </div>
+                  <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-1">
+                    Khu vực Giới hạn Quyền
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
+                    Trang Quản trị yêu cầu tài khoản Ban Quản Trị hệ thống.
+                  </p>
+                  <div className="flex items-center justify-center gap-3">
                     <button
                       onClick={() => setActiveTab('ENTRY')}
-                      className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
                     >
-                      <span>✏️ Chuyển sang Nhập kết quả</span>
+                      Về Báo cáo hằng ngày
                     </button>
-
                     <button
-                      onClick={() => setActiveTab('PROFILE')}
-                      className="w-full py-2 px-3 bg-white/10 hover:bg-white/20 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 border border-white/15 cursor-pointer"
+                      onClick={() => setIsAuthModalOpen(true)}
+                      className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                     >
-                      <span>👤 Xem Hồ sơ cá nhân của bạn</span>
+                      <span>Đổi tài khoản Admin</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
+              )}
+            </main>
+          )}
 
-              </div>
-
-              {/* Left Column on Desktop, SECOND on Mobile */}
-              <div className="order-2 lg:order-1 lg:col-span-8 space-y-6">
-                <LeaderboardTable
-                  members={rankedMembers}
-                  companyRankings={companyRankings}
-                  areaRankings={areaRankings}
-                  lastUpdated={lastUpdated}
-                  selectedAreaCode={selectedAreaCode}
-                  onSelectAreaCode={setSelectedAreaCode}
-                  onSelectMember={setSelectedMember}
-                  onOpenRules={() => setIsRulesModalOpen(true)}
-                />
-
-                {/* News & Huong Khi Section with Reactions & Comments */}
-                <NewsSection
-                  huongKhiList={huongKhiView}
-                  currentUser={currentUser}
-                  onReactHuongKhi={handleReactHuongKhi}
-                  onAddComment={handleAddComment}
-                  onOpenRules={() => setIsRulesModalOpen(true)}
-                />
-              </div>
-
-            </div>
-          </main>
-        </div>
-      )}
-
-      {/* TAB 2: NHẬP MỤC TIÊU & KẾT QUẢ THI ĐUA */}
-      {activeTab === 'ENTRY' && (
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
-          <ResultEntrySection
-            companies={companies}
-            areas={areas}
-            departments={departments}
-            members={rankedMembers}
-            currentUser={currentUser}
-            onAddOrUpdateTarget={handleAddOrUpdateTarget}
-            onEditTarget={handleEditTarget}
-            onDeleteTarget={handleDeleteTarget}
-            onUpdateGoals={handleUpdateGoals}
-            onCreateQuickMember={handleCreateQuickMember}
-            onShowNotification={showNotification}
-            onOpenRules={() => setIsRulesModalOpen(true)}
+          {/* Footer */}
+          <Footer
+            onOpenRulesModal={() => setIsRulesModalOpen(true)}
+            onScrollToSection={(sec) => {
+              if (sec === 'leaderboard-section') setActiveTab('HONORS');
+              if (sec === 'entry-section') setActiveTab('ENTRY');
+              if (sec === 'admin-section') setActiveTab('ADMIN');
+            }}
           />
-        </main>
-      )}
+        </div>
+      </div>
 
-      {/* TAB 3: HỒ SƠ CÁ NHÂN (PROFILE) */}
-      {activeTab === 'PROFILE' && (
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
-          {currentUser ? (
-            <ProfilePage
-              currentUser={currentUser}
-              memberData={currentMemberData}
-              myHuongKhiList={myHuongKhiList}
-              companies={companies}
-              areas={areas}
-              departments={departments}
-              onNavigateToEntry={() => setActiveTab('ENTRY')}
-              onNavigateToHonors={() => setActiveTab('HONORS')}
-              onLogout={handleLogout}
-              onOpenRules={() => setIsRulesModalOpen(true)}
-              onAddHuongKhi={handleAddHuongKhi}
-              onReactHuongKhi={handleReactHuongKhi}
-              onAddComment={handleAddComment}
-              onUpdateProfile={handleUpdateProfile}
-              onEditTarget={handleEditTarget}
-              onDeleteTarget={handleDeleteTarget}
-              onShowNotification={showNotification}
-            />
-          ) : (
-            <div className="bg-white rounded-3xl p-8 max-w-md mx-auto text-center shadow-sm border border-slate-100 my-12">
-              <div className="w-16 h-16 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-4">
-                <Lock className="w-8 h-8" />
-              </div>
-              <h3 className="font-bold text-lg text-slate-900 mb-1">Chưa đăng nhập</h3>
-              <p className="text-xs text-slate-500 mb-6">
-                Vui lòng đăng nhập hoặc đăng ký tài khoản cá nhân để xem trang hồ sơ của bạn.
-              </p>
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs"
-              >
-                Đăng nhập / Đăng ký ngay
-              </button>
-            </div>
-          )}
-        </main>
-      )}
-
-      {/* TAB 4: TRANG QUẢN TRỊ (ADMIN) - Cho phép quyền ADMIN & SUPER_ADMIN */}
-      {activeTab === 'ADMIN' && (
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
-          {isAdminUser ? (
-            <AdminPanel
-              companies={companies}
-              areas={areas}
-              departments={departments}
-              members={rankedMembers}
-              onAddCompany={handleAddCompany}
-              onUpdateCompany={handleUpdateCompany}
-              onDeleteCompany={handleDeleteCompany}
-              onAddArea={handleAddArea}
-              onUpdateArea={handleUpdateArea}
-              onDeleteArea={handleDeleteArea}
-              onAddDepartment={handleAddDepartment}
-              onUpdateDepartment={handleUpdateDepartment}
-              onDeleteDepartment={handleDeleteDepartment}
-              onAddMember={handleAddMember}
-              onUpdateMember={handleUpdateMember}
-              onDeleteMember={handleDeleteMember}
-              onBatchUpdateCompanies={handleBatchUpdateCompanies}
-              onBatchUpdateAreas={handleBatchUpdateAreas}
-              onBatchUpdateDepartments={handleBatchUpdateDepartments}
-              onBatchUpdateMembers={handleBatchUpdateMembers}
-              onResetData={handleResetData}
-              onShowNotification={showNotification}
-              currentUser={effectiveCurrentUser}
-              usersList={usersList}
-              onUpdateUserRole={handleUpdateUserRole}
-              preAssignedRoles={preAssignedRoles}
-              onPreAssignRole={handlePreAssignRole}
-              onDeletePreAssignedRole={handleDeletePreAssignedRole}
-            />
-          ) : (
-            <div className="bg-white rounded-3xl p-8 max-w-lg mx-auto text-center shadow-sm border border-slate-100 my-12">
-              <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200">
-                <Shield className="w-8 h-8" />
-              </div>
-              <h3 className="font-bold text-lg text-slate-900 mb-1">Khu vực Giới hạn Quyền</h3>
-              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                Tài khoản cá nhân chỉ được xem dashboard, nhập mục tiêu và kết quả thi đua. Trang Quản trị yêu cầu tài khoản Ban Quản Trị hệ thống.
-              </p>
-              <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={() => setActiveTab('HONORS')}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition"
-                >
-                  Về trang vinh danh
-                </button>
-                <button
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5"
-                >
-                  <span>Chuyển sang tài khoản Admin</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-        </main>
-      )}
-
-      {/* Auth Modal (Login / Register / Gmail Verification) */}
+      {/* Modals */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
@@ -1345,13 +1814,8 @@ export default function App() {
         onRegister={handleRegister}
       />
 
-      {/* Member Details Modal */}
-      <DetailModal
-        member={selectedMember}
-        onClose={() => setSelectedMember(null)}
-      />
+      <DetailModal member={selectedMember} onClose={() => setSelectedMember(null)} />
 
-      {/* Regional Details Modal */}
       <RegionalDetailModal
         isOpen={isRegionalModalOpen}
         onClose={() => setIsRegionalModalOpen(false)}
@@ -1359,22 +1823,11 @@ export default function App() {
         onSelectAreaCode={(code) => setSelectedAreaCode(code)}
       />
 
-      {/* Scoring Rules Modal */}
       <RulesModal
         isOpen={isRulesModalOpen}
         onClose={() => setIsRulesModalOpen(false)}
+        activeEvent={activeEvent}
       />
-
-      {/* Footer */}
-      <Footer
-        onOpenRulesModal={() => setIsRulesModalOpen(true)}
-        onScrollToSection={(sec) => {
-          if (sec === 'leaderboard-section') setActiveTab('HONORS');
-          if (sec === 'entry-section') setActiveTab('ENTRY');
-          if (sec === 'admin-section') setActiveTab('ADMIN');
-        }}
-      />
-
     </div>
   );
 }

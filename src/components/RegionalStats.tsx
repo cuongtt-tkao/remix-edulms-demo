@@ -59,13 +59,13 @@ export const RegionalStats: React.FC<RegionalStatsProps> = ({
 
       {/* Progress Bars List */}
       <div className="space-y-3">
-        {areaRankings.map((area) => {
+        {areaRankings.map((area, idx) => {
           const percentage = Math.min(100, Math.round((area.averageScore / maxAvgScore) * 100));
           const isSelected = selectedAreaCode === area.areaCode;
 
           return (
             <div
-              key={area.areaCode}
+              key={`${area.companyCode}_${area.areaCode}_${idx}`}
               onClick={() => onSelectAreaCode(isSelected ? null : area.areaCode)}
               className={`p-2 rounded-xl cursor-pointer transition-colors ${
                 isSelected ? 'bg-blue-50/80 ring-1 ring-blue-300' : 'hover:bg-slate-50'

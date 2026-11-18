@@ -246,8 +246,8 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
             className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700 font-semibold focus:outline-hidden"
           >
             <option value="ALL">Tất cả công ty</option>
-            {companyRankings.map((c) => (
-              <option key={c.companyCode} value={c.companyCode}>
+            {companyRankings.map((c, idx) => (
+              <option key={`${c.companyCode}_${idx}`} value={c.companyCode}>
                 {c.companyName}
               </option>
             ))}
@@ -355,9 +355,9 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredAreas.map((area) => (
+              {filteredAreas.map((area, idx) => (
                 <tr
-                  key={area.areaCode}
+                  key={`${area.companyCode}_${area.areaCode}_${idx}`}
                   onClick={() => onSelectAreaCode(area.areaCode)}
                   className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                 >
@@ -407,8 +407,8 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredCompanies.map((comp) => (
-                <tr key={comp.companyCode} className="hover:bg-slate-50/80 transition-colors group">
+              {filteredCompanies.map((comp, idx) => (
+                <tr key={`${comp.companyCode}_${idx}`} className="hover:bg-slate-50/80 transition-colors group">
                   <td className="py-3.5 px-3 text-center whitespace-nowrap">
                     {renderRankBadge(comp.rank)}
                   </td>
