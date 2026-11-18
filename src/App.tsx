@@ -39,6 +39,15 @@ import {
   DiscipleProgressStep,
   DiscipleAgeMode,
   DiscipleAgeRange,
+  SystemScoringConfig,
+  SystemAppearanceConfig,
+  DEFAULT_APPEARANCE_CONFIG,
+  APP_FONT_OPTIONS,
+  DEFAULT_HONORS_WIDGET_ORDER,
+  HonorsWidgetId,
+  EduWeeklyTopic,
+  EduTopicAssignment,
+  EduCmsProfile,
 } from './types/edulms';
 import {
   rankMembers,
@@ -62,6 +71,8 @@ import { RegionalStats } from './components/RegionalStats';
 import { DailyReportSection } from './components/DailyReportSection';
 import { DisciplesPage } from './components/DisciplesPage';
 import { EventHubPage } from './components/EventHubPage';
+import { EduLmsPage } from './components/EduLmsPage';
+import { EduCmsPage } from './components/EduCmsPage';
 import { AdminPanel } from './components/AdminPanel';
 import { ProfilePage } from './components/ProfilePage';
 import { AuthModal, RegistrationData } from './components/AuthModal';
@@ -70,7 +81,7 @@ import { RegionalDetailModal } from './components/RegionalDetailModal';
 import { RulesModal } from './components/RulesModal';
 import { NewsSection } from './components/NewsSection';
 import { Footer } from './components/Footer';
-import { Shield, Lock, ArrowRight, Calendar, Award, Users } from 'lucide-react';
+import { Shield, Lock, ArrowRight, Calendar, Award, Users, Sliders } from 'lucide-react';
 import {
   auth,
   db,
@@ -138,10 +149,13 @@ export default function App() {
     testFirestoreConnection();
   }, []);
 
-  // Banner cấu hình trang chủ (công khai)
+  // Banner, Điểm mặc định & Font/Bố cục Widget toàn hệ thống (công khai)
   const [bannerConfig, setBannerConfig] = useState<SystemBannerConfig | null>(null);
+  const [scoringConfig, setScoringConfig] = useState<SystemScoringConfig | null>(null);
+  const [appearanceConfig, setAppearanceConfig] = useState<SystemAppearanceConfig | null>(null);
+
   useEffect(() => {
-    const unsubscribe = onSnapshot(
+    const unsubBanner = onSnapshot(
       doc(db, 'system_config', 'banner'),
       (snap) => {
         if (snap.exists()) {
@@ -152,8 +166,105 @@ export default function App() {
       },
       (err) => console.warn('[Firestore] Lỗi đọc system_config/banner:', err)
     );
-    return unsubscribe;
+    const unsubScoring = onSnapshot(
+      doc(db, 'system_config', 'scoring'),
+      (snap) => {
+        if (snap.exists()) {
+          setScoringConfig({ ...(snap.data() as SystemScoringConfig), id: snap.id });
+        } else {
+          setScoringConfig(null);
+        }
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc system_config/scoring:', err)
+    );
+    const unsubAppearance = onSnapshot(
+      doc(db, 'system_config', 'appearance'),
+      (snap) => {
+        if (snap.exists()) {
+          setAppearanceConfig({ ...(snap.data() as SystemAppearanceConfig), id: snap.id });
+        } else {
+          setAppearanceConfig(null);
+        }
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc system_config/appearance:', err)
+    );
+    return () => {
+      unsubBanner();
+      unsubScoring();
+      unsubAppearance();
+    };
   }, []);
+
+  // Áp dụng Font chữ & Cỡ chữ toàn website theo cấu hình Admin
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const activeFontKey = appearanceConfig?.fontKey || DEFAULT_APPEARANCE_CONFIG.fontKey;
+    const activeScale = appearanceConfig?.fontScale || DEFAULT_APPEARANCE_CONFIG.fontScale;
+    const fontMeta =
+      APP_FONT_OPTIONS.find((f) => f.key === activeFontKey) || APP_FONT_OPTIONS[0];
+    document.documentElement.style.setProperty('--app-font-family', fontMeta.cssFamily);
+    document.documentElement.style.setProperty(
+      '--app-font-scale',
+      activeScale === 'SM' ? '0.93' : activeScale === 'LG' ? '1.08' : '1'
+    );
+  }, [appearanceConfig]);
+
+  // Hệ thống Edu: LMS (Chủ đề tuần & gán KV/TĐ) + CMS (Lộ trình TĐ Mới -> TĐ-II & NGV)
+  const [eduTopics, setEduTopics] = useState<EduWeeklyTopic[]>([]);
+  const [eduAssignments, setEduAssignments] = useState<EduTopicAssignment[]>([]);
+  const [eduCmsProfiles, setEduCmsProfiles] = useState<EduCmsProfile[]>([]);
+  const [eduLoading, setEduLoading] = useState<boolean>(false);
+  const [cmsNavIntent, setCmsNavIntent] = useState<{
+    subTab: 'PROGRESSION' | 'NGV' | 'CURRICULUM';
+    topicId: string | null;
+  }>({ subTab: 'PROGRESSION', topicId: null });
+
+  useEffect(() => {
+    if (!signedIn) {
+      setEduTopics([]);
+      setEduAssignments([]);
+      setEduCmsProfiles([]);
+      setEduLoading(false);
+      return;
+    }
+    setEduLoading(true);
+    const unsubTopics = onSnapshot(
+      collection(db, 'edu_topics'),
+      (snap) => {
+        setEduTopics(
+          snap.docs.map((d) => ({ ...(d.data() as Omit<EduWeeklyTopic, 'id'>), id: d.id }))
+        );
+        setEduLoading(false);
+      },
+      (err) => {
+        setEduLoading(false);
+        console.warn('[Firestore] Lỗi đọc edu_topics:', err);
+      }
+    );
+    const unsubAssigns = onSnapshot(
+      collection(db, 'edu_assignments'),
+      (snap) => {
+        setEduAssignments(
+          snap.docs.map((d) => ({ ...(d.data() as Omit<EduTopicAssignment, 'id'>), id: d.id }))
+        );
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc edu_assignments:', err)
+    );
+    const unsubCms = onSnapshot(
+      collection(db, 'edu_cms_profiles'),
+      (snap) => {
+        setEduCmsProfiles(
+          snap.docs.map((d) => ({ ...(d.data() as Omit<EduCmsProfile, 'id'>), id: d.id }))
+        );
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc edu_cms_profiles:', err)
+    );
+    return () => {
+      unsubTopics();
+      unsubAssigns();
+      unsubCms();
+    };
+  }, [signedIn]);
 
   // Báo cáo hằng ngày (tất cả người dùng đã đăng nhập đọc để tính điểm thi đua trực tiếp)
   const [dailyReports, setDailyReports] = useState<DailyReportRecord[]>([]);
@@ -315,9 +426,14 @@ export default function App() {
     return sortedEvents.find((e) => e.isActive) || null;
   }, [sortedEvents]);
 
-  // ---------- Tính điểm thi đua trực tiếp từ Báo cáo hằng ngày ----------
+  // ---------- Điểm mặc định hệ thống & Tính điểm thi đua trực tiếp từ Báo cáo hằng ngày ----------
+  const effectiveDefaultWeights = useMemo(
+    () => scoringConfig?.weights || DEFAULT_EVENT_WEIGHTS,
+    [scoringConfig]
+  );
+
   const computedAllMembers = useMemo(() => {
-    const weights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+    const weights = activeEvent?.weights || effectiveDefaultWeights;
     const reportsByMember = new Map<string, DailyReportRecord[]>();
 
     dailyReports.forEach((rep) => {
@@ -340,7 +456,7 @@ export default function App() {
         score: dailyScore,
       };
     });
-  }, [members, dailyReports, activeEvent]);
+  }, [members, dailyReports, activeEvent, effectiveDefaultWeights]);
 
   // Thành viên đủ điều kiện dự thi Event (lọc người tham gia nếu Event bật giới hạn)
   const competingMembers = useMemo(() => {
@@ -790,7 +906,7 @@ export default function App() {
       return true;
     });
     const aggregated = sumDailyReportMetrics(mergedReports);
-    const weights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+    const weights = activeEvent?.weights || effectiveDefaultWeights;
     const newScore = computeDailyMetricsScore(aggregated, weights);
 
     updateDoc(doc(db, 'members', memberId), {
@@ -958,6 +1074,75 @@ export default function App() {
   const handleDeleteEvent = async (eventId: string) => {
     await deleteDoc(doc(db, 'events', eventId));
     showNotification('Đã xóa chiến dịch Event.');
+  };
+
+  // ---------- Cấu hình Điểm mặc định & Giao diện toàn trang (Admin) ----------
+  const handleSaveScoringConfig = async (weights: DailyReportMetrics) => {
+    const clean = JSON.parse(
+      JSON.stringify({
+        weights,
+        updatedBy: effectiveCurrentUser?.fullName || 'Admin',
+        updatedAt: new Date().toISOString(),
+      })
+    );
+    await setDoc(doc(db, 'system_config', 'scoring'), clean);
+  };
+
+  const handleSaveAppearanceConfig = async (config: SystemAppearanceConfig) => {
+    const clean = JSON.parse(
+      JSON.stringify({
+        fontKey: config.fontKey,
+        fontScale: config.fontScale,
+        widgetOrder: config.widgetOrder,
+        hiddenWidgets: config.hiddenWidgets,
+        updatedBy: effectiveCurrentUser?.fullName || 'Admin',
+        updatedAt: new Date().toISOString(),
+      })
+    );
+    await setDoc(doc(db, 'system_config', 'appearance'), clean);
+  };
+
+  // ---------- Hệ thống Edu LMS & CMS CRUD ----------
+  const handleSaveEduTopic = async (topic: Omit<EduWeeklyTopic, 'id'>, existingId?: string) => {
+    const id = existingId || `topic_${Date.now()}`;
+    const clean = JSON.parse(JSON.stringify(topic));
+    await setDoc(doc(db, 'edu_topics', id), clean);
+  };
+
+  const handleDeleteEduTopic = async (topicId: string) => {
+    await deleteDoc(doc(db, 'edu_topics', topicId));
+  };
+
+  const handleSaveTopicCurriculum = async (topic: EduWeeklyTopic) => {
+    const { id, ...rest } = topic;
+    const clean = JSON.parse(JSON.stringify(rest));
+    await setDoc(doc(db, 'edu_topics', id), clean);
+  };
+
+  const handleSaveEduAssignment = async (
+    assignment: Omit<EduTopicAssignment, 'id'>,
+    existingId?: string
+  ) => {
+    const id = existingId || `asg_${firebaseUser?.uid || 'u'}_${Date.now()}`;
+    const clean = JSON.parse(JSON.stringify(assignment));
+    await setDoc(doc(db, 'edu_assignments', id), clean);
+  };
+
+  const handleDeleteEduAssignment = async (assignmentId: string) => {
+    await deleteDoc(doc(db, 'edu_assignments', assignmentId));
+  };
+
+  const handleSaveEduCmsProfile = async (
+    profile: Omit<EduCmsProfile, 'id'>,
+    existingId?: string
+  ) => {
+    const id = existingId || `cms_${firebaseUser?.uid || 'u'}_${Date.now()}`;
+    const clean = JSON.parse(JSON.stringify(profile));
+    await setDoc(doc(db, 'edu_cms_profiles', id), clean);
+  };
+
+  const handleDeleteEduCmsProfile = async (profileId: string) => {
+    await deleteDoc(doc(db, 'edu_cms_profiles', profileId));
   };
 
   // ---------- Quản lý vai trò người dùng (5 cấp + phạm vi khu vực) ----------
@@ -1488,6 +1673,7 @@ export default function App() {
                 dailyReports={dailyReports}
                 periodGoals={periodGoals}
                 activeEvent={activeEvent}
+                defaultWeights={effectiveDefaultWeights}
                 onSaveDailyReport={handleSaveDailyReport}
                 onSavePeriodGoal={handleSavePeriodGoal}
                 onOpenAuthModal={() => setIsAuthModalOpen(true)}
@@ -1497,93 +1683,163 @@ export default function App() {
             </main>
           )}
 
-          {/* TAB: BẢNG VINH DANH & SỰ KIỆN */}
-          {activeTab === 'HONORS' && (
-            <div className="flex-1 pb-16">
-              <HeroBanner
-                bannerConfig={bannerConfig}
-                activeEvent={activeEvent}
-                onOpenRules={() => setIsRulesModalOpen(true)}
-              />
+          {/* TAB: BẢNG VINH DANH & SỰ KIỆN (Hỗ trợ bố cục Widget tùy biến từ Admin) */}
+          {activeTab === 'HONORS' && (() => {
+            const orderedIds: HonorsWidgetId[] = [
+              ...(appearanceConfig?.widgetOrder || DEFAULT_HONORS_WIDGET_ORDER).filter((id) =>
+                DEFAULT_HONORS_WIDGET_ORDER.includes(id)
+              ),
+              ...DEFAULT_HONORS_WIDGET_ORDER.filter(
+                (id) => !(appearanceConfig?.widgetOrder || DEFAULT_HONORS_WIDGET_ORDER).includes(id)
+              ),
+            ];
+            const hiddenSet = new Set<HonorsWidgetId>(appearanceConfig?.hiddenWidgets || []);
+            const visibleOrdered = orderedIds.filter((id) => !hiddenSet.has(id));
+            const fullIds: HonorsWidgetId[] = ['BANNER', 'KPI', 'EVENTS_STRIP'];
+            const mainIds: HonorsWidgetId[] = ['LEADERBOARD', 'NEWS'];
+            const sideIds: HonorsWidgetId[] = ['PODIUM', 'REGIONAL', 'QUICK_ACTIONS'];
 
-              <KpiCards kpi={kpiData} />
+            const orderedMain = visibleOrdered.filter((id) => mainIds.includes(id));
+            const orderedSide = visibleOrdered.filter((id) => sideIds.includes(id));
 
-              <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-8 sm:mt-10 space-y-6">
-                {/* Upcoming / Active Events Showcase */}
-                {sortedEvents.length > 0 && (
-                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-xs border border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                        <Award className="w-4 h-4 text-amber-500" />
-                        <span>Chiến dịch &amp; Sự kiện thi đua ({sortedEvents.length})</span>
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => setIsRulesModalOpen(true)}
-                        className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+            const renderEventsStrip = () =>
+              sortedEvents.length > 0 ? (
+                <div
+                  key="EVENTS_STRIP"
+                  className="bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-xs border border-slate-100 dark:border-slate-800"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                      <Award className="w-4 h-4 text-amber-500" />
+                      <span>Chiến dịch &amp; Sự kiện thi đua ({sortedEvents.length})</span>
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setIsRulesModalOpen(true)}
+                      className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                    >
+                      Xem quy đổi điểm →
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {sortedEvents.slice(0, 3).map((ev) => (
+                      <div
+                        key={ev.id}
+                        className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2 ${
+                          activeEvent?.id === ev.id
+                            ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700'
+                            : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                        }`}
                       >
-                        Xem quy đổi điểm →
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {sortedEvents.slice(0, 3).map((ev) => (
-                        <div
-                          key={ev.id}
-                          className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2 ${
-                            activeEvent?.id === ev.id
-                              ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700'
-                              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-800 dark:text-amber-300">
-                                {activeEvent?.id === ev.id ? 'Đang áp dụng' : ev.isActive ? 'Đang mở' : 'Tạm ngưng'}
-                              </span>
-                              <span className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                {ev.startDate.split('-').reverse().join('/')} - {ev.endDate.split('-').reverse().join('/')}
-                              </span>
-                            </div>
-                            <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
-                              {ev.title}
-                            </div>
-                            {ev.description && (
-                              <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 mt-0.5">
-                                {ev.description}
-                              </p>
-                            )}
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-800 dark:text-amber-300">
+                              {activeEvent?.id === ev.id
+                                ? 'Đang áp dụng'
+                                : ev.isActive
+                                ? 'Đang mở'
+                                : 'Tạm ngưng'}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {ev.startDate.split('-').reverse().join('/')} -{' '}
+                              {ev.endDate.split('-').reverse().join('/')}
+                            </span>
                           </div>
-                          {ev.restrictParticipants && (
-                            <div className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1">
-                              <Users className="w-3 h-3" />
-                              <span>{ev.participantIds?.length || 0} thành viên tham gia</span>
-                            </div>
+                          <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
+                            {ev.title}
+                          </div>
+                          {ev.description && (
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 mt-0.5">
+                              {ev.description}
+                            </p>
                           )}
                         </div>
-                      ))}
-                    </div>
+                        {ev.restrictParticipants && (
+                          <div className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            <span>{ev.participantIds?.length || 0} thành viên tham gia</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
+              ) : null;
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Top 3 Podium on TOP for Mobile */}
-                  <div className="order-1 lg:order-2 lg:col-span-4 space-y-6">
+            const renderWidgetById = (wId: HonorsWidgetId) => {
+              switch (wId) {
+                case 'BANNER':
+                  return (
+                    <HeroBanner
+                      key="BANNER"
+                      bannerConfig={bannerConfig}
+                      activeEvent={activeEvent}
+                      onOpenRules={() => setIsRulesModalOpen(true)}
+                    />
+                  );
+                case 'KPI':
+                  return <KpiCards key="KPI" kpi={kpiData} />;
+                case 'EVENTS_STRIP':
+                  return (
+                    <div
+                      key="EVENTS_STRIP"
+                      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-6"
+                    >
+                      {renderEventsStrip()}
+                    </div>
+                  );
+                case 'LEADERBOARD':
+                  return (
+                    <LeaderboardTable
+                      key="LEADERBOARD"
+                      members={rankedMembers}
+                      companyRankings={companyRankings}
+                      areaRankings={areaRankings}
+                      lastUpdated={lastUpdated}
+                      selectedAreaCode={selectedAreaCode}
+                      onSelectAreaCode={setSelectedAreaCode}
+                      onSelectMember={setSelectedMember}
+                      onOpenRules={() => setIsRulesModalOpen(true)}
+                    />
+                  );
+                case 'NEWS':
+                  return (
+                    <NewsSection
+                      key="NEWS"
+                      huongKhiList={huongKhiView}
+                      currentUser={effectiveCurrentUser}
+                      onReactHuongKhi={handleReactHuongKhi}
+                      onAddComment={handleAddComment}
+                      onOpenRules={() => setIsRulesModalOpen(true)}
+                    />
+                  );
+                case 'PODIUM':
+                  return (
                     <PodiumTop3
+                      key="PODIUM"
                       members={rankedMembers}
                       areaRankings={areaRankings}
                       companyRankings={companyRankings}
                       onSelectMember={setSelectedMember}
                     />
-
+                  );
+                case 'REGIONAL':
+                  return (
                     <RegionalStats
+                      key="REGIONAL"
                       areaRankings={areaRankings}
                       selectedAreaCode={selectedAreaCode}
                       onSelectAreaCode={setSelectedAreaCode}
                       onOpenDetailsModal={() => setIsRegionalModalOpen(true)}
                     />
-
-                    <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-3xl p-5 text-white shadow-md border border-slate-800 space-y-3">
+                  );
+                case 'QUICK_ACTIONS':
+                  return (
+                    <div
+                      key="QUICK_ACTIONS"
+                      className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-3xl p-5 text-white shadow-md border border-slate-800 space-y-3"
+                    >
                       <div>
                         <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
                           <span>⚡ Thao tác nhanh</span>
@@ -1612,33 +1868,52 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                  </div>
+                  );
+                default:
+                  return null;
+              }
+            };
 
-                  {/* Leaderboard + News Section */}
-                  <div className="order-2 lg:order-1 lg:col-span-8 space-y-6">
-                    <LeaderboardTable
-                      members={rankedMembers}
-                      companyRankings={companyRankings}
-                      areaRankings={areaRankings}
-                      lastUpdated={lastUpdated}
-                      selectedAreaCode={selectedAreaCode}
-                      onSelectAreaCode={setSelectedAreaCode}
-                      onSelectMember={setSelectedMember}
-                      onOpenRules={() => setIsRulesModalOpen(true)}
-                    />
-
-                    <NewsSection
-                      huongKhiList={huongKhiView}
-                      currentUser={effectiveCurrentUser}
-                      onReactHuongKhi={handleReactHuongKhi}
-                      onAddComment={handleAddComment}
-                      onOpenRules={() => setIsRulesModalOpen(true)}
-                    />
+            return (
+              <div className="flex-1 pb-16">
+                {isAdminUser && (
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('ADMIN')}
+                      className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-800 flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>Tùy chỉnh Font &amp; Sắp xếp Widget</span>
+                    </button>
                   </div>
-                </div>
-              </main>
-            </div>
-          )}
+                )}
+
+                {visibleOrdered.filter((id) => fullIds.includes(id)).map((wId) => renderWidgetById(wId))}
+
+                {(orderedMain.length > 0 || orderedSide.length > 0) && (
+                  <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-8 sm:mt-10">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                      {orderedSide.length > 0 && (
+                        <div className="order-1 lg:order-2 lg:col-span-4 space-y-6">
+                          {orderedSide.map((wId) => renderWidgetById(wId))}
+                        </div>
+                      )}
+                      {orderedMain.length > 0 && (
+                        <div
+                          className={`order-2 lg:order-1 space-y-6 ${
+                            orderedSide.length > 0 ? 'lg:col-span-8' : 'lg:col-span-12'
+                          }`}
+                        >
+                          {orderedMain.map((wId) => renderWidgetById(wId))}
+                        </div>
+                      )}
+                    </div>
+                  </main>
+                )}
+              </div>
+            );
+          })()}
 
           {/* TAB: TRANG THÔNG TIN MĐ (Mục Turbo) */}
           {activeTab === 'DISCIPLES' && (
@@ -1665,11 +1940,57 @@ export default function App() {
               <EventHubPage
                 events={sortedEvents}
                 activeEvent={activeEvent}
+                defaultWeights={effectiveDefaultWeights}
                 currentUser={effectiveCurrentUser}
                 currentMember={currentMemberData}
                 onOpenRulesModal={() => setIsRulesModalOpen(true)}
                 onNavigateToEntry={() => setActiveTab('ENTRY')}
                 onNavigateToAdmin={isAdminUser ? () => setActiveTab('ADMIN') : undefined}
+              />
+            </main>
+          )}
+
+          {/* TAB: EDU LMS (Mục Edu) */}
+          {activeTab === 'EDU_LMS' && (
+            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+              <EduLmsPage
+                currentUser={effectiveCurrentUser}
+                topics={eduTopics}
+                assignments={eduAssignments}
+                companies={companies}
+                areas={areas}
+                members={allMembersRanked}
+                isLoading={eduLoading}
+                onSaveTopic={handleSaveEduTopic}
+                onDeleteTopic={handleDeleteEduTopic}
+                onSaveAssignment={handleSaveEduAssignment}
+                onDeleteAssignment={handleDeleteEduAssignment}
+                onNavigateToCmsCurriculum={(topicId) => {
+                  setCmsNavIntent({ subTab: 'CURRICULUM', topicId });
+                  setActiveTab('EDU_CMS');
+                }}
+                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onShowNotification={showNotification}
+              />
+            </main>
+          )}
+
+          {/* TAB: EDU CMS (Mục Edu) */}
+          {activeTab === 'EDU_CMS' && (
+            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+              <EduCmsPage
+                currentUser={effectiveCurrentUser}
+                cmsProfiles={eduCmsProfiles}
+                topics={eduTopics}
+                companies={companies}
+                areas={areas}
+                initialSubTab={cmsNavIntent.subTab}
+                initialTopicId={cmsNavIntent.topicId}
+                onSaveCmsProfile={handleSaveEduCmsProfile}
+                onDeleteCmsProfile={handleDeleteEduCmsProfile}
+                onSaveTopicCurriculum={handleSaveTopicCurriculum}
+                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onShowNotification={showNotification}
               />
             </main>
           )}
@@ -1685,6 +2006,7 @@ export default function App() {
                   dailyReports={dailyReports}
                   periodGoals={periodGoals}
                   activeEvent={activeEvent}
+                  defaultWeights={effectiveDefaultWeights}
                   disciples={disciples}
                   companies={companies}
                   areas={areas}
@@ -1760,6 +2082,11 @@ export default function App() {
                   onSaveBannerConfig={handleSaveBannerConfig}
                   onSaveEvent={handleSaveEvent}
                   onDeleteEvent={handleDeleteEvent}
+                  scoringConfig={scoringConfig}
+                  appearanceConfig={appearanceConfig}
+                  activeEvent={activeEvent}
+                  onSaveScoringConfig={handleSaveScoringConfig}
+                  onSaveAppearanceConfig={handleSaveAppearanceConfig}
                 />
               ) : (
                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-lg mx-auto text-center shadow-sm border border-slate-100 dark:border-slate-800 my-12">
@@ -1827,6 +2154,7 @@ export default function App() {
         isOpen={isRulesModalOpen}
         onClose={() => setIsRulesModalOpen(false)}
         activeEvent={activeEvent}
+        defaultWeights={effectiveDefaultWeights}
       />
     </div>
   );

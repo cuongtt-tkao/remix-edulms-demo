@@ -4,15 +4,22 @@ import {
   FestivalEvent,
   DAILY_METRIC_DEFINITIONS,
   DEFAULT_EVENT_WEIGHTS,
+  DailyReportMetrics,
 } from '../types/edulms';
 
 interface RulesModalProps {
   isOpen: boolean;
   onClose: () => void;
   activeEvent?: FestivalEvent | null;
+  defaultWeights?: DailyReportMetrics;
 }
 
-export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, activeEvent }) => {
+export const RulesModal: React.FC<RulesModalProps> = ({
+  isOpen,
+  onClose,
+  activeEvent,
+  defaultWeights,
+}) => {
   React.useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -24,7 +31,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, activeE
 
   if (!isOpen) return null;
 
-  const weights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+  const weights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
   const formatDate = (d: string) => d.split('-').reverse().join('/');
 
   return (

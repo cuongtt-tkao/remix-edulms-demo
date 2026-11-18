@@ -133,21 +133,182 @@ service cloud.firestore {
         && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 100));
     }
 
+    // Kiểm tra quyền giám sát theo khu vực / công ty đối với hồ sơ Edu
+    function canSupervisorAccessEdu(data) {
+      return (
+        isAreaLeader()
+        && get(userDocPath()).data.areaCode == data.areaCode
+        && get(userDocPath()).data.companyCode == data.companyCode
+      ) || (
+        isManager()
+        && (
+          ('managedAreaCodes' in get(userDocPath()).data && data.areaCode in get(userDocPath()).data.managedAreaCodes)
+          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+        )
+      );
+    }
+
+    function isValidEduTopic(data) {
+      return data.keys().hasAll([
+          'weekNumber', 'year', 'weekLabel', 'startDate', 'endDate',
+          'track', 'companyCode', 'areaCode', 'topicTitle', 'curriculumContent',
+          'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'weekNumber', 'year', 'weekLabel', 'startDate', 'endDate',
+          'track', 'companyCode', 'areaCode', 'topicTitle', 'summary',
+          'learningObjectives', 'curriculumContent', 'referenceLinks',
+          'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.weekNumber is number && data.weekNumber >= 1 && data.weekNumber <= 53
+        && data.year is number && data.year >= 2020 && data.year <= 2100
+        && data.weekLabel is string && data.weekLabel.size() > 0 && data.weekLabel.size() <= 60
+        && data.startDate is string && data.startDate.size() <= 15
+        && data.endDate is string && data.endDate.size() <= 15
+        && data.track in ['TD_I', 'TD_II', 'NGV']
+        && data.companyCode is string && data.companyCode.size() <= 30
+        && data.areaCode is string && data.areaCode.size() <= 40
+        && data.topicTitle is string && data.topicTitle.size() > 0 && data.topicTitle.size() <= 200
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 1000))
+        && (!('learningObjectives' in data) || (data.learningObjectives is string && data.learningObjectives.size() <= 1000))
+        && data.curriculumContent is string && data.curriculumContent.size() <= 20000
+        && (!('referenceLinks' in data) || (data.referenceLinks is string && data.referenceLinks.size() <= 1000))
+        && data.createdBy is string && data.createdBy.size() <= 100
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    function isValidEduAssignment(data) {
+      return data.keys().hasAll([
+          'topicId', 'track', 'weekLabel', 'topicTitle', 'companyCode',
+          'areaCode', 'studentName', 'assignedByUid', 'assignedByName',
+          'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'topicId', 'track', 'weekLabel', 'topicTitle', 'companyCode',
+          'areaCode', 'memberId', 'studentName', 'assignedByUid', 'assignedByName',
+          'status', 'note', 'createdAt', 'updatedAt'
+        ])
+        && data.topicId is string && data.topicId.size() > 0 && data.topicId.size() <= 128
+        && data.track in ['TD_I', 'TD_II', 'NGV']
+        && data.weekLabel is string && data.weekLabel.size() <= 60
+        && data.topicTitle is string && data.topicTitle.size() <= 200
+        && data.companyCode is string && data.companyCode.size() <= 30
+        && data.areaCode is string && data.areaCode.size() > 0 && data.areaCode.size() <= 40
+        && (!('memberId' in data) || (data.memberId is string && data.memberId.size() <= 128))
+        && data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 120
+        && data.assignedByUid is string && data.assignedByUid.size() > 0 && data.assignedByUid.size() <= 128
+        && data.assignedByName is string && data.assignedByName.size() <= 100
+        && data.status in ['REGISTERED', 'IN_PROGRESS', 'COMPLETED']
+        && (!('note' in data) || (data.note is string && data.note.size() <= 500))
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    function isValidEduCmsProfile(data) {
+      return data.keys().hasAll([
+          'fullName', 'companyCode', 'areaCode', 'stage', 'ngvName',
+          'ownerUid', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'fullName', 'companyCode', 'areaCode', 'stage', 'ngvName',
+          'specialty', 'currentTopicId', 'currentTopicTitle', 'note',
+          'ownerUid', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 120
+        && data.companyCode is string && data.companyCode.size() <= 30
+        && data.areaCode is string && data.areaCode.size() <= 40
+        && data.stage in ['TD_MOI', 'TD_I', 'TD_II', 'NGV']
+        && data.ngvName is string && data.ngvName.size() <= 120
+        && (!('specialty' in data) || (data.specialty is string && data.specialty.size() <= 200))
+        && (!('currentTopicId' in data) || (data.currentTopicId is string && data.currentTopicId.size() <= 128))
+        && (!('currentTopicTitle' in data) || (data.currentTopicTitle is string && data.currentTopicTitle.size() <= 200))
+        && (!('note' in data) || (data.note is string && data.note.size() <= 600))
+        && data.ownerUid is string && data.ownerUid.size() > 0 && data.ownerUid.size() <= 128
+        && data.updatedBy is string && data.updatedBy.size() <= 100
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
     // Mã thành viên của chính người dùng đang đăng nhập
     function ownMemberId() {
       return 'm-' + request.auth.uid;
     }
 
-    // ---------- Cấu hình hệ thống (system_config/roles, system_config/banner) ----------
+    // ---------- Cấu hình hệ thống (roles, banner, scoring, appearance) ----------
     match /system_config/{id} {
-      allow read: if id == 'banner' || isSignedIn();
-      allow write: if (id == 'banner' && isAdmin()) || isSuperAdmin();
+      allow read: if id in ['banner', 'scoring', 'appearance'] || isSignedIn();
+      allow write: if (id in ['banner', 'scoring', 'appearance'] && isAdmin()) || isSuperAdmin();
     }
 
     // ---------- Sự kiện & Chiến dịch thi đua (events/{id}) ----------
     match /events/{id} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // ---------- Edu LMS: Chủ đề theo tuần & Giáo trình bài học (edu_topics/{topicId}) ----------
+    match /edu_topics/{topicId} {
+      allow read: if isSignedIn();
+      allow create, update: if isValidId(topicId)
+        && isAdmin()
+        && isValidEduTopic(request.resource.data);
+      allow delete: if isValidId(topicId) && isAdmin();
+    }
+
+    // ---------- Edu LMS: Gán Tên KV & Tên TĐ vào Chủ đề tuần (edu_assignments/{assignmentId}) ----------
+    match /edu_assignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow create: if isValidId(assignmentId)
+        && isSignedIn()
+        && isValidEduAssignment(request.resource.data)
+        && (request.resource.data.assignedByUid == request.auth.uid || isAdmin());
+      allow update: if isValidId(assignmentId)
+        && isSignedIn()
+        && isValidEduAssignment(request.resource.data)
+        && request.resource.data.assignedByUid == resource.data.assignedByUid
+        && (
+          isAdmin()
+          || resource.data.assignedByUid == request.auth.uid
+          || canSupervisorAccessEdu(resource.data)
+        );
+      allow delete: if isValidId(assignmentId)
+        && isSignedIn()
+        && (
+          isAdmin()
+          || resource.data.assignedByUid == request.auth.uid
+          || canSupervisorAccessEdu(resource.data)
+        );
+    }
+
+    // ---------- Edu CMS: Quản lý lộ trình TĐ Mới -> TĐ-II & danh sách NGV (edu_cms_profiles/{profileId}) ----------
+    match /edu_cms_profiles/{profileId} {
+      allow read: if isSignedIn();
+      allow create: if isValidId(profileId)
+        && isSignedIn()
+        && isValidEduCmsProfile(request.resource.data)
+        && (
+          isAdmin()
+          || request.resource.data.ownerUid == request.auth.uid
+          || isAreaLeader()
+          || isManager()
+        );
+      allow update: if isValidId(profileId)
+        && isSignedIn()
+        && isValidEduCmsProfile(request.resource.data)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && (
+          isAdmin()
+          || resource.data.ownerUid == request.auth.uid
+          || canSupervisorAccessEdu(resource.data)
+        );
+      allow delete: if isValidId(profileId)
+        && isSignedIn()
+        && (
+          isAdmin()
+          || resource.data.ownerUid == request.auth.uid
+          || canSupervisorAccessEdu(resource.data)
+        );
     }
 
     // ---------- Trang thông tin Môn Đồ (disciples/{discipleId}) ----------

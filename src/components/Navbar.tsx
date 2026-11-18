@@ -15,10 +15,20 @@ import {
   ChevronRight,
   Users,
   CalendarDays,
+  GraduationCap,
+  BookMarked,
 } from 'lucide-react';
 import { UserAccount } from '../types/edulms';
 
-export type AppTab = 'ENTRY' | 'HONORS' | 'DISCIPLES' | 'PROFILE' | 'EVENT_HUB' | 'ADMIN';
+export type AppTab =
+  | 'ENTRY'
+  | 'HONORS'
+  | 'DISCIPLES'
+  | 'PROFILE'
+  | 'EVENT_HUB'
+  | 'EDU_LMS'
+  | 'EDU_CMS'
+  | 'ADMIN';
 
 interface TopHeaderProps {
   isSidebarOpen: boolean;
@@ -198,10 +208,11 @@ function getRoleSubtitle(user: UserAccount): string {
 }
 
 /**
- * Menu dọc chia thành 3 Mục Chính:
+ * Menu dọc chia thành 4 Mục Chính:
  * 1. Turbo (Báo cáo hằng ngày, Bảng Xếp hạng thi đua, Trang thông tin MĐ)
  * 2. Công Việc (Hồ sơ cá nhân & Hương khí)
  * 3. Event (Chiến dịch & Thể lệ, Quản trị Hệ thống)
+ * 4. Edu (Giáo dục: LMS & CMS)
  */
 export const SideNavigation: React.FC<SideNavigationProps> = ({
   isDesktopOpen,
@@ -275,10 +286,32 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         {
           id: 'ADMIN',
           label: currentUser?.role === 'SUPER_ADMIN' ? 'Quản trị Tổng' : 'Quản trị Hệ thống',
-          subLabel: 'Banner, Event & Phân quyền',
+          subLabel: 'Điểm, Giao diện & Phân quyền',
           icon: Shield,
           accent: 'text-purple-400',
           visible: isAdmin,
+        },
+      ],
+    },
+    {
+      key: 'edu',
+      title: 'Edu (Giáo dục)',
+      items: [
+        {
+          id: 'EDU_LMS',
+          label: 'LMS',
+          subLabel: 'TĐ-I · TĐ-II · NGV',
+          icon: GraduationCap,
+          accent: 'text-emerald-400',
+          visible: true,
+        },
+        {
+          id: 'EDU_CMS',
+          label: 'CMS',
+          subLabel: 'TĐ Mới→TĐ-II · NGV · Giáo trình',
+          icon: BookMarked,
+          accent: 'text-amber-300',
+          visible: true,
         },
       ],
     },

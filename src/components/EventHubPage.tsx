@@ -12,6 +12,7 @@ import {
   FestivalEvent,
   DAILY_METRIC_DEFINITIONS,
   DEFAULT_EVENT_WEIGHTS,
+  DailyReportMetrics,
   UserAccount,
   Member,
 } from '../types/edulms';
@@ -19,6 +20,7 @@ import {
 interface EventHubPageProps {
   events: FestivalEvent[];
   activeEvent: FestivalEvent | null;
+  defaultWeights?: DailyReportMetrics;
   currentUser: UserAccount | null;
   currentMember: Member | null;
   onOpenRulesModal: () => void;
@@ -29,6 +31,7 @@ interface EventHubPageProps {
 export const EventHubPage: React.FC<EventHubPageProps> = ({
   events,
   activeEvent,
+  defaultWeights,
   currentUser,
   currentMember,
   onOpenRulesModal,
@@ -36,7 +39,7 @@ export const EventHubPage: React.FC<EventHubPageProps> = ({
   onNavigateToAdmin,
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
-  const weights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+  const weights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
 
   return (
     <div className="space-y-5">

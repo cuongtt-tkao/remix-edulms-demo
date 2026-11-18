@@ -33,6 +33,7 @@ interface DailyReportSectionProps {
   dailyReports: DailyReportRecord[];
   periodGoals: PeriodGoalRecord[];
   activeEvent: FestivalEvent | null;
+  defaultWeights?: DailyReportMetrics;
   onSaveDailyReport: (
     date: string,
     goals: DailyReportMetrics,
@@ -79,6 +80,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
   dailyReports,
   periodGoals,
   activeEvent,
+  defaultWeights,
   onSaveDailyReport,
   onSavePeriodGoal,
   onOpenAuthModal,
@@ -170,8 +172,8 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
       ? monthAggregatedResults
       : yearAggregatedResults;
 
-  // Trọng số điểm từ Event đang kích hoạt hoặc mặc định
-  const activeWeights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+  // Trọng số điểm từ Event đang kích hoạt hoặc Bảng điểm mặc định hệ thống
+  const activeWeights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
   const periodScore = useMemo(
     () => computeDailyMetricsScore(displayedResults, activeWeights),
     [displayedResults, activeWeights]

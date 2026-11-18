@@ -94,12 +94,97 @@
         "weights": { "type": "object" }
       },
       "required": ["title", "startDate", "endDate", "isActive"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Shared system configuration docs (roles, banner, scoring, appearance)",
+      "type": "object",
+      "properties": {
+        "weights": { "type": "object" },
+        "fontKey": { "type": "string", "maxLength": 40 },
+        "fontScale": { "type": "string", "enum": ["SM", "MD", "LG"] },
+        "widgetOrder": { "type": "array" },
+        "hiddenWidgets": { "type": "array" },
+        "updatedAt": { "type": "string", "maxLength": 50 },
+        "updatedBy": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "EduWeeklyTopic": {
+      "title": "EduWeeklyTopic",
+      "description": "Weekly topic & CMS lesson curriculum for LMS tracks (TĐ-I, TĐ-II, NGV)",
+      "type": "object",
+      "properties": {
+        "weekNumber": { "type": "number" },
+        "year": { "type": "number" },
+        "weekLabel": { "type": "string", "maxLength": 60 },
+        "startDate": { "type": "string", "maxLength": 15 },
+        "endDate": { "type": "string", "maxLength": 15 },
+        "track": { "type": "string", "enum": ["TD_I", "TD_II", "NGV"] },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 40 },
+        "topicTitle": { "type": "string", "maxLength": 200 },
+        "summary": { "type": "string", "maxLength": 1000 },
+        "learningObjectives": { "type": "string", "maxLength": 1000 },
+        "curriculumContent": { "type": "string", "maxLength": 20000 },
+        "referenceLinks": { "type": "string", "maxLength": 1000 },
+        "createdBy": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["weekNumber", "year", "weekLabel", "startDate", "endDate", "track", "companyCode", "areaCode", "topicTitle", "curriculumContent", "createdBy", "createdAt", "updatedAt"]
+    },
+    "EduTopicAssignment": {
+      "title": "EduTopicAssignment",
+      "description": "Assignment linking Tên KV & Tên TĐ to a weekly LMS topic",
+      "type": "object",
+      "properties": {
+        "topicId": { "type": "string", "maxLength": 128 },
+        "track": { "type": "string", "enum": ["TD_I", "TD_II", "NGV"] },
+        "weekLabel": { "type": "string", "maxLength": 60 },
+        "topicTitle": { "type": "string", "maxLength": 200 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 40 },
+        "memberId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "assignedByUid": { "type": "string", "maxLength": 128 },
+        "assignedByName": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["REGISTERED", "IN_PROGRESS", "COMPLETED"] },
+        "note": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["topicId", "track", "weekLabel", "topicTitle", "companyCode", "areaCode", "studentName", "assignedByUid", "assignedByName", "status", "createdAt", "updatedAt"]
+    },
+    "EduCmsProfile": {
+      "title": "EduCmsProfile",
+      "description": "CMS learner progression (TĐ Mới -> TĐ-I -> TĐ-II) and NGV mentor roster",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string", "maxLength": 120 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 40 },
+        "stage": { "type": "string", "enum": ["TD_MOI", "TD_I", "TD_II", "NGV"] },
+        "ngvName": { "type": "string", "maxLength": 120 },
+        "specialty": { "type": "string", "maxLength": 200 },
+        "currentTopicId": { "type": "string", "maxLength": 128 },
+        "currentTopicTitle": { "type": "string", "maxLength": 200 },
+        "note": { "type": "string", "maxLength": 600 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "updatedBy": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["fullName", "companyCode", "areaCode", "stage", "ngvName", "ownerUid", "updatedBy", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User accounts, roles, and managed scopes"
+    },
+    "/system_config/{id}": {
+      "schema": "SystemConfig",
+      "description": "System-wide configuration (roles, banner, scoring, appearance)"
     },
     "/disciples/{discipleId}": {
       "schema": "Disciple",
@@ -116,6 +201,18 @@
     "/events/{eventId}": {
       "schema": "FestivalEvent",
       "description": "Festival event campaigns"
+    },
+    "/edu_topics/{topicId}": {
+      "schema": "EduWeeklyTopic",
+      "description": "Weekly LMS topics and CMS curriculum content"
+    },
+    "/edu_assignments/{assignmentId}": {
+      "schema": "EduTopicAssignment",
+      "description": "Assignments of KV and Tên TĐ to weekly LMS topics"
+    },
+    "/edu_cms_profiles/{profileId}": {
+      "schema": "EduCmsProfile",
+      "description": "CMS learner progression (TĐ Mới -> TĐ-II) and NGV mentor roster"
     }
   }
 }

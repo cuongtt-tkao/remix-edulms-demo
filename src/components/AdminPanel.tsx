@@ -24,6 +24,7 @@ import {
   Info,
   Crown,
   Image as ImageIcon,
+  Sliders,
 } from 'lucide-react';
 import {
   Company,
@@ -35,6 +36,9 @@ import {
   RoleAssignment,
   SystemBannerConfig,
   FestivalEvent,
+  SystemScoringConfig,
+  SystemAppearanceConfig,
+  DailyReportMetrics,
 } from '../types/edulms';
 import {
   exportSystemConfigExcel,
@@ -46,6 +50,7 @@ import {
 } from '../utils/excelManager';
 import { RoleManagementTab } from './RoleManagementTab';
 import { AdminBannerEventTab } from './AdminBannerEventTab';
+import { AdminScoringAppearanceTab } from './AdminScoringAppearanceTab';
 
 interface AdminPanelProps {
   companies: Company[];
@@ -91,6 +96,11 @@ interface AdminPanelProps {
   onSaveBannerConfig?: (config: SystemBannerConfig) => Promise<void>;
   onSaveEvent?: (event: FestivalEvent) => Promise<void>;
   onDeleteEvent?: (eventId: string) => Promise<void>;
+  scoringConfig?: SystemScoringConfig | null;
+  appearanceConfig?: SystemAppearanceConfig | null;
+  activeEvent?: FestivalEvent | null;
+  onSaveScoringConfig?: (weights: DailyReportMetrics) => Promise<void>;
+  onSaveAppearanceConfig?: (config: SystemAppearanceConfig) => Promise<void>;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -127,9 +137,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onSaveBannerConfig,
   onSaveEvent,
   onDeleteEvent,
+  scoringConfig = null,
+  appearanceConfig = null,
+  activeEvent = null,
+  onSaveScoringConfig,
+  onSaveAppearanceConfig,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'COMPANIES' | 'AREAS' | 'DEPARTMENTS' | 'MEMBERS' | 'BANNER_EVENTS' | 'EXCEL_SYNC' | 'ROLES'
+    | 'COMPANIES'
+    | 'AREAS'
+    | 'DEPARTMENTS'
+    | 'MEMBERS'
+    | 'BANNER_EVENTS'
+    | 'SCORING_APPEARANCE'
+    | 'EXCEL_SYNC'
+    | 'ROLES'
   >('BANNER_EVENTS');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{
@@ -365,114 +387,153 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         className="hidden"
       />
 
-      <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-7 shadow-sm border border-slate-200 dark:border-slate-800">
         
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-100 gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-slate-100 dark:border-slate-800 gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-50 px-3 py-1 rounded-full w-fit mb-2">
-              <Shield className="w-3.5 h-3.5 text-purple-600" />
+            <div className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-3 py-1 rounded-lg mb-2">
+              <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               <span>Hệ thống Quản trị Hành Thực Lục</span>
             </div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <span>Quản Lý Banner, Event, Đơn Vị &amp; Nhân Sự</span>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+              Bảng Điều Khiển Quản Trị
             </h2>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Quản trị chiến dịch Event, chỉnh sửa Banner trang chủ, đơn vị tổ chức, thành viên và phân quyền.
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+              Chọn danh mục bên dưới để cấu hình chiến dịch Event, bảng điểm, giao diện toàn web, nhân sự và phân quyền.
             </p>
           </div>
         </div>
 
-        {/* Tab Selector */}
-        <div className="flex items-center gap-2 overflow-x-auto py-4 border-b border-slate-100 text-xs font-bold">
-          <button
-            onClick={() => setActiveTab('BANNER_EVENTS')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              activeTab === 'BANNER_EVENTS'
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs'
-                : 'text-amber-700 hover:text-amber-900 hover:bg-amber-50'
-            }`}
-          >
-            <ImageIcon className="w-4 h-4" />
-            <span>Banner &amp; Event ({events.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('COMPANIES')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              activeTab === 'COMPANIES'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>Công ty ({companies.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('AREAS')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              activeTab === 'AREAS'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <MapPin className="w-4 h-4" />
-            <span>Khu vực ({areas.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('DEPARTMENTS')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              activeTab === 'DEPARTMENTS'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Users2 className="w-4 h-4" />
-            <span>Ban ngành ({departments.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('MEMBERS')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              activeTab === 'MEMBERS'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <User className="w-4 h-4" />
-            <span>Thành viên ({members.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('EXCEL_SYNC')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              activeTab === 'EXCEL_SYNC'
-                ? 'bg-emerald-800 text-white shadow-xs'
-                : 'text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-            <span>Nhập / Xuất Excel</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('ROLES')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              activeTab === 'ROLES'
-                ? 'bg-purple-900 text-white shadow-xs'
-                : 'text-purple-700 dark:text-purple-300 hover:text-purple-950 hover:bg-purple-50 dark:hover:bg-purple-950/40'
-            }`}
-          >
-            <Crown className="w-4 h-4 text-amber-400" />
-            <span>Phân quyền Quản trị {usersList ? `(${usersList.length})` : ''}</span>
-            {currentUser?.role === 'SUPER_ADMIN' && (
-              <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 text-[10px] font-black rounded-md">
-                VIP
-              </span>
-            )}
-          </button>
+        {/* Feature Selector Grid (No horizontal scroll) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 py-5 border-b border-slate-100 dark:border-slate-800">
+          {[
+            {
+              id: 'BANNER_EVENTS' as const,
+              label: 'Banner & Event',
+              meta: `${events.length} chiến dịch`,
+              icon: ImageIcon,
+              activeCls:
+                'bg-gradient-to-br from-amber-500 to-orange-500 text-white border-amber-500 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-amber-300 dark:hover:border-amber-700',
+              iconCls: 'text-amber-600 dark:text-amber-400',
+            },
+            {
+              id: 'SCORING_APPEARANCE' as const,
+              label: 'Điểm & Giao diện',
+              meta: 'Điểm gốc · Font · Widget',
+              icon: Sliders,
+              activeCls:
+                'bg-gradient-to-br from-indigo-600 to-blue-700 text-white border-indigo-600 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700',
+              iconCls: 'text-indigo-600 dark:text-indigo-400',
+            },
+            {
+              id: 'ROLES' as const,
+              label: 'Phân quyền',
+              meta: usersList ? `${usersList.length} tài khoản` : '5 cấp quyền',
+              badge: currentUser?.role === 'SUPER_ADMIN' ? 'VIP' : undefined,
+              icon: Crown,
+              activeCls:
+                'bg-gradient-to-br from-purple-700 to-indigo-800 text-white border-purple-700 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-700',
+              iconCls: 'text-purple-600 dark:text-purple-400',
+            },
+            {
+              id: 'EXCEL_SYNC' as const,
+              label: 'Nhập / Xuất Excel',
+              meta: 'Đồng bộ tệp .xlsx',
+              icon: FileSpreadsheet,
+              activeCls:
+                'bg-gradient-to-br from-emerald-600 to-teal-700 text-white border-emerald-600 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700',
+              iconCls: 'text-emerald-600 dark:text-emerald-400',
+            },
+            {
+              id: 'COMPANIES' as const,
+              label: 'Công ty',
+              meta: `${companies.length} đơn vị`,
+              icon: Building2,
+              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
+              iconCls: 'text-blue-700 dark:text-blue-400',
+            },
+            {
+              id: 'AREAS' as const,
+              label: 'Khu vực',
+              meta: `${areas.length} khu vực`,
+              icon: MapPin,
+              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
+              iconCls: 'text-blue-700 dark:text-blue-400',
+            },
+            {
+              id: 'DEPARTMENTS' as const,
+              label: 'Ban ngành',
+              meta: `${departments.length} ban ngành`,
+              icon: Users2,
+              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
+              iconCls: 'text-blue-700 dark:text-blue-400',
+            },
+            {
+              id: 'MEMBERS' as const,
+              label: 'Thành viên',
+              meta: `${members.length} nhân sự`,
+              icon: User,
+              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
+              idleCls:
+                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
+              iconCls: 'text-blue-700 dark:text-blue-400',
+            },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
+                  isActive ? tab.activeCls : tab.idleCls
+                }`}
+              >
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : tab.iconCls}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-extrabold truncate">{tab.label}</span>
+                    {tab.badge && (
+                      <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 text-[9px] font-black rounded-md shrink-0">
+                        {tab.badge}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className={`text-[10px] truncate tabular-nums mt-0.5 ${
+                      isActive ? 'text-white/85' : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {tab.meta}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         {/* TAB 1: COMPANIES */}
@@ -1721,6 +1782,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onSaveBannerConfig={onSaveBannerConfig || (async () => {})}
               onSaveEvent={onSaveEvent || (async () => {})}
               onDeleteEvent={onDeleteEvent || (async () => {})}
+              onShowNotification={onShowNotification}
+              defaultWeights={scoringConfig?.weights}
+            />
+          </div>
+        )}
+
+        {/* TAB 8: ĐIỂM MẶC ĐỊNH HỆ THỐNG, FONT CHỮ & BỐ CỤC WIDGET */}
+        {activeTab === 'SCORING_APPEARANCE' && (
+          <div className="mt-6">
+            <AdminScoringAppearanceTab
+              scoringConfig={scoringConfig}
+              appearanceConfig={appearanceConfig}
+              activeEvent={activeEvent}
+              onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
+              onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
               onShowNotification={onShowNotification}
             />
           </div>

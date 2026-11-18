@@ -44,6 +44,7 @@ interface AdminBannerEventTabProps {
   onSaveEvent: (event: FestivalEvent) => Promise<void>;
   onDeleteEvent: (eventId: string) => Promise<void>;
   onShowNotification: (msg: string) => void;
+  defaultWeights?: DailyReportMetrics;
 }
 
 const DEFAULT_BANNER_CONFIG: SystemBannerConfig = {
@@ -71,7 +72,9 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   onSaveEvent,
   onDeleteEvent,
   onShowNotification,
+  defaultWeights,
 }) => {
+  const baseWeights = defaultWeights || DEFAULT_EVENT_WEIGHTS;
   const [subTab, setSubTab] = useState<'EVENTS' | 'BANNER'>('EVENTS');
 
   // ---------- BANNER STATE ----------
@@ -185,7 +188,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   const [evIsPinned, setEvIsPinned] = useState(true);
   const [evRestrictParticipants, setEvRestrictParticipants] = useState(true);
   const [evParticipantIds, setEvParticipantIds] = useState<string[]>([]);
-  const [evWeights, setEvWeights] = useState<DailyReportMetrics>({ ...DEFAULT_EVENT_WEIGHTS });
+  const [evWeights, setEvWeights] = useState<DailyReportMetrics>({ ...baseWeights });
   const [participantSearch, setParticipantSearch] = useState('');
   const [participantCompanyFilter, setParticipantCompanyFilter] = useState('ALL');
   const [isSavingEvent, setIsSavingEvent] = useState(false);
@@ -203,7 +206,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
     setEvIsPinned(true);
     setEvRestrictParticipants(true);
     setEvParticipantIds(members.filter((m) => m.active).map((m) => m.id));
-    setEvWeights({ ...DEFAULT_EVENT_WEIGHTS });
+    setEvWeights({ ...baseWeights });
     setParticipantSearch('');
     setParticipantCompanyFilter('ALL');
     setIsEventModalOpen(true);

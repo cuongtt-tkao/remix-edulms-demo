@@ -444,3 +444,253 @@ export const STEP_DEFINITIONS: StepMetric[] = [
   { id: 6, name: 'Gợi mở', points: 500 },
 ];
 
+// ---------- Cấu hình Điểm mặc định hệ thống (system_config/scoring) ----------
+export interface SystemScoringConfig {
+  id?: string;
+  weights: DailyReportMetrics;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+// ---------- Cấu hình Font & Bố cục Widget toàn trang (system_config/appearance) ----------
+export type AppFontKey =
+  | 'BE_VIETNAM_PRO'
+  | 'PLUS_JAKARTA_SANS'
+  | 'NUNITO'
+  | 'INTER'
+  | 'MERRIWEATHER'
+  | 'PLAYFAIR_DISPLAY';
+
+export type AppFontScale = 'SM' | 'MD' | 'LG';
+
+export interface AppFontOption {
+  key: AppFontKey;
+  label: string;
+  styleTag: string;
+  cssFamily: string;
+  description: string;
+}
+
+export const APP_FONT_OPTIONS: AppFontOption[] = [
+  {
+    key: 'BE_VIETNAM_PRO',
+    label: 'Be Vietnam Pro',
+    styleTag: 'Mặc định · Cân đối',
+    cssFamily: "'Be Vietnam Pro', 'Plus Jakarta Sans', system-ui, sans-serif",
+    description: 'Tối ưu hiển thị dấu tiếng Việt rõ nét trên cả desktop và mobile.',
+  },
+  {
+    key: 'PLUS_JAKARTA_SANS',
+    label: 'Plus Jakarta Sans',
+    styleTag: 'Hiện đại · SaaS',
+    cssFamily: "'Plus Jakarta Sans', 'Be Vietnam Pro', system-ui, sans-serif",
+    description: 'Kiểu chữ hiện đại, thanh thoát, phù hợp bảng biểu và dashboard.',
+  },
+  {
+    key: 'NUNITO',
+    label: 'Nunito',
+    styleTag: 'Thân thiện · Mềm mại',
+    cssFamily: "'Nunito', 'Be Vietnam Pro', system-ui, sans-serif",
+    description: 'Nét chữ bo tròn thân thiện, dễ đọc cho trang giáo dục và cộng đồng.',
+  },
+  {
+    key: 'INTER',
+    label: 'Inter',
+    styleTag: 'Sắc nét · Số liệu',
+    cssFamily: "'Inter', 'Be Vietnam Pro', system-ui, sans-serif",
+    description: 'Tương phản cao cho bảng xếp hạng, con số và báo cáo dày đặc.',
+  },
+  {
+    key: 'MERRIWEATHER',
+    label: 'Merriweather',
+    styleTag: 'Serif · Giáo trình',
+    cssFamily: "'Merriweather', 'Be Vietnam Pro', Georgia, serif",
+    description: 'Phong cách chữ có chân trang trọng, phù hợp đọc bài học và lời chứng.',
+  },
+  {
+    key: 'PLAYFAIR_DISPLAY',
+    label: 'Playfair Display',
+    styleTag: 'Cổ điển · Tôn vinh',
+    cssFamily: "'Playfair Display', 'Be Vietnam Pro', Georgia, serif",
+    description: 'Tôn vinh tiêu đề trang trọng, phù hợp các đợt lễ hội và sự kiện lớn.',
+  },
+];
+
+export type HonorsWidgetId =
+  | 'BANNER'
+  | 'KPI'
+  | 'EVENTS_STRIP'
+  | 'LEADERBOARD'
+  | 'PODIUM'
+  | 'REGIONAL'
+  | 'QUICK_ACTIONS'
+  | 'NEWS';
+
+export interface HonorsWidgetMeta {
+  id: HonorsWidgetId;
+  label: string;
+  zone: 'FULL' | 'MAIN' | 'SIDE';
+  description: string;
+}
+
+export const HONORS_WIDGET_DEFINITIONS: HonorsWidgetMeta[] = [
+  {
+    id: 'BANNER',
+    label: 'Banner Chiến dịch Trang chủ',
+    zone: 'FULL',
+    description: 'Ảnh bìa lớn đầu trang cùng tiêu đề chiến dịch thi đua.',
+  },
+  {
+    id: 'KPI',
+    label: 'Thẻ Chỉ số Tổng quan (KPI)',
+    zone: 'FULL',
+    description: 'Tổng số đơn vị, thành viên, lượt báo cáo và tổng điểm.',
+  },
+  {
+    id: 'EVENTS_STRIP',
+    label: 'Danh sách Sự kiện Thi đua',
+    zone: 'FULL',
+    description: 'Các chiến dịch Event đang diễn ra & thời hạn áp dụng.',
+  },
+  {
+    id: 'LEADERBOARD',
+    label: 'Bảng Xếp hạng Cá nhân',
+    zone: 'MAIN',
+    description: 'Bảng chi tiết điểm số, xếp hạng và thống kê 7 chỉ số.',
+  },
+  {
+    id: 'NEWS',
+    label: 'Bảng tin Hương Khí & Lời chứng',
+    zone: 'MAIN',
+    description: 'Các bài chia sẻ, tương tác cảm xúc và bình luận khích lệ.',
+  },
+  {
+    id: 'PODIUM',
+    label: 'Bục Vinh danh Top 3',
+    zone: 'SIDE',
+    description: 'Top 3 cá nhân, khu vực và công ty dẫn đầu.',
+  },
+  {
+    id: 'REGIONAL',
+    label: 'Xếp hạng theo Khu vực',
+    zone: 'SIDE',
+    description: 'Điểm trung bình và thứ hạng giữa các khu vực.',
+  },
+  {
+    id: 'QUICK_ACTIONS',
+    label: 'Khối Thao tác nhanh',
+    zone: 'SIDE',
+    description: 'Lối tắt mở nhanh Báo cáo hằng ngày & Hồ sơ cá nhân.',
+  },
+];
+
+export const DEFAULT_HONORS_WIDGET_ORDER: HonorsWidgetId[] = [
+  'BANNER',
+  'KPI',
+  'EVENTS_STRIP',
+  'LEADERBOARD',
+  'PODIUM',
+  'REGIONAL',
+  'QUICK_ACTIONS',
+  'NEWS',
+];
+
+export interface SystemAppearanceConfig {
+  id?: string;
+  fontKey: AppFontKey;
+  fontScale: AppFontScale;
+  widgetOrder: HonorsWidgetId[];
+  hiddenWidgets: HonorsWidgetId[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export const DEFAULT_APPEARANCE_CONFIG: SystemAppearanceConfig = {
+  fontKey: 'BE_VIETNAM_PRO',
+  fontScale: 'MD',
+  widgetOrder: [...DEFAULT_HONORS_WIDGET_ORDER],
+  hiddenWidgets: [],
+};
+
+// ---------- Hệ thống Giáo dục: Edu (LMS & CMS) ----------
+export type EduTrack = 'TD_I' | 'TD_II' | 'NGV';
+
+export const EDU_TRACK_LABELS: Record<EduTrack, string> = {
+  TD_I: 'TĐ-I',
+  TD_II: 'TĐ-II',
+  NGV: 'NGV',
+};
+
+export type EduCmsStage = 'TD_MOI' | 'TD_I' | 'TD_II' | 'NGV';
+
+export const EDU_CMS_STAGE_LABELS: Record<EduCmsStage, string> = {
+  TD_MOI: 'TĐ Mới',
+  TD_I: 'TĐ-I',
+  TD_II: 'TĐ-II',
+  NGV: 'NGV',
+};
+
+export type EduAssignmentStatus = 'REGISTERED' | 'IN_PROGRESS' | 'COMPLETED';
+
+export const EDU_ASSIGNMENT_STATUS_LABELS: Record<EduAssignmentStatus, string> = {
+  REGISTERED: 'Đã gán',
+  IN_PROGRESS: 'Đang học',
+  COMPLETED: 'Hoàn thành',
+};
+
+export interface EduWeeklyTopic {
+  id: string;
+  weekNumber: number;
+  year: number;
+  weekLabel: string; // Ví dụ: "Tuần 12 / 2026"
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  track: EduTrack;
+  companyCode: string; // 'ALL' hoặc mã Cty
+  areaCode: string; // 'ALL' hoặc mã KV
+  topicTitle: string; // Tên Chủ đề
+  summary: string;
+  learningObjectives?: string;
+  curriculumContent: string; // Giáo trình / Nội dung bài học soạn từ CMS
+  referenceLinks?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EduTopicAssignment {
+  id: string;
+  topicId: string;
+  track: EduTrack;
+  weekLabel: string;
+  topicTitle: string;
+  companyCode: string; // Tên/Mã Cty
+  areaCode: string; // Tên KV
+  memberId?: string;
+  studentName: string; // Tên TĐ
+  assignedByUid: string;
+  assignedByName: string;
+  status: EduAssignmentStatus;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EduCmsProfile {
+  id: string;
+  fullName: string; // Tên TĐ hoặc NGV
+  companyCode: string;
+  areaCode: string;
+  stage: EduCmsStage; // 'TD_MOI' | 'TD_I' | 'TD_II' | 'NGV'
+  ngvName: string; // NGV phụ trách
+  specialty?: string; // Chuyên môn / Lĩnh vực (dành cho NGV)
+  currentTopicId?: string;
+  currentTopicTitle?: string;
+  note: string;
+  ownerUid: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+

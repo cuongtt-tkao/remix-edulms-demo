@@ -60,6 +60,7 @@ interface ProfilePageProps {
   dailyReports: DailyReportRecord[];
   periodGoals: PeriodGoalRecord[];
   activeEvent: FestivalEvent | null;
+  defaultWeights?: DailyReportMetrics;
   disciples: DiscipleRecord[];
   companies: Company[];
   areas: Area[];
@@ -151,6 +152,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   dailyReports,
   periodGoals,
   activeEvent,
+  defaultWeights,
   disciples,
   companies,
   areas,
@@ -274,7 +276,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   );
 
   const reportSummary = useMemo(() => {
-    const weights = activeEvent?.weights || DEFAULT_EVENT_WEIGHTS;
+    const weights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
     let matchedReports: DailyReportRecord[] = [];
     let goals: DailyReportMetrics = { ...DEFAULT_DAILY_GOALS };
 
@@ -357,6 +359,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     myDailyReports,
     periodGoals,
     activeEvent,
+    defaultWeights,
     reportPeriodMode,
     todayStr,
     currentMonthStr,
