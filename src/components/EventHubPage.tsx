@@ -49,10 +49,10 @@ export const EventHubPage: React.FC<EventHubPageProps> = ({
           <div>
             <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
               <CalendarDays className="w-5 h-5 text-amber-500 shrink-0" />
-              <span>Chiến dịch &amp; Thể lệ Event</span>
+              <span>Trang Event</span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Điểm thi đua Event được tổng hợp trực tiếp từ dữ liệu Báo cáo hằng ngày trong khoảng thời gian chiến dịch.
+              Chiến dịch thi đua &amp; thể lệ quy đổi điểm từ Báo cáo hằng ngày.
             </p>
           </div>
 

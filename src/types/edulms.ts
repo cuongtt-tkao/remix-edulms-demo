@@ -98,6 +98,7 @@ export interface Member {
   companyCode: string;
   areaCode: string;
   departmentCode: string;
+  unitCode?: string; // Mã Đội / Uni
   active: boolean;
   score: number;
   rank?: number;
@@ -113,7 +114,100 @@ export interface Member {
   dailyGoals?: DailyReportMetrics;
 }
 
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'AREA_LEADER' | 'MEMBER';
+export type UserRole =
+  | 'SUPER_ADMIN'
+  | 'ADMIN'
+  | 'MANAGER'
+  | 'SION_LEADER'
+  | 'AREA_LEADER'
+  | 'UNI_LEADER'
+  | 'MEMBER';
+
+export interface RoleDisplayMeta {
+  role: UserRole;
+  codeBadge: string;
+  label: string;
+  shortLabel: string;
+  scopeSummary: string;
+  badgeClass: string;
+  level: number;
+}
+
+export const ROLE_DISPLAY_META: Record<UserRole, RoleDisplayMeta> = {
+  SUPER_ADMIN: {
+    role: 'SUPER_ADMIN',
+    codeBadge: 'HT',
+    label: 'Quản trị Tổng (HT)',
+    shortLabel: 'Tổng Quản trị · HT',
+    scopeSummary: 'Toàn quyền cấu hình hệ thống & xem toàn bộ dữ liệu HT',
+    badgeClass: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-700',
+    level: 7,
+  },
+  ADMIN: {
+    role: 'ADMIN',
+    codeBadge: 'HT',
+    label: 'Admin (HT)',
+    shortLabel: 'Admin · HT',
+    scopeSummary: 'Quản trị toàn bộ dữ liệu các Sion, Khu vực, Uni & MĐ',
+    badgeClass: 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-700',
+    level: 6,
+  },
+  MANAGER: {
+    role: 'MANAGER',
+    codeBadge: 'QL Cụm',
+    label: 'Quản lý Cụm (QL Cụm)',
+    shortLabel: 'QL Cụm',
+    scopeSummary: 'Xem tổng hợp các Sion & Khu vực trong cụm phụ trách + BXH Top 15',
+    badgeClass: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700',
+    level: 5,
+  },
+  SION_LEADER: {
+    role: 'SION_LEADER',
+    codeBadge: 'Ts, Nq',
+    label: 'Trưởng Sion / Nội quy (Ts, Nq)',
+    shortLabel: 'Ts, Nq',
+    scopeSummary: 'Xem toàn bộ khu vực & thành viên thuộc Sion phụ trách + BXH Top 15',
+    badgeClass: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-700',
+    level: 4,
+  },
+  AREA_LEADER: {
+    role: 'AREA_LEADER',
+    codeBadge: 'Gru',
+    label: 'Quản lý Khu vực (Gru)',
+    shortLabel: 'Gru',
+    scopeSummary: 'Xem các Uni & thành viên trong khu vực quản lý + BXH Top 15',
+    badgeClass: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700',
+    level: 3,
+  },
+  UNI_LEADER: {
+    role: 'UNI_LEADER',
+    codeBadge: 'Uni',
+    label: 'Trưởng Đội / Uni (Uni)',
+    shortLabel: 'Uni',
+    scopeSummary: 'Xem thành viên thuộc đội/nhóm Uni của mình + BXH Top 15',
+    badgeClass: 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700',
+    level: 2,
+  },
+  MEMBER: {
+    role: 'MEMBER',
+    codeBadge: 'TĐ',
+    label: 'Thành viên (TĐ)',
+    shortLabel: 'TĐ',
+    scopeSummary: 'Xem kết quả cá nhân của mình & BXH Top 15 chung',
+    badgeClass: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+    level: 1,
+  },
+};
+
+export const ROLE_ORDER: UserRole[] = [
+  'SUPER_ADMIN',
+  'ADMIN',
+  'MANAGER',
+  'SION_LEADER',
+  'AREA_LEADER',
+  'UNI_LEADER',
+  'MEMBER',
+];
 
 export interface RoleAssignment {
   email: string;
@@ -123,6 +217,7 @@ export interface RoleAssignment {
   note?: string;
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
+  managedUnitCodes?: string[];
 }
 
 export interface SystemRolesConfig {
@@ -146,8 +241,10 @@ export interface UserAccount {
   companyCode: string;
   areaCode: string;
   departmentCode: string;
+  unitCode?: string; // Đội / Uni cá nhân
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
+  managedUnitCodes?: string[];
   avatarUrl?: string;
   coverUrl?: string;
   bio?: string;
@@ -446,6 +543,7 @@ export interface DiscipleRecord {
   ownerName: string;
   companyCode: string;
   areaCode: string;
+  ownerUnitCode?: string;
   nickname: string;
   ageMode: DiscipleAgeMode;
   ageRange: DiscipleAgeRange;

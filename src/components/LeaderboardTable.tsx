@@ -16,10 +16,21 @@ import {
   FileSpreadsheet,
   Printer,
   TrendingUp,
+  Lock,
 } from 'lucide-react';
 import { Member, CompanyRankItem, AreaRankItem } from '../types/edulms';
 import { exportCompetitionToExcel, printCompetitionReport } from '../utils/reportExporter';
 import { TrendingChartsModal } from './TrendingChartsModal';
+import { CustomSelect } from './CustomSelect';
+
+interface LeaderboardRbacInfo {
+  scopeBadge: string;
+  scopeTitle: string;
+  scopeDescription: string;
+  isScopedRestricted: boolean;
+  top15Ids: Set<string>;
+  accessibleDetailIds: Set<string>;
+}
 
 interface LeaderboardTableProps {
   members: Member[];
@@ -30,6 +41,8 @@ interface LeaderboardTableProps {
   onSelectAreaCode: (code: string | null) => void;
   onSelectMember: (member: Member) => void;
   onOpenRules: () => void;
+  rbacInfo?: LeaderboardRbacInfo;
+  currentMemberId?: string;
 }
 
 export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
@@ -41,6 +54,8 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
   onSelectAreaCode,
   onSelectMember,
   onOpenRules,
+  rbacInfo,
+  currentMemberId,
 }) => {
   const [activeTab, setActiveTab] = useState<'PERSON' | 'AREA' | 'COMPANY'>('PERSON');
   const [searchQuery, setSearchQuery] = useState('');
@@ -233,30 +248,33 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Tìm kiếm nhanh..."
-            className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+            className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
           />
         </div>
 
         {/* Company filter */}
         <div className="flex items-center gap-2 w-full sm:w-auto text-xs">
-          <Building2 className="w-4 h-4 text-slate-400" />
-          <select
-            value={selectedCompanyFilter}
-            onChange={(e) => setSelectedCompanyFilter(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700 font-semibold focus:outline-hidden"
-          >
-            <option value="ALL">Tất cả công ty</option>
-            {companyRankings.map((c, idx) => (
-              <option key={`${c.companyCode}_${idx}`} value={c.companyCode}>
-                {c.companyName}
-              </option>
-            ))}
-          </select>
+          <div className="w-full sm:w-60">
+            <CustomSelect
+              size="sm"
+              value={selectedCompanyFilter}
+              onChange={setSelectedCompanyFilter}
+              leadingIcon={<Building2 className="w-3.5 h-3.5" />}
+              options={[
+                { value: 'ALL', label: 'Tất cả Sion / Công ty' },
+                ...companyRankings.map((c) => ({
+                  value: c.companyCode,
+                  label: c.companyName,
+                  badge: c.companyCode,
+                })),
+              ]}
+            />
+          </div>
 
           {selectedAreaCode && (
             <button
               onClick={() => onSelectAreaCode(null)}
-              className="text-blue-700 underline font-semibold text-[11px] ml-1"
+              className="text-blue-700 dark:text-blue-400 underline font-semibold text-[11px] ml-1 whitespace-nowrap shrink-0 cursor-pointer"
             >
               Bỏ lọc KV {selectedAreaCode}
             </button>
@@ -274,7 +292,10 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                 Không tìm thấy thành viên nào phù hợp bộ lọc.
               </div>
             ) : (
-              visibleMembers.map((mem) => (
+              visibleMembers.map((mem) => {
+                const canInspect = !rbacInfo || rbacInfo.accessibleDetailIds.has(mem.id);
+                const isSelf = currentMemberId && mem.id === currentMemberId;
+                return (
                 <button
                   key={mem.id}
                   type="button"
@@ -284,11 +305,21 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                   <div className="flex items-center gap-2.5 min-w-0">
                     {renderRankBadge(mem.rank || 1)}
                     <div className="min-w-0">
-                      <div className="font-bold text-xs text-slate-900 dark:text-white truncate">
-                        {mem.fullName}
+                      <div className="font-bold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                        <span className="truncate">{mem.fullName}</span>
+                        {isSelf && (
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 shrink-0">
+                            Bạn
+                          </span>
+                        )}
+                        {!canInspect && (
+                          <span title="Ngoài phạm vi xem chi tiết" className="inline-flex shrink-0">
+                            <Lock className="w-3 h-3 text-slate-400" />
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {mem.companyCode} • KV {mem.areaCode} • {mem.departmentCode}
+                        {mem.companyCode} • KV {mem.areaCode} • {mem.unitCode || mem.departmentCode}
                       </div>
                     </div>
                   </div>
@@ -297,11 +328,12 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                       {formatNumber(mem.score)} đ
                     </div>
                     <div className="text-[10px] text-slate-400">
-                      {mem.targets?.length || 0} mục tiêu
+                      {canInspect ? `${mem.targets?.length || 0} mục tiêu` : 'Top 15'}
                     </div>
                   </div>
                 </button>
-              ))
+              );
+              })
             )}
           </div>
 
@@ -314,7 +346,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                   <th className="py-3 px-3">Họ và tên</th>
                   <th className="py-3 px-3">Công ty</th>
                   <th className="py-3 px-3">Khu vực</th>
-                  <th className="py-3 px-3">Ban ngành</th>
+                  <th className="py-3 px-3">Uni / Ban</th>
                   <th className="py-3 px-3 text-center">Số đối tượng</th>
                   <th className="py-3 px-3 text-right">Tổng điểm</th>
                 </tr>
@@ -327,7 +359,10 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  visibleMembers.map((mem) => (
+                  visibleMembers.map((mem) => {
+                    const canInspect = !rbacInfo || rbacInfo.accessibleDetailIds.has(mem.id);
+                    const isSelf = currentMemberId && mem.id === currentMemberId;
+                    return (
                     <tr
                       key={mem.id}
                       onClick={() => onSelectMember(mem)}
@@ -342,8 +377,18 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                             <User className="w-4 h-4 text-white" />
                           </div>
                           <div>
-                            <div className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
-                              {mem.fullName}
+                            <div className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition flex items-center gap-1.5">
+                              <span>{mem.fullName}</span>
+                              {isSelf && (
+                                <span className="px-1.5 py-0.2 rounded text-[10px] font-black bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                                  Bạn
+                                </span>
+                              )}
+                              {!canInspect && (
+                                <span title="Top 15 chung — ngoài phạm vi xem chi tiết">
+                                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                </span>
+                              )}
                             </div>
                             <div className="text-[10px] text-slate-400 font-mono">{mem.code}</div>
                           </div>
@@ -351,15 +396,16 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                       </td>
                       <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.companyCode}</td>
                       <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.areaCode}</td>
-                      <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 text-xs">{mem.departmentCode}</td>
+                      <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 text-xs">{mem.unitCode || mem.departmentCode}</td>
                       <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">
-                        {mem.targets?.length || 0}
+                        {canInspect ? (mem.targets?.length || 0) : '—'}
                       </td>
                       <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white tabular-nums">
                         {formatNumber(mem.score)} đ
                       </td>
                     </tr>
-                  ))
+                  );
+                  })
                 )}
               </tbody>
             </table>

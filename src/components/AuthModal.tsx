@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Company, Area, Department, formatCompanyDisplayName } from '../types/edulms';
 import { signInWithGoogle, signInWithEmail, sendResetPasswordEmail, describeAuthError } from '../firebase';
+import { CustomSelect } from './CustomSelect';
 
 export interface RegistrationData {
   fullName: string;
@@ -28,6 +29,7 @@ export interface RegistrationData {
   companyCode: string;
   areaCode: string;
   departmentCode: string;
+  unitCode?: string;
 }
 
 interface AuthModalProps {
@@ -64,6 +66,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regCompany, setRegCompany] = useState(companies[0]?.code || 'Th1');
   const [regArea, setRegArea] = useState('1.1');
   const [regDept, setRegDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
+  const [regUnitCode, setRegUnitCode] = useState('');
 
   // Forgot password form
   const [forgotEmail, setForgotEmail] = useState('');
@@ -152,6 +155,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         companyCode: regCompany,
         areaCode: regArea.trim(),
         departmentCode: regDept,
+        unitCode: regUnitCode.trim() || undefined,
       });
       setRegPassword('');
       onClose();
@@ -431,22 +435,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {/* Units Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Công ty trực thuộc *
+                  Sion / Công ty trực thuộc *
                 </label>
-                <select
+                <CustomSelect
                   value={regCompany}
-                  onChange={(e) => setRegCompany(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
-                >
-                  {companies.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {formatCompanyDisplayName(c.name, c.code)}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setRegCompany}
+                  size="sm"
+                  leadingIcon={<Building2 className="w-3.5 h-3.5" />}
+                  options={companies.map((c) => ({
+                    value: c.code,
+                    label: formatCompanyDisplayName(c.name, c.code),
+                  }))}
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Khu vực *
@@ -456,23 +459,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     value={regArea}
                     onChange={(e) => setRegArea(e.target.value)}
                     placeholder="1.1, 1.2..."
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900"
                     required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Đội / Uni
+                  </label>
+                  <input
+                    type="text"
+                    value={regUnitCode}
+                    onChange={(e) => setRegUnitCode(e.target.value)}
+                    placeholder="Uni 1, Đội A..."
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Ban ngành *
                   </label>
-                  <select
+                  <CustomSelect
                     value={regDept}
-                    onChange={(e) => setRegDept(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
-                  >
-                    {departments.map((d) => (
-                      <option key={d.code} value={d.code}>{d.name}</option>
-                    ))}
-                  </select>
+                    onChange={setRegDept}
+                    size="sm"
+                    searchable={false}
+                    options={departments.map((d) => ({
+                      value: d.code,
+                      label: d.name,
+                    }))}
+                  />
                 </div>
               </div>
 

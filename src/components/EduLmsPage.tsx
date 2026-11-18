@@ -29,6 +29,8 @@ import {
   Area,
   Member,
 } from '../types/edulms';
+import { CustomSelect } from './CustomSelect';
+import { canModifyEduRecord, isAdminRole } from '../utils/rbac';
 
 interface EduLmsPageProps {
   currentUser: UserAccount | null;
@@ -90,7 +92,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   onOpenAuthModal,
   onShowNotification,
 }) => {
-  const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
+  const isAdmin = isAdminRole(currentUser?.role);
   const [activeTrack, setActiveTrack] = useState<EduTrack>('TD_I');
   const [searchQuery, setSearchQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('ALL');
@@ -183,26 +185,8 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       });
   }, [topics, assignments, activeTrack, weekFilter, companyFilter, searchQuery]);
 
-  const canModifyAssignment = (a: EduTopicAssignment): boolean => {
-    if (!currentUser) return false;
-    if (isAdmin) return true;
-    if (a.assignedByUid === currentUser.id) return true;
-    if (
-      currentUser.role === 'AREA_LEADER' &&
-      currentUser.companyCode === a.companyCode &&
-      currentUser.areaCode === a.areaCode
-    ) {
-      return true;
-    }
-    if (
-      currentUser.role === 'MANAGER' &&
-      (currentUser.managedAreaCodes?.includes(a.areaCode) ||
-        currentUser.managedCompanyCodes?.includes(a.companyCode))
-    ) {
-      return true;
-    }
-    return false;
-  };
+  const canModifyAssignment = (a: EduTopicAssignment): boolean =>
+    canModifyEduRecord(currentUser, a);
 
   const openCreateTopic = () => {
     setEditingTopicId(null);
@@ -481,33 +465,33 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
           </div>
 
           <div className="sm:col-span-4">
-            <select
+            <CustomSelect
+              size="sm"
               value={weekFilter}
-              onChange={(e) => setWeekFilter(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
-            >
-              <option value="ALL">Tất cả các Tuần</option>
-              {weekOptions.map((w) => (
-                <option key={w} value={w}>
-                  {w}
-                </option>
-              ))}
-            </select>
+              onChange={setWeekFilter}
+              options={[
+                { value: 'ALL', label: 'Tất cả các Tuần' },
+                ...weekOptions.map((w) => ({ value: w, label: w })),
+              ]}
+              ariaLabel="Lọc theo Tuần"
+            />
           </div>
 
           <div className="sm:col-span-3">
-            <select
+            <CustomSelect
+              size="sm"
               value={companyFilter}
-              onChange={(e) => setCompanyFilter(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
-            >
-              <option value="ALL">Tất cả Công ty</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.code}>
-                  {c.name} ({c.code})
-                </option>
-              ))}
-            </select>
+              onChange={setCompanyFilter}
+              options={[
+                { value: 'ALL', label: 'Tất cả Sion / Công ty' },
+                ...companies.map((c) => ({
+                  value: c.code,
+                  label: c.name,
+                  badge: c.code,
+                })),
+              ]}
+              ariaLabel="Lọc theo Công ty"
+            />
           </div>
         </div>
       </div>
@@ -770,25 +754,27 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
 
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 {canEdit ? (
-                                  <select
-                                    value={a.status}
-                                    onChange={(e) =>
-                                      handleQuickStatusChange(
-                                        topic,
-                                        a,
-                                        e.target.value as EduAssignmentStatus
-                                      )
-                                    }
-                                    className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-bold text-slate-800 dark:text-slate-100"
-                                  >
-                                    {(['REGISTERED', 'IN_PROGRESS', 'COMPLETED'] as EduAssignmentStatus[]).map(
-                                      (st) => (
-                                        <option key={st} value={st}>
-                                          {EDU_ASSIGNMENT_STATUS_LABELS[st]}
-                                        </option>
-                                      )
-                                    )}
-                                  </select>
+                                  <div className="w-40 shrink-0">
+                                    <CustomSelect
+                                      size="sm"
+                                      value={a.status}
+                                      onChange={(val) =>
+                                        handleQuickStatusChange(
+                                          topic,
+                                          a,
+                                          val as EduAssignmentStatus
+                                        )
+                                      }
+                                      options={(
+                                        ['REGISTERED', 'IN_PROGRESS', 'COMPLETED'] as EduAssignmentStatus[]
+                                      ).map((st) => ({
+                                        value: st,
+                                        label: EDU_ASSIGNMENT_STATUS_LABELS[st],
+                                      }))}
+                                      menuMinWidth={160}
+                                      ariaLabel="Cập nhật trạng thái"
+                                    />
+                                  </div>
                                 ) : (
                                   <span
                                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -845,25 +831,27 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                                   </td>
                                   <td className="py-2.5 px-3">
                                     {canEdit ? (
-                                      <select
-                                        value={a.status}
-                                        onChange={(e) =>
-                                          handleQuickStatusChange(
-                                            topic,
-                                            a,
-                                            e.target.value as EduAssignmentStatus
-                                          )
-                                        }
-                                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-bold text-slate-800 dark:text-slate-100"
-                                      >
-                                        {(['REGISTERED', 'IN_PROGRESS', 'COMPLETED'] as EduAssignmentStatus[]).map(
-                                          (st) => (
-                                            <option key={st} value={st}>
-                                              {EDU_ASSIGNMENT_STATUS_LABELS[st]}
-                                            </option>
-                                          )
-                                        )}
-                                      </select>
+                                      <div className="w-36">
+                                        <CustomSelect
+                                          size="sm"
+                                          value={a.status}
+                                          onChange={(val) =>
+                                            handleQuickStatusChange(
+                                              topic,
+                                              a,
+                                              val as EduAssignmentStatus
+                                            )
+                                          }
+                                          options={(
+                                            ['REGISTERED', 'IN_PROGRESS', 'COMPLETED'] as EduAssignmentStatus[]
+                                          ).map((st) => ({
+                                            value: st,
+                                            label: EDU_ASSIGNMENT_STATUS_LABELS[st],
+                                          }))}
+                                          menuMinWidth={160}
+                                          ariaLabel="Cập nhật trạng thái"
+                                        />
+                                      </div>
                                     ) : (
                                       <span
                                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -952,15 +940,18 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Nhóm đối tượng
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={tTrack}
-                  onChange={(e) => setTTrack(e.target.value as EduTrack)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                >
-                  <option value="TD_I">TĐ-I</option>
-                  <option value="TD_II">TĐ-II</option>
-                  <option value="NGV">NGV</option>
-                </select>
+                  onChange={(val) => setTTrack(val as EduTrack)}
+                  options={[
+                    { value: 'TD_I', label: 'TĐ-I' },
+                    { value: 'TD_II', label: 'TĐ-II' },
+                    { value: 'NGV', label: 'NGV' },
+                  ]}
+                  menuMinWidth={160}
+                  ariaLabel="Chọn nhóm đối tượng"
+                />
               </div>
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -1020,43 +1011,47 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Phạm vi Công ty
+                  Phạm vi Sion / Công ty
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={tCompanyCode}
-                  onChange={(e) => {
-                    setTCompanyCode(e.target.value);
+                  onChange={(val) => {
+                    setTCompanyCode(val);
                     setTAreaCode('ALL');
                   }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                >
-                  <option value="ALL">Toàn hệ thống (Tất cả)</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.code}>
-                      {c.name} ({c.code})
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'Toàn hệ thống (Tất cả)' },
+                    ...companies.map((c) => ({
+                      value: c.code,
+                      label: c.name,
+                      badge: c.code,
+                    })),
+                  ]}
+                  ariaLabel="Chọn phạm vi Công ty"
+                />
               </div>
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Phạm vi Khu vực
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={tAreaCode}
                   disabled={tCompanyCode === 'ALL'}
-                  onChange={(e) => setTAreaCode(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold disabled:opacity-50"
-                >
-                  <option value="ALL">Tất cả KV thuộc Công ty</option>
-                  {areas
-                    .filter((a) => a.companyCode === tCompanyCode)
-                    .map((a) => (
-                      <option key={a.id} value={a.code}>
-                        KV {a.code} — {a.name}
-                      </option>
-                    ))}
-                </select>
+                  onChange={setTAreaCode}
+                  options={[
+                    { value: 'ALL', label: 'Tất cả KV thuộc Công ty' },
+                    ...areas
+                      .filter((a) => a.companyCode === tCompanyCode)
+                      .map((a) => ({
+                        value: a.code,
+                        label: `KV ${a.code} — ${a.name}`,
+                        badge: a.code,
+                      })),
+                  ]}
+                  ariaLabel="Chọn phạm vi Khu vực"
+                />
               </div>
             </div>
 
@@ -1153,24 +1148,23 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Công ty
+                  Sion / Công ty
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={aCompanyCode}
-                  onChange={(e) => {
-                    const nextComp = e.target.value;
+                  onChange={(nextComp) => {
                     setACompanyCode(nextComp);
                     const firstArea = areas.find((a) => a.companyCode === nextComp)?.code;
                     if (firstArea) setAAreaCode(firstArea);
                   }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                >
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.code}>
-                      {c.name} ({c.code})
-                    </option>
-                  ))}
-                </select>
+                  options={companies.map((c) => ({
+                    value: c.code,
+                    label: c.name,
+                    badge: c.code,
+                  }))}
+                  ariaLabel="Chọn Công ty"
+                />
               </div>
 
               <div>
@@ -1178,17 +1172,17 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                   Tên Khu vực (KV) <span className="text-rose-500">*</span>
                 </label>
                 {areaOptionsForAssign.length > 0 ? (
-                  <select
+                  <CustomSelect
+                    size="sm"
                     value={aAreaCode}
-                    onChange={(e) => setAAreaCode(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                  >
-                    {areaOptionsForAssign.map((a) => (
-                      <option key={a.id} value={a.code}>
-                        KV {a.code} ({a.name})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setAAreaCode}
+                    options={areaOptionsForAssign.map((a) => ({
+                      value: a.code,
+                      label: `KV ${a.code} (${a.name})`,
+                      badge: a.code,
+                    }))}
+                    ariaLabel="Chọn Khu vực"
+                  />
                 ) : (
                   <input
                     type="text"
@@ -1207,23 +1201,25 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Chọn nhanh từ danh sách thành viên KV {aAreaCode} (tùy chọn)
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={aMemberId}
-                  onChange={(e) => {
-                    const id = e.target.value;
+                  onChange={(id) => {
                     setAMemberId(id);
                     const found = members.find((m) => m.id === id);
                     if (found) setAStudentName(found.fullName);
                   }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
-                >
-                  <option value="">-- Nhập thủ công hoặc chọn từ danh sách --</option>
-                  {memberCandidatesForAssign.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.fullName} ({m.departmentCode})
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: '-- Nhập thủ công hoặc chọn từ danh sách --' },
+                    ...memberCandidatesForAssign.map((m) => ({
+                      value: m.id,
+                      label: m.fullName,
+                      badge: m.unitCode || m.departmentCode,
+                    })),
+                  ]}
+                  searchable
+                  ariaLabel="Chọn nhanh thành viên"
+                />
               </div>
             )}
 
@@ -1246,15 +1242,18 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Trạng thái
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={aStatus}
-                  onChange={(e) => setAStatus(e.target.value as EduAssignmentStatus)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                >
-                  <option value="REGISTERED">Đã gán</option>
-                  <option value="IN_PROGRESS">Đang học</option>
-                  <option value="COMPLETED">Hoàn thành</option>
-                </select>
+                  onChange={(val) => setAStatus(val as EduAssignmentStatus)}
+                  options={[
+                    { value: 'REGISTERED', label: 'Đã gán' },
+                    { value: 'IN_PROGRESS', label: 'Đang học' },
+                    { value: 'COMPLETED', label: 'Hoàn thành' },
+                  ]}
+                  menuMinWidth={160}
+                  ariaLabel="Chọn trạng thái"
+                />
               </div>
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">

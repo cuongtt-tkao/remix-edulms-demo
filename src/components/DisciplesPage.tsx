@@ -28,6 +28,8 @@ import {
   DISCIPLE_AGE_RANGES,
   mapAgeToRange,
 } from '../types/edulms';
+import { CustomSelect } from './CustomSelect';
+import { isAdminRole, isSupervisorRole } from '../utils/rbac';
 
 interface DisciplesPageProps {
   currentUser: UserAccount | null;
@@ -122,31 +124,32 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
   const [deleteCandidate, setDeleteCandidate] = useState<DiscipleRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
-  const isSupervisor =
-    isAdmin || currentUser?.role === 'MANAGER' || currentUser?.role === 'AREA_LEADER';
+  const isAdmin = isAdminRole(currentUser?.role);
+  const isSupervisor = isSupervisorRole(currentUser?.role);
 
   const scopeLabel = useMemo(() => {
     if (!currentUser) return '';
     switch (currentUser.role) {
       case 'SUPER_ADMIN':
-        return 'Quản trị Tổng · Toàn hệ thống';
       case 'ADMIN':
-        return 'Ban Quản trị · Toàn hệ thống';
+        return 'HT';
       case 'MANAGER': {
-        const areaText = currentUser.managedAreaCodes?.length
-          ? `Khu vực ${currentUser.managedAreaCodes.join(', ')}`
-          : '';
         const compText = currentUser.managedCompanyCodes?.length
-          ? `Công ty ${currentUser.managedCompanyCodes.join(', ')}`
+          ? currentUser.managedCompanyCodes.join(', ')
+          : currentUser.companyCode;
+        const areaText = currentUser.managedAreaCodes?.length
+          ? ` · KV ${currentUser.managedAreaCodes.join(', ')}`
           : '';
-        const joined = [compText, areaText].filter(Boolean).join(' · ') || `Công ty ${currentUser.companyCode}`;
-        return `Nhà quản lý · ${joined} (Xem & hỗ trợ tiến độ/ghi chú)`;
+        return `QL Cụm · ${compText}${areaText}`;
       }
+      case 'SION_LEADER':
+        return `Ts, Nq · ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`;
       case 'AREA_LEADER':
-        return `Khu vực trưởng · Khu vực ${currentUser.areaCode} (Xem & hỗ trợ tiến độ/ghi chú)`;
+        return `Gru · KV ${currentUser.managedAreaCodes?.join(', ') || currentUser.areaCode}`;
+      case 'UNI_LEADER':
+        return `Uni · ${currentUser.unitCode || currentUser.departmentCode || `KV ${currentUser.areaCode}`}`;
       default:
-        return `Sổ tay cá nhân · ${currentUser.companyCode} / KV ${currentUser.areaCode}`;
+        return `TĐ · ${currentUser.companyCode} / KV ${currentUser.areaCode}`;
     }
   }, [currentUser]);
 
@@ -432,42 +435,43 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
           />
         </div>
 
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
-          <select
-            value={progressFilter}
-            onChange={(e) => setProgressFilter(e.target.value as ProgressFilter)}
-            aria-label="Lọc theo tiến độ MĐ"
-            className="flex-1 sm:flex-none px-3 py-2.5 min-h-[42px] rounded-xl text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer"
-          >
-            <option value="ALL">Tiến độ: Tất cả ({stats.total})</option>
-            <option value="ACTIVE">Đang đồng hành ({stats.active})</option>
-            <option value="STOPPED">Đã Dừng ({stats.stopped})</option>
-            <optgroup label="Lọc theo mốc cụ thể">
-              {DISCIPLE_PROGRESS_STEPS.map((st) => (
-                <option key={st.key} value={st.key}>
-                  Có mốc: {st.label}
-                </option>
-              ))}
-            </optgroup>
-          </select>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="w-full sm:w-56">
+            <CustomSelect
+              ariaLabel="Lọc theo tiến độ MĐ"
+              value={progressFilter}
+              onChange={(val) => setProgressFilter(val as ProgressFilter)}
+              options={[
+                { value: 'ALL', label: `Tiến độ: Tất cả`, badge: String(stats.total) },
+                { value: 'ACTIVE', label: `Đang đồng hành`, badge: String(stats.active) },
+                { value: 'STOPPED', label: `Đã Dừng`, badge: String(stats.stopped) },
+                ...DISCIPLE_PROGRESS_STEPS.map((st) => ({
+                  value: st.key,
+                  label: `Có mốc: ${st.label}`,
+                  group: 'Lọc theo mốc cụ thể',
+                })),
+              ]}
+            />
+          </div>
 
           {isSupervisor && availableAreas.length > 1 && (
-            <select
-              value={areaFilter}
-              onChange={(e) => setAreaFilter(e.target.value)}
-              aria-label="Lọc theo khu vực"
-              className="flex-1 sm:flex-none px-3 py-2.5 min-h-[42px] rounded-xl text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer"
-            >
-              <option value="ALL">Mọi khu vực ({availableAreas.length})</option>
-              {availableAreas.map((code) => {
-                const areaObj = areas.find((a) => a.code === code);
-                return (
-                  <option key={code} value={code}>
-                    KV {areaObj ? `${areaObj.code} - ${areaObj.name}` : code}
-                  </option>
-                );
-              })}
-            </select>
+            <div className="w-full sm:w-52">
+              <CustomSelect
+                ariaLabel="Lọc theo khu vực"
+                value={areaFilter}
+                onChange={setAreaFilter}
+                options={[
+                  { value: 'ALL', label: 'Mọi khu vực', badge: String(availableAreas.length) },
+                  ...availableAreas.map((code) => {
+                    const areaObj = areas.find((a) => a.code === code);
+                    return {
+                      value: code,
+                      label: areaObj ? `KV ${areaObj.code} - ${areaObj.name}` : `KV ${code}`,
+                    };
+                  }),
+                ]}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -668,7 +672,7 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
               <div>
                 <h2 className="font-extrabold text-base text-slate-900 dark:text-white">
                   {editMode === 'CREATE'
-                    ? 'Thêm Môn Đồ mới'
+                    ? 'Thêm MĐ mới'
                     : editMode === 'SUPERVISOR_NOTE'
                     ? `Hỗ trợ cập nhật: ${editingTarget?.nickname}`
                     : `Cập nhật MĐ: ${editingTarget?.nickname}`}
@@ -715,14 +719,14 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                         Độ tuổi
                       </label>
-                      <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-bold">
+                      <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] font-bold border border-slate-200/70 dark:border-slate-700">
                         <button
                           type="button"
                           onClick={() => setAgeMode('RANGE')}
-                          className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
+                          className={`px-3 py-1 rounded-lg transition cursor-pointer ${
                             ageMode === 'RANGE'
-                              ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
-                              : 'text-slate-500'
+                              ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-sky-300 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-700'
                           }`}
                         >
                           Khoảng tuổi
@@ -730,10 +734,10 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                         <button
                           type="button"
                           onClick={() => setAgeMode('EXACT')}
-                          className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
+                          className={`px-3 py-1 rounded-lg transition cursor-pointer ${
                             ageMode === 'EXACT'
-                              ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
-                              : 'text-slate-500'
+                              ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-sky-300 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-700'
                           }`}
                         >
                           Nhập cụ thể
@@ -748,10 +752,10 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                             key={range}
                             type="button"
                             onClick={() => setAgeRange(range)}
-                            className={`py-2 min-h-[42px] rounded-xl text-xs font-bold border transition cursor-pointer tabular-nums ${
+                            className={`py-2 min-h-[42px] rounded-xl text-xs font-extrabold border transition cursor-pointer tabular-nums ${
                               ageRange === range
-                                ? 'bg-blue-700 text-white border-blue-700'
-                                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-500/20'
+                                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-300'
                             }`}
                           >
                             {range}

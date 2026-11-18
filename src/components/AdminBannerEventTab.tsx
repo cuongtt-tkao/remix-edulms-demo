@@ -19,6 +19,12 @@ import {
   Eye,
   FileText,
   Clock,
+  Home,
+  Megaphone,
+  Handshake,
+  Heart,
+  TrendingUp,
+  Star,
 } from 'lucide-react';
 import {
   SystemBannerConfig,
@@ -29,12 +35,27 @@ import {
   Member,
   Company,
   Area,
+  DailyMetricKey,
   DailyReportMetrics,
   DAILY_METRIC_DEFINITIONS,
   DEFAULT_EVENT_WEIGHTS,
 } from '../types/edulms';
 import { SPOTLIGHT_COVERS } from './HeroBanner';
 import { compressImageFile } from '../utils/imageUtils';
+import { CustomSelect } from './CustomSelect';
+
+const METRIC_ICON_META: Record<
+  DailyMetricKey,
+  { icon: React.ComponentType<{ className?: string }>; bgCls: string; iconCls: string }
+> = {
+  kn: { icon: Users, bgCls: 'bg-sky-100 dark:bg-sky-950/70', iconCls: 'text-sky-600 dark:text-sky-400' },
+  tham: { icon: Home, bgCls: 'bg-emerald-100 dark:bg-emerald-950/70', iconCls: 'text-emerald-600 dark:text-emerald-400' },
+  gm: { icon: Megaphone, bgCls: 'bg-amber-100 dark:bg-amber-950/70', iconCls: 'text-amber-600 dark:text-amber-400' },
+  dt: { icon: Handshake, bgCls: 'bg-indigo-100 dark:bg-indigo-950/70', iconCls: 'text-indigo-600 dark:text-indigo-400' },
+  hh: { icon: Heart, bgCls: 'bg-rose-100 dark:bg-rose-950/70', iconCls: 'text-rose-500 dark:text-rose-400' },
+  kt: { icon: TrendingUp, bgCls: 'bg-emerald-100 dark:bg-emerald-950/70', iconCls: 'text-emerald-600 dark:text-emerald-400' },
+  wsNew: { icon: Star, bgCls: 'bg-amber-100 dark:bg-amber-950/70', iconCls: 'text-amber-500 dark:text-amber-400' },
+};
 
 interface AdminBannerEventTabProps {
   bannerConfig: SystemBannerConfig | null;
@@ -42,6 +63,7 @@ interface AdminBannerEventTabProps {
   members: Member[];
   companies: Company[];
   areas: Area[];
+  forcedSection?: 'EVENTS' | 'BANNER';
   onSaveBannerConfig: (config: SystemBannerConfig) => Promise<void>;
   onSaveEvent: (event: FestivalEvent) => Promise<void>;
   onDeleteEvent: (eventId: string) => Promise<void>;
@@ -72,6 +94,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   members,
   companies,
   areas,
+  forcedSection,
   onSaveBannerConfig,
   onSaveEvent,
   onDeleteEvent,
@@ -79,7 +102,10 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   defaultWeights,
 }) => {
   const baseWeights = defaultWeights || DEFAULT_EVENT_WEIGHTS;
-  const [subTab, setSubTab] = useState<'EVENTS' | 'BANNER'>('EVENTS');
+  const [internalSubTab, setInternalSubTab] = useState<'EVENTS' | 'BANNER'>(
+    forcedSection || 'EVENTS'
+  );
+  const subTab = forcedSection || internalSubTab;
 
   // ---------- BANNER STATE ----------
   const initialBanner = bannerConfig || DEFAULT_BANNER_CONFIG;
@@ -94,7 +120,9 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
     ...DEFAULT_BANNER_VISIBILITY,
     ...(initialBanner.visibility || {}),
   });
-  const [autoSlideSeconds, setAutoSlideSeconds] = useState(initialBanner.autoSlideSeconds || 7);
+  const [autoSlideSecondsText, setAutoSlideSecondsText] = useState(
+    String(initialBanner.autoSlideSeconds || 7)
+  );
   const [slides, setSlides] = useState<BannerSlide[]>(
     initialBanner.slides?.length ? initialBanner.slides : DEFAULT_BANNER_CONFIG.slides
   );
@@ -117,7 +145,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
         ...DEFAULT_BANNER_VISIBILITY,
         ...(bannerConfig.visibility || {}),
       });
-      setAutoSlideSeconds(bannerConfig.autoSlideSeconds || 7);
+      setAutoSlideSecondsText(String(bannerConfig.autoSlideSeconds || 7));
       if (bannerConfig.slides?.length) setSlides(bannerConfig.slides);
     }
   }, [bannerConfig]);
@@ -177,7 +205,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
         actionStripLabel: actionStripLabel.trim(),
         visibility: bannerVisibility,
         slides,
-        autoSlideSeconds: Math.max(3, Number(autoSlideSeconds) || 7),
+        autoSlideSeconds: Math.max(3, parseInt(autoSlideSecondsText, 10) || 7),
         updatedAt: new Date().toISOString(),
       });
       onShowNotification('Đã cập nhật Banner trang chủ thành công!');
@@ -206,13 +234,35 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   const [evBannerUrl, setEvBannerUrl] = useState('');
   const [evIsActive, setEvIsActive] = useState(true);
   const [evIsPinned, setEvIsPinned] = useState(true);
+  const toWeightTextMap = (w: DailyReportMetrics): Record<DailyMetricKey, string> => ({
+    kn: String(w.kn ?? 0),
+    tham: String(w.tham ?? 0),
+    gm: String(w.gm ?? 0),
+    dt: String(w.dt ?? 0),
+    hh: String(w.hh ?? 0),
+    kt: String(w.kt ?? 0),
+    wsNew: String(w.wsNew ?? 0),
+  });
+
   const [evRestrictParticipants, setEvRestrictParticipants] = useState(true);
   const [evParticipantIds, setEvParticipantIds] = useState<string[]>([]);
-  const [evWeights, setEvWeights] = useState<DailyReportMetrics>({ ...baseWeights });
+  const [evWeightsText, setEvWeightsText] = useState<Record<DailyMetricKey, string>>(() =>
+    toWeightTextMap(baseWeights)
+  );
   const [participantSearch, setParticipantSearch] = useState('');
   const [participantCompanyFilter, setParticipantCompanyFilter] = useState('ALL');
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const eventFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleEvWeightInputChange = (key: DailyMetricKey, raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (digits === '') {
+      setEvWeightsText((prev) => ({ ...prev, [key]: '' }));
+      return;
+    }
+    const normalized = digits.length > 1 ? digits.replace(/^0+/, '') || '0' : digits;
+    setEvWeightsText((prev) => ({ ...prev, [key]: normalized }));
+  };
 
   const openCreateEvent = () => {
     setEditingEventId(null);
@@ -226,7 +276,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
     setEvIsPinned(true);
     setEvRestrictParticipants(true);
     setEvParticipantIds(members.filter((m) => m.active).map((m) => m.id));
-    setEvWeights({ ...baseWeights });
+    setEvWeightsText(toWeightTextMap(baseWeights));
     setParticipantSearch('');
     setParticipantCompanyFilter('ALL');
     setIsEventModalOpen(true);
@@ -244,7 +294,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
     setEvIsPinned(ev.isPinned);
     setEvRestrictParticipants(ev.restrictParticipants);
     setEvParticipantIds(ev.participantIds || []);
-    setEvWeights({ ...DEFAULT_EVENT_WEIGHTS, ...(ev.weights || {}) });
+    setEvWeightsText(toWeightTextMap({ ...DEFAULT_EVENT_WEIGHTS, ...(ev.weights || {}) }));
     setParticipantSearch('');
     setParticipantCompanyFilter('ALL');
     setIsEventModalOpen(true);
@@ -324,7 +374,15 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
         isPinned: evIsPinned,
         restrictParticipants: evRestrictParticipants,
         participantIds: evParticipantIds,
-        weights: evWeights,
+        weights: {
+          kn: parseInt(evWeightsText.kn, 10) || 0,
+          tham: parseInt(evWeightsText.tham, 10) || 0,
+          gm: parseInt(evWeightsText.gm, 10) || 0,
+          dt: parseInt(evWeightsText.dt, 10) || 0,
+          hh: parseInt(evWeightsText.hh, 10) || 0,
+          kt: parseInt(evWeightsText.kt, 10) || 0,
+          wsNew: parseInt(evWeightsText.wsNew, 10) || 0,
+        },
         createdAt: existing?.createdAt || nowIso,
         updatedAt: nowIso,
       };
@@ -387,37 +445,15 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
         className="hidden"
       />
 
-      {/* Sub-tab Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-2xl border border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setSubTab('EVENTS')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-              subTab === 'EVENTS'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
-            }`}
-          >
-            <Trophy className="w-4 h-4 text-amber-400" />
-            <span>Chiến dịch Event ({events.length})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSubTab('BANNER')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-              subTab === 'BANNER'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
-            }`}
-          >
-            <ImageIcon className="w-4 h-4 text-sky-400" />
-            <span>Chỉnh sửa Banner Trang chủ</span>
-          </button>
-        </div>
-
-        {subTab === 'EVENTS' && (
+      {/* Header / Sub-tab Switcher */}
+      {forcedSection === 'EVENTS' ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/60 px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-amber-500" />
+            <span className="text-sm font-black text-slate-900 dark:text-white">
+              Quản lý Chiến dịch Event ({events.length})
+            </span>
+          </div>
           <button
             type="button"
             onClick={openCreateEvent}
@@ -426,8 +462,49 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
             <Plus className="w-4 h-4" />
             <span>Tạo Event mới</span>
           </button>
-        )}
-      </div>
+        </div>
+      ) : forcedSection === 'BANNER' ? null : (
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-2xl border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setInternalSubTab('EVENTS')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                subTab === 'EVENTS'
+                  ? 'bg-blue-900 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
+              }`}
+            >
+              <Trophy className="w-4 h-4 text-amber-400" />
+              <span>Chiến dịch Event ({events.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setInternalSubTab('BANNER')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                subTab === 'BANNER'
+                  ? 'bg-blue-900 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
+              }`}
+            >
+              <ImageIcon className="w-4 h-4 text-sky-400" />
+              <span>Chỉnh sửa Banner Trang chủ</span>
+            </button>
+          </div>
+
+          {subTab === 'EVENTS' && (
+            <button
+              type="button"
+              onClick={openCreateEvent}
+              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tạo Event mới</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* SUB-TAB 1: EVENTS */}
       {subTab === 'EVENTS' && (
@@ -620,12 +697,17 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
                     Thời gian tự đổi ảnh nền (giây)
                   </label>
                   <input
-                    type="number"
-                    min={3}
-                    max={60}
-                    value={autoSlideSeconds}
-                    onChange={(e) => setAutoSlideSeconds(Number(e.target.value) || 7)}
-                    className="w-28 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={autoSlideSecondsText}
+                    placeholder="7"
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => {
+                      const d = e.target.value.replace(/\D/g, '');
+                      setAutoSlideSecondsText(d);
+                    }}
+                    className="w-28 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-center"
                   />
                 </div>
 
@@ -906,35 +988,51 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
                 </div>
               </div>
 
-              {/* Point Weights per Daily Metric */}
+              {/* Point Weights per Daily Metric (Compact Daily-Report-Style Table) */}
               <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 space-y-3">
                 <div className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
                   <Sliders className="w-4 h-4 text-amber-600" />
-                  <span>Cấu hình điểm quy đổi cho từng chỉ số Báo cáo hằng ngày</span>
+                  <span>Điểm quy đổi cho chiến dịch Event</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
-                  {DAILY_METRIC_DEFINITIONS.map((m) => (
-                    <div
-                      key={m.key}
-                      className="bg-white dark:bg-slate-900 p-2 rounded-xl border border-amber-200/70 dark:border-slate-700 text-center"
-                    >
-                      <div className="font-extrabold text-[11px] text-slate-800 dark:text-slate-100 mb-1">
-                        {m.label}
-                      </div>
-                      <input
-                        type="number"
-                        min={0}
-                        value={evWeights[m.key] ?? 0}
-                        onChange={(e) =>
-                          setEvWeights((prev) => ({
-                            ...prev,
-                            [m.key]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                          }))
-                        }
-                        className="w-full text-center py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-amber-700 dark:text-amber-300 font-black"
-                      />
-                    </div>
-                  ))}
+                <div className="rounded-2xl overflow-hidden border border-sky-200/80 dark:border-slate-700 bg-white dark:bg-slate-900">
+                  <div className="grid grid-cols-[1fr_110px] sm:grid-cols-[1fr_140px] gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-700 to-blue-600 text-white text-[11px] font-extrabold">
+                    <div>Hạng mục</div>
+                    <div className="text-center">Điểm / lượt</div>
+                  </div>
+                  <div className="divide-y divide-sky-100 dark:divide-slate-800">
+                    {DAILY_METRIC_DEFINITIONS.map((m) => {
+                      const iconMeta = METRIC_ICON_META[m.key];
+                      const RowIcon = iconMeta.icon;
+                      return (
+                        <div
+                          key={m.key}
+                          className="grid grid-cols-[1fr_110px] sm:grid-cols-[1fr_140px] gap-2 items-center px-3.5 py-1.5"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div
+                              className={`w-6 h-6 rounded-lg ${iconMeta.bgCls} flex items-center justify-center shrink-0`}
+                            >
+                              <RowIcon className={`w-3.5 h-3.5 ${iconMeta.iconCls}`} />
+                            </div>
+                            <span className="font-extrabold text-xs text-slate-800 dark:text-slate-100 truncate">
+                              {m.label}:
+                            </span>
+                          </div>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={evWeightsText[m.key] ?? ''}
+                            placeholder="0"
+                            onFocus={(e) => e.currentTarget.select()}
+                            onChange={(e) => handleEvWeightInputChange(m.key, e.target.value)}
+                            aria-label={`Điểm Event ${m.label}`}
+                            className="w-full h-8 text-center rounded-full border border-sky-200 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800 text-amber-700 dark:text-amber-300 font-black text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -978,18 +1076,21 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
                         />
                       </div>
 
-                      <select
-                        value={participantCompanyFilter}
-                        onChange={(e) => setParticipantCompanyFilter(e.target.value)}
-                        className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white font-semibold"
-                      >
-                        <option value="ALL">Tất cả Công ty</option>
-                        {companies.map((c) => (
-                          <option key={c.id} value={c.code}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="w-full sm:w-52">
+                        <CustomSelect
+                          size="sm"
+                          value={participantCompanyFilter}
+                          onChange={setParticipantCompanyFilter}
+                          options={[
+                            { value: 'ALL', label: 'Tất cả Công ty' },
+                            ...companies.map((c) => ({
+                              value: c.code,
+                              label: c.name,
+                              badge: c.code,
+                            })),
+                          ]}
+                        />
+                      </div>
 
                       <button
                         type="button"

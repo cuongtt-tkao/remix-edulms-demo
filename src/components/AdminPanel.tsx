@@ -24,7 +24,14 @@ import {
   Info,
   Crown,
   Image as ImageIcon,
-  Sliders,
+  Scale,
+  Trophy,
+  Type,
+  Home,
+  LayoutGrid,
+  BookOpen,
+  BarChart3,
+  GraduationCap,
 } from 'lucide-react';
 import {
   Company,
@@ -39,20 +46,48 @@ import {
   SystemScoringConfig,
   SystemAppearanceConfig,
   DailyReportMetrics,
+  DiscipleRecord,
+  DailyReportRecord,
+  EduWeeklyTopic,
+  EduTopicAssignment,
+  EduCmsProfile,
+  DEFAULT_EVENT_WEIGHTS,
 } from '../types/edulms';
 import {
   exportSystemConfigExcel,
   exportMembersAndTargetsExcel,
+  exportDisciplesExcel,
+  exportEduDataExcel,
   downloadConfigTemplateExcel,
   downloadMembersTemplateExcel,
   parseConfigExcel,
   parseMembersExcel,
 } from '../utils/excelManager';
+import {
+  exportDailyReportsByRbacExcel,
+  DailyReportExportPeriod,
+} from '../utils/reportExporter';
 import { RoleManagementTab } from './RoleManagementTab';
 import { AdminBannerEventTab } from './AdminBannerEventTab';
 import { AdminScoringAppearanceTab } from './AdminScoringAppearanceTab';
+import { CustomSelect } from './CustomSelect';
+
+export type AdminSectionId =
+  | 'SCORING'
+  | 'EVENTS'
+  | 'BANNER'
+  | 'APPEARANCE_FONT'
+  | 'APPEARANCE_HOME'
+  | 'APPEARANCE_HONORS'
+  | 'COMPANIES'
+  | 'AREAS'
+  | 'DEPARTMENTS'
+  | 'MEMBERS'
+  | 'ROLES'
+  | 'EXCEL_SYNC';
 
 interface AdminPanelProps {
+  initialTab?: AdminSectionId;
   companies: Company[];
   areas: Area[];
   departments: Department[];
@@ -81,14 +116,22 @@ interface AdminPanelProps {
     targetUserId: string,
     newRole: UserRole,
     targetName: string,
-    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
+    scope?: {
+      managedCompanyCodes?: string[];
+      managedAreaCodes?: string[];
+      managedUnitCodes?: string[];
+    }
   ) => Promise<void>;
   preAssignedRoles?: RoleAssignment[];
   onPreAssignRole?: (
     email: string,
     role: UserRole,
     note?: string,
-    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
+    scope?: {
+      managedCompanyCodes?: string[];
+      managedAreaCodes?: string[];
+      managedUnitCodes?: string[];
+    }
   ) => Promise<void>;
   onDeletePreAssignedRole?: (email: string) => Promise<void>;
   bannerConfig?: SystemBannerConfig | null;
@@ -101,9 +144,15 @@ interface AdminPanelProps {
   activeEvent?: FestivalEvent | null;
   onSaveScoringConfig?: (weights: DailyReportMetrics) => Promise<void>;
   onSaveAppearanceConfig?: (config: SystemAppearanceConfig) => Promise<void>;
+  disciples?: DiscipleRecord[];
+  dailyReports?: DailyReportRecord[];
+  eduTopics?: EduWeeklyTopic[];
+  eduAssignments?: EduTopicAssignment[];
+  eduCmsProfiles?: EduCmsProfile[];
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
+  initialTab,
   companies,
   areas,
   departments,
@@ -142,17 +191,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   activeEvent = null,
   onSaveScoringConfig,
   onSaveAppearanceConfig,
+  disciples = [],
+  dailyReports = [],
+  eduTopics = [],
+  eduAssignments = [],
+  eduCmsProfiles = [],
 }) => {
-  const [activeTab, setActiveTab] = useState<
-    | 'COMPANIES'
-    | 'AREAS'
-    | 'DEPARTMENTS'
-    | 'MEMBERS'
-    | 'BANNER_EVENTS'
-    | 'SCORING_APPEARANCE'
-    | 'EXCEL_SYNC'
-    | 'ROLES'
-  >('BANNER_EVENTS');
+  const [activeTab, setActiveTab] = useState<AdminSectionId>(initialTab || 'SCORING');
+
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{
     title: string;
@@ -180,6 +231,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const [importMode, setImportMode] = useState<'MERGE' | 'REPLACE'>('MERGE');
 
+  // Bộ lọc cho Trung tâm Xuất Excel Admin
+  const [mdExportCompany, setMdExportCompany] = useState<string>('ALL');
+  const [mdExportStatus, setMdExportStatus] = useState<'ALL' | 'ACTIVE' | 'STOPPED'>('ALL');
+  const [adminReportPeriod, setAdminReportPeriod] = useState<DailyReportExportPeriod>('MONTH');
+  const [adminReportCompany, setAdminReportCompany] = useState<string>('ALL');
+  const [adminReportArea, setAdminReportArea] = useState<string>('ALL');
+  const [eduExportCompany, setEduExportCompany] = useState<string>('ALL');
+
   // Modals / Editing state
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [isAddCompanyOpen, setIsAddCompanyOpen] = useState(false);
@@ -203,6 +262,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newMemberCompany, setNewMemberCompany] = useState(companies[0]?.code || 'Th1');
   const [newMemberArea, setNewMemberArea] = useState('1.1');
   const [newMemberDept, setNewMemberDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
+  const [newMemberUnit, setNewMemberUnit] = useState('');
 
   // Handlers for Company
   const handleSaveCompany = (e: React.FormEvent) => {
@@ -295,11 +355,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       companyCode: newMemberCompany,
       areaCode: newMemberArea,
       departmentCode: newMemberDept,
+      unitCode: newMemberUnit.trim() || undefined,
       active: true,
       goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
       results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
     });
     setNewMemberName('');
+    setNewMemberUnit('');
     setIsAddMemberOpen(false);
     onShowNotification('Đã thêm thành viên mới thành công!');
   };
@@ -390,155 +452,225 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-7 shadow-sm border border-slate-200 dark:border-slate-800">
         
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-slate-100 dark:border-slate-800 gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-3">
           <div>
-            <div className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-3 py-1 rounded-lg mb-2">
+            <div className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-3 py-1 rounded-lg mb-1.5">
               <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <span>Hệ thống Quản trị Hành Thực Lục</span>
+              <span>Quản trị Hệ thống</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
               Bảng Điều Khiển Quản Trị
             </h2>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Chọn danh mục bên dưới để cấu hình chiến dịch Event, bảng điểm, giao diện toàn web, nhân sự và phân quyền.
-            </p>
           </div>
         </div>
 
-        {/* Feature Selector Grid (No horizontal scroll) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 py-5 border-b border-slate-100 dark:border-slate-800">
-          {[
+        {(() => {
+          const adminNavGroups: {
+            groupKey: string;
+            groupTitle: string;
+            shortTitle: string;
+            groupIcon: React.ComponentType<{ className?: string }>;
+            items: {
+              id: AdminSectionId;
+              label: string;
+              icon: React.ComponentType<{ className?: string }>;
+              badge?: string;
+            }[];
+          }[] = [
             {
-              id: 'BANNER_EVENTS' as const,
-              label: 'Banner & Event',
-              meta: `${events.length} chiến dịch`,
-              icon: ImageIcon,
-              activeCls:
-                'bg-gradient-to-br from-amber-500 to-orange-500 text-white border-amber-500 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-amber-300 dark:hover:border-amber-700',
-              iconCls: 'text-amber-600 dark:text-amber-400',
+              groupKey: 'COMPETITION',
+              groupTitle: '1. Thi đua & Event',
+              shortTitle: 'Thi đua & Event',
+              groupIcon: Trophy,
+              items: [
+                { id: 'SCORING', label: 'Bảng điểm mặc định', icon: Scale, badge: '7 mục' },
+                { id: 'EVENTS', label: 'Quản lý Event', icon: Trophy, badge: `${events.length}` },
+              ],
             },
             {
-              id: 'SCORING_APPEARANCE' as const,
-              label: 'Điểm & Giao diện',
-              meta: 'Điểm gốc · Font · Widget',
-              icon: Sliders,
-              activeCls:
-                'bg-gradient-to-br from-indigo-600 to-blue-700 text-white border-indigo-600 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700',
-              iconCls: 'text-indigo-600 dark:text-indigo-400',
+              groupKey: 'DISPLAY',
+              groupTitle: '2. Giao diện & Hiển thị',
+              shortTitle: 'Giao diện',
+              groupIcon: LayoutGrid,
+              items: [
+                { id: 'BANNER', label: 'Banner Trang chủ', icon: ImageIcon },
+                { id: 'APPEARANCE_FONT', label: 'Font & Cỡ chữ', icon: Type },
+                { id: 'APPEARANCE_HOME', label: 'Bố cục Trang chủ', icon: Home },
+                { id: 'APPEARANCE_HONORS', label: 'Bảng Vinh danh', icon: LayoutGrid },
+              ],
             },
             {
-              id: 'ROLES' as const,
-              label: 'Phân quyền',
-              meta: usersList ? `${usersList.length} tài khoản` : '5 cấp quyền',
-              badge: currentUser?.role === 'SUPER_ADMIN' ? 'VIP' : undefined,
-              icon: Crown,
-              activeCls:
-                'bg-gradient-to-br from-purple-700 to-indigo-800 text-white border-purple-700 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-700',
-              iconCls: 'text-purple-600 dark:text-purple-400',
+              groupKey: 'ORG',
+              groupTitle: '3. Tổ chức & Nhân sự',
+              shortTitle: 'Tổ chức & NS',
+              groupIcon: Building2,
+              items: [
+                { id: 'COMPANIES', label: 'Sion / Công ty', icon: Building2, badge: `${companies.length}` },
+                { id: 'AREAS', label: 'Khu vực', icon: MapPin, badge: `${areas.length}` },
+                { id: 'DEPARTMENTS', label: 'Ban ngành', icon: Users2, badge: `${departments.length}` },
+                { id: 'MEMBERS', label: 'Thành viên', icon: User, badge: `${members.length}` },
+              ],
             },
             {
-              id: 'EXCEL_SYNC' as const,
-              label: 'Nhập / Xuất Excel',
-              meta: 'Đồng bộ tệp .xlsx',
-              icon: FileSpreadsheet,
-              activeCls:
-                'bg-gradient-to-br from-emerald-600 to-teal-700 text-white border-emerald-600 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700',
-              iconCls: 'text-emerald-600 dark:text-emerald-400',
+              groupKey: 'SYSTEM',
+              groupTitle: '4. Hệ thống & Dữ liệu',
+              shortTitle: 'Hệ thống',
+              groupIcon: Crown,
+              items: [
+                {
+                  id: 'ROLES',
+                  label: 'Phân quyền (7 cấp)',
+                  icon: Crown,
+                  badge: usersList ? `${usersList.length}` : undefined,
+                },
+                { id: 'EXCEL_SYNC', label: 'Nhập / Xuất Excel', icon: FileSpreadsheet },
+              ],
             },
-            {
-              id: 'COMPANIES' as const,
-              label: 'Công ty',
-              meta: `${companies.length} đơn vị`,
-              icon: Building2,
-              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
-              iconCls: 'text-blue-700 dark:text-blue-400',
-            },
-            {
-              id: 'AREAS' as const,
-              label: 'Khu vực',
-              meta: `${areas.length} khu vực`,
-              icon: MapPin,
-              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
-              iconCls: 'text-blue-700 dark:text-blue-400',
-            },
-            {
-              id: 'DEPARTMENTS' as const,
-              label: 'Ban ngành',
-              meta: `${departments.length} ban ngành`,
-              icon: Users2,
-              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
-              iconCls: 'text-blue-700 dark:text-blue-400',
-            },
-            {
-              id: 'MEMBERS' as const,
-              label: 'Thành viên',
-              meta: `${members.length} nhân sự`,
-              icon: User,
-              activeCls: 'bg-blue-900 text-white border-blue-900 shadow-sm',
-              idleCls:
-                'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700',
-              iconCls: 'text-blue-700 dark:text-blue-400',
-            },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
-                  isActive ? tab.activeCls : tab.idleCls
-                }`}
-              >
-                <div
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                    isActive
-                      ? 'bg-white/20 text-white'
-                      : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : tab.iconCls}`} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-extrabold truncate">{tab.label}</span>
-                    {tab.badge && (
-                      <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 text-[9px] font-black rounded-md shrink-0">
-                        {tab.badge}
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    className={`text-[10px] truncate tabular-nums mt-0.5 ${
-                      isActive ? 'text-white/85' : 'text-slate-500 dark:text-slate-400'
-                    }`}
-                  >
-                    {tab.meta}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+          ];
 
+          const activeGroup =
+            adminNavGroups.find((g) => g.items.some((it) => it.id === activeTab)) ||
+            adminNavGroups[0];
+
+          return (
+            <>
+              {/* Mobile / Tablet Menu 2 tầng hiển thị trực tiếp (Phương án A - Không ẩn dropdown) */}
+              <div className="lg:hidden mt-4 space-y-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-3">
+                {/* Tầng 1: 4 Nhóm chính (2x2 mobile, 4 cột sm/md) */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {adminNavGroups.map((grp, idx) => {
+                    const GroupIcon = grp.groupIcon;
+                    const isGroupActive = grp.groupKey === activeGroup.groupKey;
+                    return (
+                      <button
+                        key={grp.groupKey}
+                        type="button"
+                        onClick={() => {
+                          if (!grp.items.some((it) => it.id === activeTab)) {
+                            setActiveTab(grp.items[0].id);
+                          }
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-left text-xs font-extrabold transition cursor-pointer border ${
+                          isGroupActive
+                            ? 'bg-purple-700 text-white border-purple-700 shadow-xs'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                        }`}
+                      >
+                        <GroupIcon
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            isGroupActive ? 'text-amber-300' : 'text-purple-600 dark:text-purple-400'
+                          }`}
+                        />
+                        <span className="truncate">
+                          {idx + 1}. {grp.shortTitle}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Tầng 2: Các tính năng con của nhóm đang chọn */}
+                <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 px-0.5">
+                    {activeGroup.groupTitle}
+                  </div>
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5">
+                    {activeGroup.items.map((item) => {
+                      const Icon = item.icon;
+                      const isItemActive = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setActiveTab(item.id)}
+                          className={`flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                            isItemActive
+                              ? 'bg-blue-700 text-white border-blue-700 shadow-xs'
+                              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <Icon
+                              className={`w-3.5 h-3.5 shrink-0 ${
+                                isItemActive ? 'text-amber-300' : 'text-slate-400 dark:text-slate-500'
+                              }`}
+                            />
+                            <span className="truncate">{item.label}</span>
+                          </span>
+                          {item.badge && (
+                            <span
+                              className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums shrink-0 ${
+                                isItemActive
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              {item.badge}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* SaaS Admin Workspace: Grouped Sidebar (Left) + Active Panel (Right) */}
+              <div className="mt-5 grid grid-cols-1 lg:grid-cols-[248px_1fr] gap-6 items-start">
+                {/* Desktop Grouped Admin Sidebar */}
+                <aside className="hidden lg:block sticky top-20 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-3 space-y-4">
+                  {adminNavGroups.map((grp) => (
+                    <div key={grp.groupTitle} className="space-y-1">
+                      <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        {grp.groupTitle}
+                      </div>
+                      <div className="space-y-0.5">
+                        {grp.items.map((item) => {
+                          const Icon = item.icon;
+                          const active = activeTab === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setActiveTab(item.id)}
+                              className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-left text-xs font-bold transition cursor-pointer ${
+                                active
+                                  ? 'bg-blue-700 text-white shadow-xs'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="flex items-center gap-2 min-w-0">
+                                <Icon
+                                  className={`w-4 h-4 shrink-0 ${
+                                    active ? 'text-amber-300' : 'text-slate-400 dark:text-slate-500'
+                                  }`}
+                                />
+                                <span className="truncate">{item.label}</span>
+                              </span>
+                              {item.badge && (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums shrink-0 ${
+                                    active
+                                      ? 'bg-white/20 text-white'
+                                      : 'bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                  }`}
+                                >
+                                  {item.badge}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </aside>
+
+                {/* Main Admin Content Area */}
+                <div className="min-w-0">
         {/* TAB 1: COMPANIES */}
         {activeTab === 'COMPANIES' && (
-          <div className="mt-6">
+          <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-sm text-slate-800">Danh sách các Công ty (Th1, Th2, Th3, HT, NC, QN...)</h3>
               <button
@@ -730,15 +862,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Thuộc Công ty</label>
-                    <select
+                    <CustomSelect
+                      size="sm"
                       value={newAreaCompany}
-                      onChange={(e) => setNewAreaCompany(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
-                    >
-                      {companies.map((c) => (
-                        <option key={c.code} value={c.code}>{c.name}</option>
-                      ))}
-                    </select>
+                      onChange={setNewAreaCompany}
+                      options={companies.map((c) => ({
+                        value: c.code,
+                        label: c.name,
+                        badge: c.code,
+                      }))}
+                    />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Mã KV (ví dụ: 1.3, 2.3...)</label>
@@ -853,15 +986,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1">Trực thuộc Công ty</label>
-                      <select
+                      <CustomSelect
+                        size="sm"
                         value={editingArea.companyCode}
-                        onChange={(e) => setEditingArea({ ...editingArea, companyCode: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
-                      >
-                        {companies.map((c) => (
-                          <option key={c.code} value={c.code}>{c.name}</option>
-                        ))}
-                      </select>
+                        onChange={(val) => setEditingArea({ ...editingArea, companyCode: val })}
+                        options={companies.map((c) => ({
+                          value: c.code,
+                          label: c.name,
+                          badge: c.code,
+                        }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1">Mã Khu vực</label>
@@ -1088,7 +1222,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {isAddMemberOpen && (
               <form onSubmit={handleSaveMember} className="mb-6 p-4 rounded-2xl bg-blue-50/50 border border-blue-200 animate-in fade-in">
                 <div className="font-bold text-xs text-blue-950 mb-3">Thêm Thành viên mới</div>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Họ và tên *</label>
                     <input
@@ -1096,20 +1230,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       value={newMemberName}
                       onChange={(e) => setNewMemberName(e.target.value)}
                       placeholder="Nguyễn Văn B"
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Công ty *</label>
-                    <select
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Sion / Công ty *</label>
+                    <CustomSelect
+                      size="sm"
                       value={newMemberCompany}
-                      onChange={(e) => setNewMemberCompany(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
-                    >
-                      {companies.map((c) => (
-                        <option key={c.code} value={c.code}>{c.name}</option>
-                      ))}
-                    </select>
+                      onChange={setNewMemberCompany}
+                      options={companies.map((c) => ({
+                        value: c.code,
+                        label: c.name,
+                        badge: c.code,
+                      }))}
+                    />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Khu vực *</label>
@@ -1118,20 +1253,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       value={newMemberArea}
                       onChange={(e) => setNewMemberArea(e.target.value)}
                       placeholder="1.1, 1.2..."
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Đội / Uni</label>
+                    <input
+                      type="text"
+                      value={newMemberUnit}
+                      onChange={(e) => setNewMemberUnit(e.target.value)}
+                      placeholder="Uni 1, Đội A..."
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
                     />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Ban ngành *</label>
-                    <select
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
                       value={newMemberDept}
-                      onChange={(e) => setNewMemberDept(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
-                    >
-                      {departments.map((d) => (
-                        <option key={d.code} value={d.code}>{d.name}</option>
-                      ))}
-                    </select>
+                      onChange={setNewMemberDept}
+                      options={departments.map((d) => ({
+                        value: d.code,
+                        label: d.name,
+                      }))}
+                    />
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-end gap-2">
@@ -1266,16 +1412,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">Công ty</label>
-                        <select
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Sion / Công ty</label>
+                        <CustomSelect
+                          size="sm"
                           value={editingMember.companyCode}
-                          onChange={(e) => setEditingMember({ ...editingMember, companyCode: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800"
-                        >
-                          {companies.map((c) => (
-                            <option key={c.code} value={c.code}>{c.name}</option>
-                          ))}
-                        </select>
+                          onChange={(val) => setEditingMember({ ...editingMember, companyCode: val })}
+                          options={companies.map((c) => ({
+                            value: c.code,
+                            label: c.name,
+                            badge: c.code,
+                          }))}
+                        />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">Khu vực</label>
@@ -1287,17 +1434,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         />
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Ban ngành</label>
-                      <select
-                        value={editingMember.departmentCode}
-                        onChange={(e) => setEditingMember({ ...editingMember, departmentCode: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
-                      >
-                        {departments.map((d) => (
-                          <option key={d.code} value={d.code}>{d.name}</option>
-                        ))}
-                      </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Đội / Uni</label>
+                        <input
+                          type="text"
+                          value={editingMember.unitCode || ''}
+                          onChange={(e) => setEditingMember({ ...editingMember, unitCode: e.target.value })}
+                          placeholder="Uni 1, Đội A..."
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Ban ngành</label>
+                        <CustomSelect
+                          size="sm"
+                          searchable={false}
+                          value={editingMember.departmentCode}
+                          onChange={(val) => setEditingMember({ ...editingMember, departmentCode: val })}
+                          options={departments.map((d) => ({
+                            value: d.code,
+                            label: d.name,
+                          }))}
+                        />
+                      </div>
                     </div>
                   </div>
                   <div className="mt-5 flex justify-end gap-2">
@@ -1321,188 +1481,502 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 5: EXCEL IMPORT / EXPORT */}
+        {/* TAB: TRUNG TÂM NHẬP & XUẤT EXCEL */}
         {activeTab === 'EXCEL_SYNC' && (
-          <div className="mt-6 space-y-6 animate-in fade-in">
+          <div className="space-y-5 animate-in fade-in">
             {/* Intro Banner */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200 text-emerald-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-emerald-950 dark:text-emerald-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
                   <FileSpreadsheet className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-base text-emerald-950">
-                    Trung Tâm Nhập & Xuất Dữ Liệu Excel
+                  <h3 className="font-extrabold text-base text-emerald-950 dark:text-white">
+                    Trung Tâm Nhập &amp; Xuất Dữ Liệu Excel
                   </h3>
-                  <p className="text-xs text-emerald-800/80 mt-0.5">
-                    Hỗ trợ quản trị viên nhập/xuất danh mục cấu hình các mục dropdown và dữ liệu nhân sự thi đua theo từng Sheet.
+                  <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
+                    Đồng bộ danh mục hệ thống, hồ sơ nhân sự mới, danh sách MĐ, báo cáo hằng ngày và dữ liệu Edu.
                   </p>
                 </div>
               </div>
 
-              <div className="text-[11px] font-semibold text-emerald-800 bg-white/80 px-3 py-1.5 rounded-xl border border-emerald-200/60 shadow-2xs">
-                Định dạng hỗ trợ: <strong>.xlsx, .xls</strong>
+              <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200 bg-white/80 dark:bg-slate-900/80 px-3 py-1.5 rounded-xl border border-emerald-200/60 dark:border-emerald-700/60 shrink-0">
+                Hỗ trợ: <strong>.xlsx, .xls</strong>
               </div>
             </div>
 
-            {/* Grid 2 Blocks: Cấu hình hệ thống & Nhân sự */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              
+            {/* Grid Cards */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
               {/* BLOCK 1: CẤU HÌNH DANH MỤC HỆ THỐNG */}
-              <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-200/80 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0">
                       <Building2 className="w-4 h-4" />
                     </span>
-                    <div>
-                      <h4 className="font-extrabold text-sm text-slate-900">
-                        1. Cấu Hình Danh Mục Dropdown
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        1. Danh Mục Tổ Chức
                       </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Quản lý Công ty, Khu vực và Ban ngành
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Sion / Công ty, Khu vực và Ban ngành
                       </p>
                     </div>
                   </div>
 
-                  <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
+                  <span className="text-[11px] font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md shrink-0">
                     3 Sheets
                   </span>
                 </div>
 
-                {/* Current Stats */}
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Công ty</div>
-                    <div className="text-base font-black text-slate-900 mt-0.5">{companies.length}</div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Sion</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {companies.length}
+                    </div>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] text-slate-400 font-semibold uppercase">Khu vực</div>
-                    <div className="text-base font-black text-slate-900 mt-0.5">{areas.length}</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {areas.length}
+                    </div>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] text-slate-400 font-semibold uppercase">Ban ngành</div>
-                    <div className="text-base font-black text-slate-900 mt-0.5">{departments.length}</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {departments.length}
+                    </div>
                   </div>
                 </div>
 
-                {/* Guide */}
-                <div className="p-3 bg-white rounded-xl border border-slate-200 text-[11px] text-slate-600 space-y-1">
-                  <div className="font-bold text-slate-800 flex items-center gap-1">
-                    <Info className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Cấu trúc các Sheet trong file Cấu hình:</span>
+                <div className="p-3 bg-white dark:bg-slate-900/70 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                  <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1">
+                    <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Cấu trúc file:</span>
                   </div>
-                  <ul className="list-disc pl-4 space-y-0.5 text-slate-500">
-                    <li><strong>Sheet 1 (Công Ty):</strong> Mã Công Ty, Tên Công Ty, Mô Tả, Trạng Thái.</li>
-                    <li><strong>Sheet 2 (Khu Vực):</strong> Mã Khu Vực, Tên Khu Vực, Mã Công Ty Trực Thuộc.</li>
-                    <li><strong>Sheet 3 (Ban Ngành):</strong> Mã Ban Ngành, Tên Ban Ngành, Trạng Thái.</li>
+                  <ul className="list-disc pl-4 space-y-0.5 text-slate-500 dark:text-slate-400">
+                    <li><strong>Sion - Công Ty:</strong> Mã Sion, Tên Sion, Mô Tả, Trạng Thái.</li>
+                    <li><strong>Khu Vực:</strong> Mã Khu Vực, Tên Khu Vực, Mã Sion Trực Thuộc.</li>
+                    <li><strong>Ban Ngành:</strong> Mã Ban Ngành, Tên Ban Ngành, Trạng Thái.</li>
                   </ul>
                 </div>
 
-                {/* Actions */}
-                <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
+                    type="button"
                     onClick={() => downloadConfigTemplateExcel()}
-                    className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    className="py-2 px-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Tải mẫu Cấu hình</span>
+                    <span>Tải mẫu</span>
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => exportSystemConfigExcel(companies, areas, departments)}
-                    className="flex-1 py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    className="py-2 px-3 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <FileDown className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Xuất dữ liệu Cấu hình</span>
+                    <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>Xuất Excel</span>
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => configFileRef.current?.click()}
-                    className="flex-1 py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    className="py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     <FileUp className="w-3.5 h-3.5" />
-                    <span>Nhập từ Excel</span>
+                    <span>Nhập Excel</span>
                   </button>
                 </div>
               </div>
 
-              {/* BLOCK 2: DỮ LIỆU NHÂN SỰ & BẢNG ĐIỂM */}
-              <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-200/80 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              {/* BLOCK 2: HỒ SƠ CÁ NHÂN & NHÂN SỰ THI ĐUA (CẤU TRÚC MỚI) */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
                       <User className="w-4 h-4" />
                     </span>
-                    <div>
-                      <h4 className="font-extrabold text-sm text-slate-900">
-                        2. Dữ Liệu Nhân Sự & Điểm Thi Đua
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        2. Hồ Sơ Cá Nhân &amp; Thi Đua
                       </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Quản lý danh sách thành viên và đối tượng tiếp cận
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Cấu trúc mới: Đội/Uni, Vai trò 7 cấp &amp; 7 chỉ số
                       </p>
                     </div>
                   </div>
 
-                  <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                  <span className="text-[11px] font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md shrink-0">
                     2 Sheets
                   </span>
                 </div>
 
-                {/* Current Stats */}
                 <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] text-slate-400 font-semibold uppercase">Thành viên</div>
-                    <div className="text-base font-black text-slate-900 mt-0.5">{members.length} người</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {members.length} người
+                    </div>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Tổng đối tượng</div>
-                    <div className="text-base font-black text-slate-900 mt-0.5">
-                      {members.reduce((acc, m) => acc + (m.targets?.length || 0), 0)} đối tượng
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Tài khoản đối chiếu</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {usersList?.length || 0} TK
                     </div>
                   </div>
                 </div>
 
-                {/* Guide */}
-                <div className="p-3 bg-white rounded-xl border border-slate-200 text-[11px] text-slate-600 space-y-1">
-                  <div className="font-bold text-slate-800 flex items-center gap-1">
-                    <Info className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Cấu trúc các Sheet trong file Nhân sự:</span>
+                <div className="p-3 bg-white dark:bg-slate-900/70 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                  <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1">
+                    <Info className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Cấu trúc cập nhật mới:</span>
                   </div>
-                  <ul className="list-disc pl-4 space-y-0.5 text-slate-500">
-                    <li><strong>Sheet 1 (Thành Viên):</strong> Mã TV, Họ và Tên, Công Ty, Khu Vực, Ban Ngành, Mục Tiêu B1..B6.</li>
-                    <li><strong>Sheet 2 (Nhật Ký Đối Tượng):</strong> Danh sách đối tượng, điểm số và các bước thực hiện.</li>
+                  <ul className="list-disc pl-4 space-y-0.5 text-slate-500 dark:text-slate-400">
+                    <li>
+                      <strong>Hồ Sơ &amp; Thi Đua TV:</strong> Mã TV, Họ Tên, Username, Email, Vai trò, Phạm vi, Sion, KV, Ban, Đội/Uni, 7 chỉ số (KN..WS New) &amp; số MĐ.
+                    </li>
+                    <li>
+                      <strong>Tổng Hợp Sion &amp; KV:</strong> Điểm TB, tổng 7 chỉ số và MĐ theo từng Khu vực.
+                    </li>
                   </ul>
                 </div>
 
-                {/* Actions */}
-                <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
+                    type="button"
                     onClick={() => downloadMembersTemplateExcel()}
-                    className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    className="py-2 px-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Tải mẫu Nhân sự</span>
+                    <span>Tải mẫu mới</span>
                   </button>
 
                   <button
-                    onClick={() => exportMembersAndTargetsExcel(members)}
-                    className="flex-1 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    type="button"
+                    onClick={() => {
+                      const res = exportMembersAndTargetsExcel(
+                        members,
+                        usersList || [],
+                        disciples
+                      );
+                      onShowNotification(
+                        `Đã xuất ${res.fileName} (${res.membersCount} thành viên).`
+                      );
+                    }}
+                    className="py-2 px-3 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <FileDown className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Xuất dữ liệu Nhân sự</span>
+                    <FileDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Xuất Hồ sơ TV</span>
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => memberFileRef.current?.click()}
-                    className="flex-1 py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    className="py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     <FileUp className="w-3.5 h-3.5" />
-                    <span>Nhập từ Excel</span>
+                    <span>Nhập Excel</span>
                   </button>
                 </div>
               </div>
 
+              {/* BLOCK 3: XUẤT DANH SÁCH MĐ */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                      <BookOpen className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        3. Danh Sách MĐ Toàn Hệ Thống
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        9 bước tiến độ (KN → WS / Dừng) &amp; người phụ trách
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md shrink-0">
+                    2 Sheets
+                  </span>
+                </div>
+
+                {(() => {
+                  const activeMdCount = disciples.filter(
+                    (d) => !d.isStopped && !d.progress.includes('Dừng')
+                  ).length;
+                  const stoppedMdCount = disciples.length - activeMdCount;
+                  return (
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                        <div className="text-[10px] text-slate-400 font-semibold uppercase">Tổng MĐ</div>
+                        <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                          {disciples.length}
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                        <div className="text-[10px] text-emerald-600 font-semibold uppercase">Đang theo</div>
+                        <div className="text-base font-black text-emerald-700 dark:text-emerald-400 mt-0.5 tabular-nums">
+                          {activeMdCount}
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                        <div className="text-[10px] text-rose-500 font-semibold uppercase">Đã dừng</div>
+                        <div className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5 tabular-nums">
+                          {stoppedMdCount}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={mdExportCompany}
+                      onChange={setMdExportCompany}
+                      options={[
+                        { value: 'ALL', label: 'Tất cả Sion' },
+                        ...companies.map((c) => ({ value: c.code, label: c.name })),
+                      ]}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={mdExportStatus}
+                      onChange={(val) => setMdExportStatus(val as 'ALL' | 'ACTIVE' | 'STOPPED')}
+                      options={[
+                        { value: 'ALL', label: 'Tất cả trạng thái' },
+                        { value: 'ACTIVE', label: 'Đang theo dõi' },
+                        { value: 'STOPPED', label: 'Đã dừng' },
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const res = exportDisciplesExcel(disciples, {
+                      companyCode: mdExportCompany,
+                      status: mdExportStatus,
+                    });
+                    onShowNotification(`Đã xuất ${res.fileName} (${res.count} MĐ).`);
+                  }}
+                  className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span>Xuất Excel Danh sách MĐ</span>
+                </button>
+              </div>
+
+              {/* BLOCK 4: XUẤT BÁO CÁO HẰNG NGÀY TOÀN HỆ THỐNG */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 flex items-center justify-center shrink-0">
+                      <BarChart3 className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        4. Báo Cáo Hằng Ngày Toàn Hệ Thống
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Tổng hợp TV, Khu vực &amp; Nhật ký theo từng ngày
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] font-mono font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded-md shrink-0">
+                    3 Sheets
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Tổng phiếu báo cáo</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {dailyReports.length}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Thang điểm áp dụng</div>
+                    <div className="text-xs font-black text-sky-700 dark:text-sky-300 mt-1 truncate">
+                      {activeEvent ? activeEvent.title : 'Điểm mặc định HT'}
+                    </div>
+                  </div>
+                </div>
+
+                {(() => {
+                  const now = new Date();
+                  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+                    now.getDate()
+                  ).padStart(2, '0')}`;
+                  const monthStr = todayStr.slice(0, 7);
+                  const yearStr = todayStr.slice(0, 4);
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable={false}
+                            value={adminReportPeriod}
+                            onChange={(val) => setAdminReportPeriod(val as DailyReportExportPeriod)}
+                            options={[
+                              { value: 'DAY', label: `Hôm nay (${todayStr.split('-').reverse().join('/')})` },
+                              { value: 'MONTH', label: `Tháng ${monthStr.split('-').reverse().join('/')}` },
+                              { value: 'YEAR', label: `Năm ${yearStr}` },
+                              { value: 'ALL', label: 'Tất cả thời gian' },
+                            ]}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable={false}
+                            value={adminReportCompany}
+                            onChange={(val) => {
+                              setAdminReportCompany(val);
+                              setAdminReportArea('ALL');
+                            }}
+                            options={[
+                              { value: 'ALL', label: 'Tất cả Sion' },
+                              ...companies.map((c) => ({ value: c.code, label: c.name })),
+                            ]}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable={false}
+                            value={adminReportArea}
+                            onChange={setAdminReportArea}
+                            options={[
+                              { value: 'ALL', label: 'Tất cả KV' },
+                              ...areas
+                                .filter((a) => adminReportCompany === 'ALL' || a.companyCode === adminReportCompany)
+                                .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
+                            ]}
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!currentUser) return;
+                          const weights =
+                            activeEvent?.weights || scoringConfig?.weights || DEFAULT_EVENT_WEIGHTS;
+                          const res = exportDailyReportsByRbacExcel({
+                            viewer: currentUser,
+                            dailyReports,
+                            members,
+                            weights,
+                            period: adminReportPeriod,
+                            periodDate: todayStr,
+                            periodMonth: monthStr,
+                            periodYear: yearStr,
+                            filterCompanyCode: adminReportCompany,
+                            filterAreaCode: adminReportArea,
+                          });
+                          onShowNotification(
+                            `Đã xuất ${res.fileName} (${res.reportsCount} báo cáo).`
+                          );
+                        }}
+                        className="w-full py-2.5 px-4 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <FileDown className="w-4 h-4" />
+                        <span>Xuất Excel Báo cáo hằng ngày</span>
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* BLOCK 5: XUẤT DỮ LIỆU EDU (LMS & CMS) */}
+              <div className="xl:col-span-2 p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
+                      <GraduationCap className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        5. Dữ Liệu Đào Tạo Edu (LMS &amp; CMS)
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Chủ đề tuần, Giáo trình, Phân công TĐ và Lộ trình CMS / NGV
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] font-mono font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-md shrink-0">
+                    3 Sheets
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-3 items-center">
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Chủ đề LMS</div>
+                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                        {eduTopics.length}
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Phân công TĐ</div>
+                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                        {eduAssignments.length}
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Hồ sơ CMS/NGV</div>
+                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                        {eduCmsProfiles.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={eduExportCompany}
+                      onChange={setEduExportCompany}
+                      options={[
+                        { value: 'ALL', label: 'Tất cả Sion' },
+                        ...companies.map((c) => ({ value: c.code, label: c.name })),
+                      ]}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const res = exportEduDataExcel(eduTopics, eduAssignments, eduCmsProfiles, {
+                        companyCode: eduExportCompany,
+                      });
+                      onShowNotification(
+                        `Đã xuất ${res.fileName} (${res.topicsCount} chủ đề, ${res.assignmentsCount} phân công, ${res.cmsCount} CMS).`
+                      );
+                    }}
+                    className="py-2.5 px-4 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                  >
+                    <FileDown className="w-4 h-4" />
+                    <span>Xuất Excel Edu</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1665,9 +2139,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <tr>
                       <th className="p-2">Mã TV</th>
                       <th className="p-2">Họ và Tên</th>
-                      <th className="p-2">Công ty</th>
+                      <th className="p-2">Sion</th>
                       <th className="p-2">Khu vực</th>
                       <th className="p-2">Ban ngành</th>
+                      <th className="p-2">Đội / Uni</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1678,6 +2153,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <td className="p-2 text-slate-700 dark:text-slate-300">{m.companyCode}</td>
                         <td className="p-2 text-slate-700 dark:text-slate-300">{m.areaCode}</td>
                         <td className="p-2 text-slate-700 dark:text-slate-300">{m.departmentCode}</td>
+                        <td className="p-2 text-slate-700 dark:text-slate-300">{m.unitCode || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1752,9 +2228,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 6: PHÂN QUYỀN QUẢN TRỊ VIÊN TỔNG (ROLES) */}
+        {/* TAB: PHÂN QUYỀN (7 CẤP) */}
         {activeTab === 'ROLES' && (
-          <div className="mt-6">
+          <div>
             <RoleManagementTab
               currentUser={currentUser || null}
               usersList={usersList || []}
@@ -1770,37 +2246,96 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 7: QUẢN LÝ BANNER & CHIẾN DỊCH EVENT */}
-        {activeTab === 'BANNER_EVENTS' && (
-          <div className="mt-6">
-            <AdminBannerEventTab
-              bannerConfig={bannerConfig || null}
-              events={events}
-              members={members}
-              companies={companies}
-              areas={areas}
-              onSaveBannerConfig={onSaveBannerConfig || (async () => {})}
-              onSaveEvent={onSaveEvent || (async () => {})}
-              onDeleteEvent={onDeleteEvent || (async () => {})}
-              onShowNotification={onShowNotification}
-              defaultWeights={scoringConfig?.weights}
-            />
-          </div>
+        {/* TAB: QUẢN LÝ EVENT (NHÓM 1) */}
+        {activeTab === 'EVENTS' && (
+          <AdminBannerEventTab
+            forcedSection="EVENTS"
+            bannerConfig={bannerConfig || null}
+            events={events}
+            members={members}
+            companies={companies}
+            areas={areas}
+            onSaveBannerConfig={onSaveBannerConfig || (async () => {})}
+            onSaveEvent={onSaveEvent || (async () => {})}
+            onDeleteEvent={onDeleteEvent || (async () => {})}
+            onShowNotification={onShowNotification}
+            defaultWeights={scoringConfig?.weights}
+          />
         )}
 
-        {/* TAB 8: ĐIỂM MẶC ĐỊNH HỆ THỐNG, FONT CHỮ & BỐ CỤC WIDGET */}
-        {activeTab === 'SCORING_APPEARANCE' && (
-          <div className="mt-6">
-            <AdminScoringAppearanceTab
-              scoringConfig={scoringConfig}
-              appearanceConfig={appearanceConfig}
-              activeEvent={activeEvent}
-              onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
-              onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
-              onShowNotification={onShowNotification}
-            />
-          </div>
+        {/* TAB: BANNER TRANG CHỦ (NHÓM 2 - TÁCH RIÊNG KHỎI EVENT) */}
+        {activeTab === 'BANNER' && (
+          <AdminBannerEventTab
+            forcedSection="BANNER"
+            bannerConfig={bannerConfig || null}
+            events={events}
+            members={members}
+            companies={companies}
+            areas={areas}
+            onSaveBannerConfig={onSaveBannerConfig || (async () => {})}
+            onSaveEvent={onSaveEvent || (async () => {})}
+            onDeleteEvent={onDeleteEvent || (async () => {})}
+            onShowNotification={onShowNotification}
+            defaultWeights={scoringConfig?.weights}
+          />
         )}
+
+        {/* TAB: BẢNG ĐIỂM MẶC ĐỊNH HỆ THỐNG (NHÓM 1 - TÁCH RIÊNG KHỎI GIAO DIỆN) */}
+        {activeTab === 'SCORING' && (
+          <AdminScoringAppearanceTab
+            forcedSection="SCORING"
+            scoringConfig={scoringConfig}
+            appearanceConfig={appearanceConfig}
+            activeEvent={activeEvent}
+            onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
+            onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
+            onShowNotification={onShowNotification}
+          />
+        )}
+
+        {/* TAB: FONT & CỠ CHỮ (NHÓM 2) */}
+        {activeTab === 'APPEARANCE_FONT' && (
+          <AdminScoringAppearanceTab
+            forcedSection="TYPOGRAPHY"
+            scoringConfig={scoringConfig}
+            appearanceConfig={appearanceConfig}
+            activeEvent={activeEvent}
+            onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
+            onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
+            onShowNotification={onShowNotification}
+          />
+        )}
+
+        {/* TAB: BỐ CỤC TRANG CHỦ (NHÓM 2) */}
+        {activeTab === 'APPEARANCE_HOME' && (
+          <AdminScoringAppearanceTab
+            forcedSection="HOME_LAYOUT"
+            scoringConfig={scoringConfig}
+            appearanceConfig={appearanceConfig}
+            activeEvent={activeEvent}
+            onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
+            onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
+            onShowNotification={onShowNotification}
+          />
+        )}
+
+        {/* TAB: BỐ CỤC BẢNG VINH DANH (NHÓM 2) */}
+        {activeTab === 'APPEARANCE_HONORS' && (
+          <AdminScoringAppearanceTab
+            forcedSection="HONORS_LAYOUT"
+            scoringConfig={scoringConfig}
+            appearanceConfig={appearanceConfig}
+            activeEvent={activeEvent}
+            onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
+            onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
+            onShowNotification={onShowNotification}
+          />
+        )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
 
         {/* IN-APP DELETE CONFIRMATION MODAL */}
         {confirmDeleteTarget && (

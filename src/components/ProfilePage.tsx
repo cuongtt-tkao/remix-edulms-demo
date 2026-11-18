@@ -28,6 +28,8 @@ import {
   PauseCircle,
   BarChart3,
   Award,
+  FileSpreadsheet,
+  Download,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -48,14 +50,22 @@ import {
   EMPTY_DAILY_METRICS,
   DEFAULT_DAILY_GOALS,
   DEFAULT_EVENT_WEIGHTS,
+  ROLE_DISPLAY_META,
 } from '../types/edulms';
 import { REACTION_CONFIG } from './NewsSection';
 import { SPOTLIGHT_COVERS } from './HeroBanner';
 import { sumDailyReportMetrics, computeDailyMetricsScore } from '../utils/scoringEngine';
+import { CustomSelect } from './CustomSelect';
+import { isAdminRole, isSupervisorRole } from '../utils/rbac';
+import {
+  exportDailyReportsByRbacExcel,
+  DailyReportExportPeriod,
+} from '../utils/reportExporter';
 
 interface ProfilePageProps {
   currentUser: UserAccount;
   memberData: Member | null;
+  members?: Member[];
   myHuongKhiList: HuongKhiItem[];
   dailyReports: DailyReportRecord[];
   periodGoals: PeriodGoalRecord[];
@@ -82,6 +92,7 @@ interface ProfilePageProps {
     companyCode: string;
     areaCode: string;
     departmentCode: string;
+    unitCode?: string;
   }) => void | boolean | Promise<boolean | void>;
   onShowNotification: (msg: string) => void;
 }
@@ -131,23 +142,15 @@ async function compressImageFile(
 }
 
 const getRoleLabel = (role: UserAccount['role']): string => {
-  switch (role) {
-    case 'SUPER_ADMIN':
-      return 'Quản trị Tổng';
-    case 'ADMIN':
-      return 'Ban Quản Trị';
-    case 'MANAGER':
-      return 'Nhà quản lý';
-    case 'AREA_LEADER':
-      return 'Khu vực trưởng';
-    default:
-      return 'Thành Viên Thi Đua';
-  }
+  const meta = ROLE_DISPLAY_META[role];
+  if (meta) return meta.label;
+  return 'Thành viên (TĐ)';
 };
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({
   currentUser,
   memberData,
+  members = [],
   myHuongKhiList,
   dailyReports,
   periodGoals,
@@ -183,6 +186,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   // Bộ chuyển kỳ trong tab Tiến độ Báo cáo
   const [reportPeriodMode, setReportPeriodMode] = useState<'DAY' | 'MONTH' | 'YEAR'>('MONTH');
 
+  // Cấu hình Xuất Excel Báo cáo hằng ngày theo phân quyền 7 cấp
+  const [exportPeriod, setExportPeriod] = useState<DailyReportExportPeriod>('MONTH');
+  const [exportCompanyFilter, setExportCompanyFilter] = useState<string>('ALL');
+  const [exportAreaFilter, setExportAreaFilter] = useState<string>('ALL');
+
   const avatarFileInputRef = React.useRef<HTMLInputElement | null>(null);
   const coverFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -201,6 +209,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [editCompany, setEditCompany] = useState(currentUser.companyCode);
   const [editArea, setEditArea] = useState(currentUser.areaCode);
   const [editDepartment, setEditDepartment] = useState(currentUser.departmentCode);
+  const [editUnitCode, setEditUnitCode] = useState(currentUser.unitCode || '');
 
   // Password state
   const [newPassword, setNewPassword] = useState('');
@@ -223,6 +232,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       setEditCompany(currentUser.companyCode);
       setEditArea(currentUser.areaCode);
       setEditDepartment(currentUser.departmentCode);
+      setEditUnitCode(currentUser.unitCode || '');
       setEditError('');
     }
   }, [isEditProfileModalOpen, currentUser]);
@@ -430,6 +440,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       companyCode: currentUser.companyCode,
       areaCode: currentUser.areaCode,
       departmentCode: currentUser.departmentCode,
+      unitCode: currentUser.unitCode,
     });
     if (saved === false) return;
     setIsAvatarModalOpen(false);
@@ -445,6 +456,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       companyCode: currentUser.companyCode,
       areaCode: currentUser.areaCode,
       departmentCode: currentUser.departmentCode,
+      unitCode: currentUser.unitCode,
     });
     if (saved === false) return;
     setIsCoverModalOpen(false);
@@ -502,6 +514,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       companyCode: editCompany,
       areaCode: editArea,
       departmentCode: editDepartment,
+      unitCode: editUnitCode.trim(),
     });
     if (saved === false) return;
 
@@ -529,6 +542,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       companyCode: currentUser.companyCode,
       areaCode: currentUser.areaCode,
       departmentCode: currentUser.departmentCode,
+      unitCode: currentUser.unitCode,
     });
     if (changed === false) return;
 
@@ -675,12 +689,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </h1>
 
                   <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
-                      currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN'
-                        ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-700'
-                        : currentUser.role === 'MANAGER' || currentUser.role === 'AREA_LEADER'
-                        ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700'
-                        : 'bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-700'
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
+                      ROLE_DISPLAY_META[currentUser.role]?.badgeClass ||
+                      'bg-blue-100 text-blue-800 border-blue-200'
                     }`}
                   >
                     {getRoleLabel(currentUser.role)}
@@ -708,7 +719,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 pt-1 text-xs text-slate-600 dark:text-slate-300 font-medium">
                   <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
                     <Building2 className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
-                    Cty: <strong>{currentUser.companyCode}</strong>
+                    Sion: <strong>{currentUser.companyCode}</strong>
                   </span>
                   <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
                     <MapPin className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
@@ -716,7 +727,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </span>
                   <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
                     <Users2 className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
-                    <strong>{currentUser.departmentCode}</strong>
+                    <strong>
+                      {currentUser.unitCode
+                        ? `${currentUser.unitCode} (${currentUser.departmentCode})`
+                        : currentUser.departmentCode}
+                    </strong>
                   </span>
                 </div>
 
@@ -768,66 +783,64 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
           </div>
 
-          {/* Profile Navigation Tabs */}
-          <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto pt-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+          {/* Profile Navigation Tabs (2x2 mobile, 4 cols sm+ - không scroll ngang) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-3 text-xs font-bold text-slate-600 dark:text-slate-300">
             <button
               type="button"
               onClick={() => setActiveProfileTab('POSTS')}
-              className={`px-4 py-2.5 rounded-xl transition cursor-pointer relative shrink-0 ${
+              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
                 activeProfileTab === 'POSTS'
-                  ? 'text-blue-600 dark:text-blue-400 font-extrabold bg-blue-50/80 dark:bg-blue-950/60'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
+                  : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <span>Bài viết &amp; Hương Khí ({myHuongKhiList.length})</span>
-              {activeProfileTab === 'POSTS' && (
-                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-600 dark:bg-blue-400 rounded-full" />
-              )}
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Bài viết</span>
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
+                {myHuongKhiList.length}
+              </span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveProfileTab('DISCIPLES')}
-              className={`px-4 py-2.5 rounded-xl transition cursor-pointer relative shrink-0 ${
+              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
                 activeProfileTab === 'DISCIPLES'
-                  ? 'text-blue-600 dark:text-blue-400 font-extrabold bg-blue-50/80 dark:bg-blue-950/60'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
+                  : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <span>Danh mục MĐ của tôi ({myDisciples.length})</span>
-              {activeProfileTab === 'DISCIPLES' && (
-                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-600 dark:bg-blue-400 rounded-full" />
-              )}
+              <BookOpen className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">MĐ của tôi</span>
+              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
+                {myDisciples.length}
+              </span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveProfileTab('REPORTS')}
-              className={`px-4 py-2.5 rounded-xl transition cursor-pointer relative shrink-0 ${
+              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
                 activeProfileTab === 'REPORTS'
-                  ? 'text-blue-600 dark:text-blue-400 font-extrabold bg-blue-50/80 dark:bg-blue-950/60'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
+                  : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <span>Tiến độ Báo cáo</span>
-              {activeProfileTab === 'REPORTS' && (
-                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-600 dark:bg-blue-400 rounded-full" />
-              )}
+              <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Báo cáo</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveProfileTab('ABOUT')}
-              className={`px-4 py-2.5 rounded-xl transition cursor-pointer relative shrink-0 ${
+              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
                 activeProfileTab === 'ABOUT'
-                  ? 'text-blue-600 dark:text-blue-400 font-extrabold bg-blue-50/80 dark:bg-blue-950/60'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
+                  : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <span>Thông tin &amp; Cơ cấu</span>
-              {activeProfileTab === 'ABOUT' && (
-                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-600 dark:bg-blue-400 rounded-full" />
-              )}
+              <Shield className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Thông tin</span>
             </button>
           </div>
         </div>
@@ -928,7 +941,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <span>⚡ Hoạt động thi đua</span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Cập nhật Báo cáo hằng ngày và quản lý sổ tay Môn Đồ cá nhân để theo sát hành trình chăm sóc.
+              Cập nhật Báo cáo hằng ngày và quản lý sổ tay MĐ cá nhân để theo sát hành trình chăm sóc.
             </p>
             <div className="space-y-2 pt-1">
               <button
@@ -1284,19 +1297,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                   />
                 </div>
-                <select
-                  value={discipleStepFilter}
-                  onChange={(e) => setDiscipleStepFilter(e.target.value as any)}
-                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
-                >
-                  <option value="ALL">Tất cả trạng thái</option>
-                  <option value="ACTIVE">Đang theo dõi (chưa Dừng)</option>
-                  {DISCIPLE_PROGRESS_STEPS.map((st) => (
-                    <option key={st.key} value={st.key}>
-                      Bước: {st.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="w-full sm:w-64 shrink-0">
+                  <CustomSelect
+                    size="sm"
+                    value={discipleStepFilter}
+                    onChange={(val) => setDiscipleStepFilter(val as any)}
+                    options={[
+                      { value: 'ALL', label: 'Tất cả trạng thái' },
+                      { value: 'ACTIVE', label: 'Đang theo dõi (chưa Dừng)' },
+                      ...DISCIPLE_PROGRESS_STEPS.map((st) => ({
+                        value: st.key,
+                        label: `Bước: ${st.label}`,
+                      })),
+                    ]}
+                    ariaLabel="Lọc trạng thái MĐ"
+                  />
+                </div>
               </div>
 
               {/* Disciples List */}
@@ -1389,7 +1405,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 space-y-3">
                   <div>
                     {myDisciples.length === 0
-                      ? 'Bạn chưa thêm Môn đồ nào trong Trang thông tin MĐ.'
+                      ? 'Bạn chưa thêm MĐ nào trong Trang thông tin MĐ.'
                       : 'Không có MĐ nào khớp với bộ lọc tìm kiếm.'}
                   </div>
                   <button
@@ -1405,33 +1421,145 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
           )}
 
-          {/* TAB 3: TIẾN ĐỘ BÁO CÁO (ĐỒNG BỘ 7 CHỈ SỐ DAILY REPORTS & PERIOD GOALS) */}
+          {/* TAB 3: TIẾN ĐỘ BÁO CÁO (GỌN GÀNG TRÊN MOBILE + BẢNG 7 DÒNG + EXCEL GRID) */}
           {activeProfileTab === 'REPORTS' && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-100 dark:border-slate-800 space-y-4 animate-in fade-in">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                  <h3 className="font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                    <span>Tiến Độ Báo Cáo Hằng Ngày</span>
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Tổng hợp tự động 7 chỉ số từ Báo cáo hằng ngày so với Mục tiêu kỳ.
-                  </p>
-                </div>
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-6 shadow-xs border border-slate-100 dark:border-slate-800 space-y-4 animate-in fade-in">
+              {/* Header gọn */}
+              <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+                  <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span className="truncate">Tiến Độ Báo Cáo</span>
+                </h3>
 
                 <button
                   type="button"
                   onClick={onNavigateToEntry}
-                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                  className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                   <PenTool className="w-3.5 h-3.5" />
-                  <span>Mở Báo cáo hằng ngày</span>
+                  <span>Nhập báo cáo</span>
                 </button>
               </div>
 
-              {/* Period Mode Switcher + Summary Score */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+              {/* Khối Xuất Excel Báo cáo (Grid chuẩn, không lệch hàng trên mobile) */}
+              <div className="p-3 sm:p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-800/60 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="font-extrabold text-xs text-emerald-950 dark:text-emerald-200 truncate">
+                      Xuất Excel Báo cáo
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-white/90 dark:bg-slate-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 shrink-0">
+                    {ROLE_DISPLAY_META[currentUser.role]?.codeBadge || 'TĐ'}
+                  </span>
+                </div>
+
+                <div
+                  className={`grid gap-2 ${
+                    isAdminRole(currentUser.role)
+                      ? 'grid-cols-2 sm:grid-cols-4'
+                      : currentUser.role === 'SION_LEADER'
+                      ? 'grid-cols-2 sm:grid-cols-3'
+                      : 'grid-cols-2'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={exportPeriod}
+                      onChange={(val) => setExportPeriod(val as DailyReportExportPeriod)}
+                      options={[
+                        { value: 'DAY', label: `Hôm nay (${todayStr.split('-').reverse().join('/')})` },
+                        { value: 'MONTH', label: `Tháng ${currentMonthStr.split('-').reverse().join('/')}` },
+                        { value: 'YEAR', label: `Năm ${currentYearStr}` },
+                        { value: 'ALL', label: 'Tất cả' },
+                      ]}
+                    />
+                  </div>
+
+                  {isAdminRole(currentUser.role) && (
+                    <div className="min-w-0">
+                      <CustomSelect
+                        size="sm"
+                        searchable={false}
+                        value={exportCompanyFilter}
+                        onChange={(val) => {
+                          setExportCompanyFilter(val);
+                          setExportAreaFilter('ALL');
+                        }}
+                        options={[
+                          { value: 'ALL', label: 'Tất cả Sion' },
+                          ...companies.map((c) => ({ value: c.code, label: c.name })),
+                        ]}
+                      />
+                    </div>
+                  )}
+
+                  {(isAdminRole(currentUser.role) || currentUser.role === 'SION_LEADER') && (
+                    <div className="min-w-0">
+                      <CustomSelect
+                        size="sm"
+                        searchable={false}
+                        value={exportAreaFilter}
+                        onChange={setExportAreaFilter}
+                        options={[
+                          { value: 'ALL', label: 'Tất cả KV' },
+                          ...areas
+                            .filter((a) => {
+                              if (isAdminRole(currentUser.role)) {
+                                return exportCompanyFilter === 'ALL' || a.companyCode === exportCompanyFilter;
+                              }
+                              const comps = currentUser.managedCompanyCodes?.length
+                                ? currentUser.managedCompanyCodes
+                                : [currentUser.companyCode];
+                              return comps.includes(a.companyCode);
+                            })
+                            .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
+                        ]}
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const weights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
+                      const summary = exportDailyReportsByRbacExcel({
+                        viewer: currentUser,
+                        dailyReports,
+                        members,
+                        weights,
+                        period: exportPeriod,
+                        periodDate: todayStr,
+                        periodMonth: currentMonthStr,
+                        periodYear: currentYearStr,
+                        filterCompanyCode: isAdminRole(currentUser.role) ? exportCompanyFilter : undefined,
+                        filterAreaCode:
+                          isAdminRole(currentUser.role) || currentUser.role === 'SION_LEADER'
+                            ? exportAreaFilter
+                            : undefined,
+                      });
+                      onShowNotification(
+                        `Đã tải ${summary.fileName} (${summary.reportsCount} báo cáo).`
+                      );
+                    }}
+                    className={`min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer ${
+                      currentUser.role === 'SION_LEADER' ? 'col-span-2 sm:col-span-1' : ''
+                    }`}
+                  >
+                    <Download className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Tải Excel</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Bộ chuyển kỳ + Thanh tóm tắt gọn */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="grid grid-cols-3 sm:inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                   {(
                     [
                       { id: 'DAY', label: 'Hôm nay' },
@@ -1446,7 +1574,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       key={m.id}
                       type="button"
                       onClick={() => setReportPeriodMode(m.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition cursor-pointer text-center truncate ${
                         reportPeriodMode === m.id
                           ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-2xs'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -1457,65 +1585,71 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   ))}
                 </div>
 
-                <div className="flex items-center gap-3 text-xs">
-                  <div className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center gap-1.5">
-                    <Award className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    <span className="font-semibold text-amber-900 dark:text-amber-200">
-                      Quy đổi:
-                    </span>
-                    <strong className="text-amber-700 dark:text-amber-300 font-black">
-                      {formatNumber(reportSummary.score)} điểm
+                <div className="grid grid-cols-2 sm:flex items-center gap-2 text-xs">
+                  <div className="px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center gap-1.5">
+                    <Award className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <strong className="text-amber-700 dark:text-amber-300 font-black tabular-nums">
+                      {formatNumber(reportSummary.score)} đ
                     </strong>
                   </div>
-                  <div className="px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 font-bold text-blue-700 dark:text-blue-300">
-                    {reportSummary.daysCount} ngày nhập • {reportSummary.overallPct}%
+                  <div className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 font-bold text-blue-700 dark:text-blue-300 text-center tabular-nums">
+                    {reportSummary.daysCount} ngày • {reportSummary.overallPct}%
                   </div>
                 </div>
               </div>
 
-              {/* 7 Metric Progress Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                {DAILY_METRIC_DEFINITIONS.map((metric) => {
-                  const goalVal = reportSummary.goals[metric.key] || 0;
-                  const resVal = reportSummary.results[metric.key] || 0;
-                  const percent =
-                    goalVal > 0 ? Math.min(100, Math.round((resVal / goalVal) * 100)) : resVal > 0 ? 100 : 0;
+              {/* Bảng 7 dòng gọn (hiển thị trọn vẹn không cần scroll nhiều) */}
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50/50 dark:bg-slate-800/35">
+                <div className="grid grid-cols-[90px_1fr_auto] sm:grid-cols-[130px_1fr_auto] items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400 bg-slate-100/90 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                  <span>Chỉ số</span>
+                  <span>Tiến độ KQ / MT</span>
+                  <span className="text-right">Đạt</span>
+                </div>
 
-                  return (
-                    <div
-                      key={metric.key}
-                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2.5 h-2.5 rounded-full ${metric.dotColor}`} />
-                          <span className="font-extrabold text-xs text-slate-900 dark:text-white">
+                <div className="divide-y divide-slate-200/80 dark:divide-slate-700/70">
+                  {DAILY_METRIC_DEFINITIONS.map((metric) => {
+                    const goalVal = reportSummary.goals[metric.key] || 0;
+                    const resVal = reportSummary.results[metric.key] || 0;
+                    const percent =
+                      goalVal > 0
+                        ? Math.min(100, Math.round((resVal / goalVal) * 100))
+                        : resVal > 0
+                        ? 100
+                        : 0;
+
+                    return (
+                      <div
+                        key={metric.key}
+                        className="grid grid-cols-[90px_1fr_auto] sm:grid-cols-[130px_1fr_auto] items-center gap-2 px-3 py-2.5"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${metric.dotColor}`} />
+                          <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
                             {metric.label}
                           </span>
                         </div>
-                        <span className={`text-xs font-black ${metric.colorClass}`}>{percent}%</span>
-                      </div>
 
-                      <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                        <span>
-                          Kết quả:{' '}
-                          <strong className="text-slate-900 dark:text-white">{resVal}</strong>
-                        </span>
-                        <span>
-                          Mục tiêu:{' '}
-                          <strong className="text-slate-900 dark:text-white">{goalVal}</strong>
-                        </span>
-                      </div>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-blue-600 via-indigo-500 to-emerald-500 rounded-full transition-all duration-500"
+                              style={{ width: `${percent}%` }}
+                            />
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 tabular-nums shrink-0">
+                            <strong className="text-slate-900 dark:text-white">{resVal}</strong>/{goalVal}
+                          </span>
+                        </div>
 
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-blue-600 via-indigo-500 to-emerald-500 rounded-full transition-all duration-500"
-                          style={{ width: `${percent}%` }}
-                        />
+                        <span
+                          className={`text-xs font-black tabular-nums w-10 text-right ${metric.colorClass}`}
+                        >
+                          {percent}%
+                        </span>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -1570,13 +1704,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1.5">
                   <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                    Công ty &amp; Khu vực sinh hoạt
+                    Sion &amp; Khu vực sinh hoạt
                   </div>
                   <div className="font-black text-sm text-blue-700 dark:text-blue-300">
                     {currentUser.companyCode} • Khu vực {currentUser.areaCode}
                   </div>
                   <div className="text-slate-500 dark:text-slate-400 text-[11px]">
-                    Ban ngành: {currentUser.departmentCode}
+                    Ban / Đội Uni:{' '}
+                    <strong className="text-slate-700 dark:text-slate-200">
+                      {currentUser.unitCode
+                        ? `${currentUser.unitCode} (${currentUser.departmentCode})`
+                        : currentUser.departmentCode}
+                    </strong>
                   </div>
                 </div>
 
@@ -1593,40 +1732,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
               </div>
 
-              {/* Phạm vi quản lý cho Khu vực trưởng / Nhà quản lý */}
-              {(currentUser.role === 'MANAGER' || currentUser.role === 'AREA_LEADER') && (
-                <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 space-y-2 text-xs">
-                  <div className="font-extrabold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-                    <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    <span>Phạm vi phụ trách &amp; Hỗ trợ theo dõi MĐ</span>
-                  </div>
-                  {currentUser.role === 'AREA_LEADER' ? (
-                    <p className="text-amber-800 dark:text-amber-300">
-                      Phụ trách Khu vực <strong>{currentUser.areaCode}</strong> thuộc Công ty{' '}
-                      <strong>{currentUser.companyCode}</strong>.
-                    </p>
-                  ) : (
-                    <div className="space-y-1 text-amber-800 dark:text-amber-300">
-                      <div>
-                        Công ty quản lý:{' '}
-                        <strong>
-                          {currentUser.managedCompanyCodes?.length
-                            ? currentUser.managedCompanyCodes.join(', ')
-                            : 'Chưa gán'}
-                        </strong>
-                      </div>
-                      <div>
-                        Khu vực quản lý:{' '}
-                        <strong>
-                          {currentUser.managedAreaCodes?.length
-                            ? currentUser.managedAreaCodes.join(', ')
-                            : 'Chưa gán'}
-                        </strong>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Quyền truy cập (rút gọn, bỏ mô tả thừa) */}
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-2 flex-wrap text-xs">
+                <span className="font-extrabold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <span>{getRoleLabel(currentUser.role)}</span>
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/80 dark:bg-slate-900/80 text-amber-800 dark:text-amber-200 border border-amber-200/80 dark:border-amber-700">
+                  {isAdminRole(currentUser.role)
+                    ? 'Toàn hệ thống'
+                    : currentUser.role === 'MANAGER'
+                    ? `Cụm ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`
+                    : currentUser.role === 'SION_LEADER'
+                    ? `Sion ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`
+                    : currentUser.role === 'AREA_LEADER'
+                    ? `KV ${currentUser.managedAreaCodes?.join(', ') || currentUser.areaCode}`
+                    : currentUser.role === 'UNI_LEADER'
+                    ? `Uni ${currentUser.managedUnitCodes?.join(', ') || currentUser.unitCode || currentUser.departmentCode}`
+                    : 'Cá nhân · Top 15'}
+                </span>
+              </div>
 
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
                 <button
@@ -1711,16 +1836,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 />
               </div>
 
-              {/* Units: Công ty, Khu vực (select lọc theo Công ty), Ban ngành */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+              {/* Units: Sion/Công ty, Khu vực, Ban ngành, Đội/Uni */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Công ty
+                    Sion / Công ty
                   </label>
-                  <select
+                  <CustomSelect
+                    size="sm"
                     value={editCompany}
-                    onChange={(e) => {
-                      const nextComp = e.target.value;
+                    onChange={(nextComp) => {
                       setEditCompany(nextComp);
                       const validAreas = areas.filter((a) => a.companyCode === nextComp);
                       if (
@@ -1730,14 +1855,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         setEditArea(validAreas[0].code);
                       }
                     }}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 cursor-pointer"
-                  >
-                    {companies.map((c) => (
-                      <option key={c.id || c.code} value={c.code}>
-                        {c.name} ({c.code})
-                      </option>
-                    ))}
-                  </select>
+                    options={companies.map((c) => ({
+                      value: c.code,
+                      label: c.name,
+                      badge: c.code,
+                    }))}
+                    ariaLabel="Chọn Sion / Công ty"
+                  />
                 </div>
 
                 <div>
@@ -1745,23 +1869,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     Khu vực
                   </label>
                   {areasForEditCompany.length > 0 ? (
-                    <select
+                    <CustomSelect
+                      size="sm"
                       value={editArea}
-                      onChange={(e) => setEditArea(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 cursor-pointer"
-                    >
-                      {areasForEditCompany.map((a) => (
-                        <option key={a.id || `${a.companyCode}_${a.code}`} value={a.code}>
-                          {a.name} ({a.code})
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setEditArea}
+                      options={areasForEditCompany.map((a) => ({
+                        value: a.code,
+                        label: a.name,
+                        badge: a.code,
+                      }))}
+                      ariaLabel="Chọn Khu vực"
+                    />
                   ) : (
                     <input
                       type="text"
                       value={editArea}
                       onChange={(e) => setEditArea(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100"
                     />
                   )}
                 </div>
@@ -1770,17 +1894,29 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
                     Ban ngành
                   </label>
-                  <select
+                  <CustomSelect
+                    size="sm"
                     value={editDepartment}
-                    onChange={(e) => setEditDepartment(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 cursor-pointer"
-                  >
-                    {departments.map((d) => (
-                      <option key={d.id || d.code} value={d.code}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setEditDepartment}
+                    options={departments.map((d) => ({
+                      value: d.code,
+                      label: d.name,
+                    }))}
+                    ariaLabel="Chọn Ban ngành"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Đội / Uni (tùy chọn)
+                  </label>
+                  <input
+                    type="text"
+                    value={editUnitCode}
+                    onChange={(e) => setEditUnitCode(e.target.value)}
+                    placeholder="VD: Uni 1, Đội A..."
+                    className="w-full min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                  />
                 </div>
               </div>
 
@@ -1877,30 +2013,37 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   2. Hoặc chọn nhanh từ bộ avatar có sẵn
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {presetAvatars.map((url, i) => (
-                    <div
-                      key={i}
-                      onClick={() => setEditAvatarUrl(url)}
-                      className={`relative aspect-square rounded-2xl overflow-hidden cursor-pointer border-2 transition hover:scale-105 ${
-                        editAvatarUrl === url
-                          ? 'border-blue-600 ring-2 ring-blue-400 shadow-md scale-105'
-                          : 'border-slate-200 dark:border-slate-700'
-                      }`}
-                    >
-                      <img
-                        src={url}
-                        alt={`Avatar ${i + 1}`}
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                      {editAvatarUrl === url && (
-                        <div className="absolute top-1 right-1 bg-blue-600 text-white rounded-full p-0.5">
-                          <Check className="w-2.5 h-2.5" />
+                <div className="grid grid-cols-4 gap-2.5">
+                  {presetAvatars.map((url, i) => {
+                    const selected = editAvatarUrl === url;
+                    return (
+                      <button
+                        type="button"
+                        key={i}
+                        onClick={() => setEditAvatarUrl(url)}
+                        className={`group relative aspect-square rounded-2xl overflow-hidden cursor-pointer border-2 transition-all duration-150 ${
+                          selected
+                            ? 'border-sky-500 ring-2 ring-sky-400/50 shadow-lg scale-[1.03]'
+                            : 'border-slate-200 dark:border-slate-700 hover:border-sky-300 hover:scale-[1.02]'
+                        }`}
+                      >
+                        <img
+                          src={url}
+                          alt={`Avatar ${i + 1}`}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-1.5 py-1 text-[9px] font-bold text-white text-center">
+                          Mẫu {i + 1}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {selected && (
+                          <div className="absolute top-1.5 right-1.5 bg-sky-600 text-white rounded-full p-0.5 shadow-sm">
+                            <Check className="w-2.5 h-2.5" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2011,33 +2154,37 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   2. Hoặc chọn từ bộ sưu tập ảnh bìa Spotlight
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {SPOTLIGHT_COVERS.map((cover) => (
-                    <div
-                      key={cover.id}
-                      onClick={() => setEditCoverUrl(cover.url)}
-                      className={`h-20 rounded-xl overflow-hidden cursor-pointer border-2 relative transition hover:opacity-90 ${
-                        editCoverUrl === cover.url
-                          ? 'border-amber-500 ring-2 ring-amber-400 shadow-md scale-102'
-                          : 'border-slate-200 dark:border-slate-700'
-                      }`}
-                    >
-                      <img
-                        src={cover.url}
-                        alt={cover.title}
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                      {editCoverUrl === cover.url && (
-                        <div className="absolute top-1 right-1 bg-amber-500 text-white rounded-full p-0.5 shadow-sm">
-                          <Check className="w-3 h-3" />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {SPOTLIGHT_COVERS.map((cover) => {
+                    const selected = editCoverUrl === cover.url;
+                    return (
+                      <button
+                        type="button"
+                        key={cover.id}
+                        onClick={() => setEditCoverUrl(cover.url)}
+                        className={`h-20 rounded-2xl overflow-hidden cursor-pointer border-2 relative transition-all duration-150 text-left ${
+                          selected
+                            ? 'border-amber-500 ring-2 ring-amber-400/50 shadow-lg scale-[1.02]'
+                            : 'border-slate-200 dark:border-slate-700 hover:border-amber-300'
+                        }`}
+                      >
+                        <img
+                          src={cover.url}
+                          alt={cover.title}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                        {selected && (
+                          <div className="absolute top-1.5 right-1.5 bg-amber-500 text-white rounded-full p-0.5 shadow-sm">
+                            <Check className="w-3 h-3" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-2 py-1 text-[10px] text-white font-semibold truncate">
+                          {cover.title}
                         </div>
-                      )}
-                      <div className="absolute bottom-0 inset-x-0 bg-black/60 px-1.5 py-0.5 text-[9px] text-white font-medium truncate">
-                        {cover.title}
-                      </div>
-                    </div>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2198,17 +2345,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Thể loại hương khí *
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={quickHkCategory}
-                  onChange={(e) => setQuickHkCategory(e.target.value as any)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100"
-                >
-                  <option value="COM_YEU_THUONG">🍲 Bữa cơm yêu thương mở lối</option>
-                  <option value="THAM_VIENG">🤝 Thăm viếng chăm sóc</option>
-                  <option value="LAM_CHUNG">✨ Lời chứng đức tin biến đổi</option>
-                  <option value="GIUP_DO">❤️ Việc lành bác ái cụ thể</option>
-                  <option value="CAU_NGUYEN">🙏 Cầu nguyện chữa lành &amp; giải cứu</option>
-                </select>
+                  onChange={(val) => setQuickHkCategory(val as any)}
+                  options={[
+                    { value: 'COM_YEU_THUONG', label: '🍲 Bữa cơm yêu thương mở lối' },
+                    { value: 'THAM_VIENG', label: '🤝 Thăm viếng chăm sóc' },
+                    { value: 'LAM_CHUNG', label: '✨ Lời chứng đức tin biến đổi' },
+                    { value: 'GIUP_DO', label: '❤️ Việc lành bác ái cụ thể' },
+                    { value: 'CAU_NGUYEN', label: '🙏 Cầu nguyện chữa lành & giải cứu' },
+                  ]}
+                  ariaLabel="Chọn thể loại hương khí"
+                />
               </div>
 
               <div>

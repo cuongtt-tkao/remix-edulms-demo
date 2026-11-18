@@ -27,6 +27,8 @@ import {
   Company,
   Area,
 } from '../types/edulms';
+import { CustomSelect } from './CustomSelect';
+import { canModifyEduRecord, isAdminRole } from '../utils/rbac';
 
 interface EduCmsPageProps {
   currentUser: UserAccount | null;
@@ -57,7 +59,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
   onOpenAuthModal,
   onShowNotification,
 }) => {
-  const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
+  const isAdmin = isAdminRole(currentUser?.role);
   const [subTab, setSubTab] = useState<'PROGRESSION' | 'NGV' | 'CURRICULUM'>(initialSubTab);
 
   useEffect(() => {
@@ -173,26 +175,8 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     });
   }, [ngvList, companyFilter, searchQuery]);
 
-  const canModifyProfile = (p: EduCmsProfile): boolean => {
-    if (!currentUser) return false;
-    if (isAdmin) return true;
-    if (p.ownerUid === currentUser.id) return true;
-    if (
-      currentUser.role === 'AREA_LEADER' &&
-      currentUser.companyCode === p.companyCode &&
-      currentUser.areaCode === p.areaCode
-    ) {
-      return true;
-    }
-    if (
-      currentUser.role === 'MANAGER' &&
-      (currentUser.managedAreaCodes?.includes(p.areaCode) ||
-        currentUser.managedCompanyCodes?.includes(p.companyCode))
-    ) {
-      return true;
-    }
-    return false;
-  };
+  const canModifyProfile = (p: EduCmsProfile): boolean =>
+    canModifyEduRecord(currentUser, p);
 
   const openCreateModal = (defaultStage: EduCmsStage) => {
     setEditingProfileId(null);
@@ -427,32 +411,36 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
 
             {subTab === 'PROGRESSION' && (
               <div className="sm:col-span-4">
-                <select
+                <CustomSelect
+                  size="sm"
                   value={stageFilter}
-                  onChange={(e) => setStageFilter(e.target.value as any)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-semibold"
-                >
-                  <option value="ALL">Tất cả giai đoạn (TĐ Mới → TĐ-II)</option>
-                  <option value="TD_MOI">TĐ Mới</option>
-                  <option value="TD_I">TĐ-I</option>
-                  <option value="TD_II">TĐ-II</option>
-                </select>
+                  onChange={(val) => setStageFilter(val as any)}
+                  options={[
+                    { value: 'ALL', label: 'Tất cả giai đoạn (TĐ Mới → TĐ-II)' },
+                    { value: 'TD_MOI', label: 'TĐ Mới' },
+                    { value: 'TD_I', label: 'TĐ-I' },
+                    { value: 'TD_II', label: 'TĐ-II' },
+                  ]}
+                  ariaLabel="Lọc giai đoạn"
+                />
               </div>
             )}
 
             <div className={subTab === 'PROGRESSION' ? 'sm:col-span-3' : 'sm:col-span-7'}>
-              <select
+              <CustomSelect
+                size="sm"
                 value={companyFilter}
-                onChange={(e) => setCompanyFilter(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-semibold"
-              >
-                <option value="ALL">Tất cả Công ty</option>
-                {companies.map((c) => (
-                  <option key={c.id} value={c.code}>
-                    {c.name} ({c.code})
-                  </option>
-                ))}
-              </select>
+                onChange={setCompanyFilter}
+                options={[
+                  { value: 'ALL', label: 'Tất cả Sion / Công ty' },
+                  ...companies.map((c) => ({
+                    value: c.code,
+                    label: c.name,
+                    badge: c.code,
+                  })),
+                ]}
+                ariaLabel="Lọc Công ty"
+              />
             </div>
           </div>
         )}
@@ -758,16 +746,22 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               <h3 className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
                 Chọn Chủ đề LMS ({sortedTopics.length})
               </h3>
-              <select
-                value={trackFilter}
-                onChange={(e) => setTrackFilter(e.target.value as any)}
-                className="px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold"
-              >
-                <option value="ALL">Tất cả nhóm</option>
-                <option value="TD_I">TĐ-I</option>
-                <option value="TD_II">TĐ-II</option>
-                <option value="NGV">NGV</option>
-              </select>
+              <div className="w-36 shrink-0">
+                <CustomSelect
+                  size="sm"
+                  value={trackFilter}
+                  onChange={(val) => setTrackFilter(val as any)}
+                  options={[
+                    { value: 'ALL', label: 'Tất cả nhóm' },
+                    { value: 'TD_I', label: 'TĐ-I' },
+                    { value: 'TD_II', label: 'TĐ-II' },
+                    { value: 'NGV', label: 'NGV' },
+                  ]}
+                  menuMinWidth={150}
+                  align="right"
+                  ariaLabel="Lọc nhóm đối tượng"
+                />
+              </div>
             </div>
 
             {sortedTopics.length === 0 ? (
@@ -976,41 +970,42 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Công ty
+                  Sion / Công ty
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={pCompanyCode}
-                  onChange={(e) => {
-                    const nextC = e.target.value;
+                  onChange={(nextC) => {
                     setPCompanyCode(nextC);
                     const firstArea = areas.find((a) => a.companyCode === nextC)?.code;
                     if (firstArea) setPAreaCode(firstArea);
                   }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                >
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-                </select>
+                  options={companies.map((c) => ({
+                    value: c.code,
+                    label: c.name,
+                    badge: c.code,
+                  }))}
+                  menuMinWidth={180}
+                  ariaLabel="Chọn Công ty"
+                />
               </div>
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Khu vực
                 </label>
                 {areaOptions.length > 0 ? (
-                  <select
+                  <CustomSelect
+                    size="sm"
                     value={pAreaCode}
-                    onChange={(e) => setPAreaCode(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                  >
-                    {areaOptions.map((a) => (
-                      <option key={a.id} value={a.code}>
-                        KV {a.code}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setPAreaCode}
+                    options={areaOptions.map((a) => ({
+                      value: a.code,
+                      label: `KV ${a.code}`,
+                      description: a.name,
+                    }))}
+                    menuMinWidth={180}
+                    ariaLabel="Chọn Khu vực"
+                  />
                 ) : (
                   <input
                     type="text"
@@ -1024,16 +1019,20 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Cấp độ
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
                   value={pStage}
-                  onChange={(e) => setPStage(e.target.value as EduCmsStage)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                >
-                  <option value="TD_MOI">TĐ Mới</option>
-                  <option value="TD_I">TĐ-I</option>
-                  <option value="TD_II">TĐ-II</option>
-                  <option value="NGV">NGV</option>
-                </select>
+                  onChange={(val) => setPStage(val as EduCmsStage)}
+                  options={[
+                    { value: 'TD_MOI', label: 'TĐ Mới' },
+                    { value: 'TD_I', label: 'TĐ-I' },
+                    { value: 'TD_II', label: 'TĐ-II' },
+                    { value: 'NGV', label: 'NGV' },
+                  ]}
+                  menuMinWidth={150}
+                  align="right"
+                  ariaLabel="Chọn Cấp độ"
+                />
               </div>
             </div>
 
@@ -1074,18 +1073,21 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Chủ đề LMS hiện tại (tùy chọn)
                   </label>
-                  <select
+                  <CustomSelect
+                    size="sm"
                     value={pTopicId}
-                    onChange={(e) => setPTopicId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
-                  >
-                    <option value="">-- Chưa chọn --</option>
-                    {topics.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.weekLabel}: {t.topicTitle}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setPTopicId}
+                    options={[
+                      { value: '', label: '-- Chưa chọn --' },
+                      ...topics.map((t) => ({
+                        value: t.id,
+                        label: t.topicTitle,
+                        badge: t.weekLabel,
+                      })),
+                    ]}
+                    searchable
+                    ariaLabel="Chọn chủ đề LMS"
+                  />
                 </div>
               </div>
             )}

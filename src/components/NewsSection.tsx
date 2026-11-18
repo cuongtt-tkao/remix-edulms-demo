@@ -59,7 +59,7 @@ export const NewsSection: React.FC<NewsSectionProps> = ({
       category: 'Tiêu điểm tuần',
       date: '16/10/2026',
       summary:
-        'Với thành tích tiếp cận 42 mục tiêu và hoàn thành xuất sắc 6 bước môn đồ hóa, Đội Sứ Đồ 1 đã giành thêm 3.450 điểm thưởng.',
+        'Với thành tích tiếp cận 42 mục tiêu và hoàn thành xuất sắc 6 bước chăm sóc MĐ, Đội Sứ Đồ 1 đã giành thêm 3.450 điểm thưởng.',
       tagColor: 'bg-amber-100 text-amber-800',
     },
     {

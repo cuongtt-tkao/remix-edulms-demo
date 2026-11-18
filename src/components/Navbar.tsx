@@ -192,28 +192,35 @@ interface NavGroup {
 function getRoleSubtitle(user: UserAccount): string {
   switch (user.role) {
     case 'SUPER_ADMIN':
-      return 'Quản trị Tổng';
+      return 'Tổng Quản trị · HT';
     case 'ADMIN':
-      return 'Ban Quản trị';
+      return 'Admin · HT';
     case 'MANAGER':
-      return `Nhà quản lý • ${
-        user.managedAreaCodes?.length
+      return `QL Cụm · ${
+        user.managedCompanyCodes?.length
+          ? user.managedCompanyCodes.join(', ')
+          : user.managedAreaCodes?.length
           ? `${user.managedAreaCodes.length} KV`
-          : user.managedCompanyCodes?.join(', ') || user.companyCode
+          : user.companyCode
       }`;
+    case 'SION_LEADER':
+      return `Ts, Nq · Sion ${user.managedCompanyCodes?.join(', ') || user.companyCode}`;
     case 'AREA_LEADER':
-      return `Khu vực trưởng • KV ${user.areaCode}`;
+      return `Gru · KV ${user.managedAreaCodes?.join(', ') || user.areaCode}`;
+    case 'UNI_LEADER':
+      return `Uni · ${user.unitCode || user.departmentCode || `KV ${user.areaCode}`}`;
     default:
-      return `${user.companyCode} • KV ${user.areaCode}`;
+      return `TĐ · ${user.companyCode} · KV ${user.areaCode}`;
   }
 }
 
 /**
- * Menu dọc chia thành 4 Mục Chính:
+ * Menu dọc chia thành 5 Nhóm Chính:
  * 1. Turbo (Báo cáo hằng ngày, Bảng Xếp hạng thi đua, Trang thông tin MĐ)
  * 2. Công Việc (Hồ sơ cá nhân & Hương khí)
- * 3. Event (Chiến dịch & Thể lệ, Quản trị Hệ thống)
+ * 3. Event (Trang Event)
  * 4. Edu (Giáo dục: LMS & CMS)
+ * 5. Quản trị (Quản trị Tổng - tách riêng khỏi Event)
  */
 export const SideNavigation: React.FC<SideNavigationProps> = ({
   isDesktopOpen,
@@ -278,19 +285,11 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
       items: [
         {
           id: 'EVENT_HUB',
-          label: 'Chiến dịch & Thể lệ',
-          subLabel: 'Sự kiện & Quy đổi điểm',
+          label: 'Trang Event',
+          subLabel: 'Chiến dịch & Thể lệ',
           icon: CalendarDays,
           accent: 'text-amber-300',
           visible: true,
-        },
-        {
-          id: 'ADMIN',
-          label: currentUser?.role === 'SUPER_ADMIN' ? 'Quản trị Tổng' : 'Quản trị Hệ thống',
-          subLabel: 'Điểm, Giao diện & Phân quyền',
-          icon: Shield,
-          accent: 'text-purple-400',
-          visible: isAdmin,
         },
       ],
     },
@@ -313,6 +312,20 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
           icon: BookMarked,
           accent: 'text-amber-300',
           visible: true,
+        },
+      ],
+    },
+    {
+      key: 'admin',
+      title: 'Quản trị',
+      items: [
+        {
+          id: 'ADMIN',
+          label: currentUser?.role === 'SUPER_ADMIN' ? 'Quản trị Tổng' : 'Quản trị Hệ thống',
+          subLabel: 'Điểm, Banner, Nhân sự & Quyền',
+          icon: Shield,
+          accent: 'text-purple-400',
+          visible: isAdmin,
         },
       ],
     },

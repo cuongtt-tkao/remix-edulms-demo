@@ -42,6 +42,7 @@ import {
   SystemScoringConfig,
   SystemAppearanceConfig,
   DEFAULT_APPEARANCE_CONFIG,
+  DEFAULT_HOME_WIDGET_VISIBILITY,
   APP_FONT_OPTIONS,
   DEFAULT_HONORS_WIDGET_ORDER,
   HonorsWidgetId,
@@ -56,6 +57,12 @@ import {
   sumDailyReportMetrics,
   computeDailyMetricsScore,
 } from './utils/scoringEngine';
+import {
+  canViewMemberDetail,
+  filterLeaderboardByRbac,
+  getVisibleKpiSummary,
+  getMemberUnitCode,
+} from './utils/rbac';
 import {
   OperationType,
   handleFirestoreError,
@@ -73,7 +80,7 @@ import { DisciplesPage } from './components/DisciplesPage';
 import { EventHubPage } from './components/EventHubPage';
 import { EduLmsPage } from './components/EduLmsPage';
 import { EduCmsPage } from './components/EduCmsPage';
-import { AdminPanel } from './components/AdminPanel';
+import { AdminPanel, AdminSectionId } from './components/AdminPanel';
 import { ProfilePage } from './components/ProfilePage';
 import { AuthModal, RegistrationData } from './components/AuthModal';
 import { DetailModal } from './components/DetailModal';
@@ -374,6 +381,7 @@ export default function App() {
 
   // Navigation & Sidebar states
   const [activeTab, setActiveTab] = useState<AppTab>('ENTRY');
+  const [adminNavTab, setAdminNavTab] = useState<AdminSectionId>('SCORING');
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState<boolean>(true);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
@@ -514,11 +522,7 @@ export default function App() {
             ? 'SUPER_ADMIN'
             : isAdmin
             ? 'ADMIN'
-            : raw.role === 'MANAGER' || preMatch?.role === 'MANAGER'
-            ? 'MANAGER'
-            : raw.role === 'AREA_LEADER' || preMatch?.role === 'AREA_LEADER'
-            ? 'AREA_LEADER'
-            : raw.role || 'MEMBER';
+            : preMatch?.role || raw.role || 'MEMBER';
 
           const managedCompanyCodes =
             raw.managedCompanyCodes?.length
@@ -528,6 +532,10 @@ export default function App() {
             raw.managedAreaCodes?.length
               ? raw.managedAreaCodes
               : preMatch?.managedAreaCodes || [];
+          const managedUnitCodes =
+            raw.managedUnitCodes?.length
+              ? raw.managedUnitCodes
+              : preMatch?.managedUnitCodes || [];
 
           setCurrentUser({
             ...raw,
@@ -535,6 +543,7 @@ export default function App() {
             role: resolvedRole,
             managedCompanyCodes,
             managedAreaCodes,
+            managedUnitCodes,
           });
           setProfileState('READY');
         } else if (!snap.metadata.fromCache) {
@@ -571,6 +580,7 @@ export default function App() {
         areas[0]?.code ||
         '1.1';
       const departmentCode = reg?.departmentCode || departments[0]?.code || 'Thanh Niên Nam';
+      const unitCode = reg?.unitCode?.trim() || undefined;
       const today = new Date().toISOString().split('T')[0];
       const memberId = `m-${firebaseUser.uid}`;
       const emailLower = email.toLowerCase();
@@ -592,8 +602,10 @@ export default function App() {
           companyCode,
           areaCode,
           departmentCode,
+          unitCode,
           managedCompanyCodes: preMatch?.managedCompanyCodes || [],
           managedAreaCodes: preMatch?.managedAreaCodes || [],
+          managedUnitCodes: preMatch?.managedUnitCodes || [],
           avatarUrl: firebaseUser.photoURL || undefined,
           emailVerified: firebaseUser.emailVerified,
           createdAt: today,
@@ -607,6 +619,7 @@ export default function App() {
           companyCode,
           areaCode,
           departmentCode,
+          unitCode,
           active: true,
           score: 0,
           avatarUrl: firebaseUser.photoURL || undefined,
@@ -721,6 +734,9 @@ export default function App() {
       if (preMatch.managedAreaCodes?.length) {
         patch.managedAreaCodes = preMatch.managedAreaCodes;
       }
+      if (preMatch.managedUnitCodes?.length) {
+        patch.managedUnitCodes = preMatch.managedUnitCodes;
+      }
     }
 
     if (firebaseUser.emailVerified && !currentUser.emailVerified) patch.emailVerified = true;
@@ -731,12 +747,13 @@ export default function App() {
     }
   }, [currentUser?.role, currentUser?.emailVerified, firebaseUser?.emailVerified, preAssignedRoles]);
 
-  // ---------- Trang thông tin MĐ (disciples) - Truy vấn theo cấp bậc ----------
+  // ---------- Trang thông tin MĐ (disciples) - Truy vấn theo cấp bậc (7 cấp) ----------
   const [disciples, setDisciples] = useState<DiscipleRecord[]>([]);
   const [disciplesLoading, setDisciplesLoading] = useState<boolean>(false);
 
   const managedCompKey = JSON.stringify(effectiveCurrentUser?.managedCompanyCodes || []);
   const managedAreaKey = JSON.stringify(effectiveCurrentUser?.managedAreaCodes || []);
+  const managedUnitKey = JSON.stringify(effectiveCurrentUser?.managedUnitCodes || []);
 
   useEffect(() => {
     if (!signedIn || !firebaseUser?.uid || !effectiveCurrentUser) {
@@ -802,6 +819,20 @@ export default function App() {
           );
         }
       });
+    } else if (role === 'SION_LEADER') {
+      attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const effectiveComps = Array.from(
+        new Set(
+          (compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean)
+        )
+      );
+      effectiveComps.forEach((cCode) => {
+        attachQuery(
+          `sion_${cCode}`,
+          query(collection(db, 'disciples'), where('companyCode', '==', cCode))
+        );
+      });
     } else if (role === 'AREA_LEADER') {
       attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
       if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
@@ -813,6 +844,26 @@ export default function App() {
             where('areaCode', '==', effectiveCurrentUser.areaCode)
           )
         );
+      }
+    } else if (role === 'UNI_LEADER') {
+      attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
+      const unitCodes: string[] = JSON.parse(managedUnitKey);
+      const ownUnit = effectiveCurrentUser.unitCode || '';
+      const effectiveUnits = Array.from(
+        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
+      );
+      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
+        effectiveUnits.forEach((uCode) => {
+          attachQuery(
+            `uni_${uCode}`,
+            query(
+              collection(db, 'disciples'),
+              where('companyCode', '==', effectiveCurrentUser.companyCode),
+              where('areaCode', '==', effectiveCurrentUser.areaCode),
+              where('ownerUnitCode', '==', uCode)
+            )
+          );
+        });
       }
     } else {
       attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
@@ -827,8 +878,10 @@ export default function App() {
     effectiveCurrentUser?.role,
     effectiveCurrentUser?.companyCode,
     effectiveCurrentUser?.areaCode,
+    effectiveCurrentUser?.unitCode,
     managedCompKey,
     managedAreaKey,
+    managedUnitKey,
     showNotification,
   ]);
 
@@ -871,6 +924,49 @@ export default function App() {
       lastUpdated,
     };
   }, [rankedMembers, companies, dailyReports, activeEvent, lastUpdated]);
+
+  // ---------- Áp dụng RBAC 7 cấp cho BXH, KPI, Podium & Thống kê Khu vực ----------
+  const rbacLeaderboard = useMemo(
+    () =>
+      filterLeaderboardByRbac(
+        effectiveCurrentUser,
+        rankedMembers,
+        companyRankings,
+        areaRankings
+      ),
+    [effectiveCurrentUser, rankedMembers, companyRankings, areaRankings]
+  );
+
+  const rbacKpiData = useMemo(
+    () =>
+      getVisibleKpiSummary(
+        effectiveCurrentUser,
+        kpiData,
+        rankedMembers,
+        rbacLeaderboard.visibleCompanies,
+        rbacLeaderboard.visibleAreas
+      ),
+    [
+      effectiveCurrentUser,
+      kpiData,
+      rankedMembers,
+      rbacLeaderboard.visibleCompanies,
+      rbacLeaderboard.visibleAreas,
+    ]
+  );
+
+  const handleSelectLeaderboardMember = useCallback(
+    (mem: Member) => {
+      if (!canViewMemberDetail(effectiveCurrentUser, mem)) {
+        showNotification(
+          `Quy tắc chung chỉ hiển thị Top 15. Chi tiết của "${mem.fullName}" nằm ngoài phạm vi quản lý (${rbacLeaderboard.scopeBadge}).`
+        );
+        return;
+      }
+      setSelectedMember(mem);
+    },
+    [effectiveCurrentUser, rbacLeaderboard.scopeBadge, showNotification]
+  );
 
   // ---------- Lưu Báo cáo hằng ngày & Mục tiêu Tháng/Năm ----------
   const handleSaveDailyReport = async (
@@ -949,6 +1045,13 @@ export default function App() {
     if (!firebaseUser || !effectiveCurrentUser) return;
     const now = new Date().toISOString();
     const discipleId = `disc_${firebaseUser.uid}_${Date.now()}`;
+    const ownerUnitCode = (
+      effectiveCurrentUser.unitCode ||
+      effectiveCurrentUser.departmentCode ||
+      ''
+    )
+      .trim()
+      .slice(0, 50);
     const docBody = JSON.parse(
       JSON.stringify({
         ownerUid: firebaseUser.uid,
@@ -956,6 +1059,7 @@ export default function App() {
         ownerName: effectiveCurrentUser.fullName.slice(0, 100),
         companyCode: effectiveCurrentUser.companyCode.slice(0, 30),
         areaCode: effectiveCurrentUser.areaCode.slice(0, 30),
+        ...(ownerUnitCode ? { ownerUnitCode } : {}),
         nickname: payload.nickname.trim().slice(0, 60),
         ageMode: payload.ageMode,
         ageRange: payload.ageRange,
@@ -1095,6 +1199,7 @@ export default function App() {
         fontScale: config.fontScale,
         widgetOrder: config.widgetOrder,
         hiddenWidgets: config.hiddenWidgets,
+        homeWidgets: config.homeWidgets || DEFAULT_HOME_WIDGET_VISIBILITY,
         updatedBy: effectiveCurrentUser?.fullName || 'Admin',
         updatedAt: new Date().toISOString(),
       })
@@ -1145,12 +1250,16 @@ export default function App() {
     await deleteDoc(doc(db, 'edu_cms_profiles', profileId));
   };
 
-  // ---------- Quản lý vai trò người dùng (5 cấp + phạm vi khu vực) ----------
+  // ---------- Quản lý vai trò người dùng (7 cấp + phạm vi Sion / Khu vực / Uni) ----------
   const handleUpdateUserRole = async (
     targetUserId: string,
     newRole: UserRole,
     targetName: string,
-    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
+    scope?: {
+      managedCompanyCodes?: string[];
+      managedAreaCodes?: string[];
+      managedUnitCodes?: string[];
+    }
   ) => {
     const cleanPatch = JSON.parse(
       JSON.stringify({
@@ -1160,6 +1269,9 @@ export default function App() {
           : {}),
         ...(scope?.managedAreaCodes !== undefined
           ? { managedAreaCodes: scope.managedAreaCodes }
+          : {}),
+        ...(scope?.managedUnitCodes !== undefined
+          ? { managedUnitCodes: scope.managedUnitCodes }
           : {}),
       })
     );
@@ -1184,7 +1296,11 @@ export default function App() {
     email: string,
     role: UserRole,
     note?: string,
-    scope?: { managedCompanyCodes?: string[]; managedAreaCodes?: string[] }
+    scope?: {
+      managedCompanyCodes?: string[];
+      managedAreaCodes?: string[];
+      managedUnitCodes?: string[];
+    }
   ) => {
     const cleanEmail = email.trim().toLowerCase();
     const newAssignment: RoleAssignment = JSON.parse(
@@ -1196,6 +1312,7 @@ export default function App() {
         note: note || undefined,
         managedCompanyCodes: scope?.managedCompanyCodes,
         managedAreaCodes: scope?.managedAreaCodes,
+        managedUnitCodes: scope?.managedUnitCodes,
       })
     );
 
@@ -1213,6 +1330,9 @@ export default function App() {
             : {}),
           ...(scope?.managedAreaCodes !== undefined
             ? { managedAreaCodes: scope.managedAreaCodes }
+            : {}),
+          ...(scope?.managedUnitCodes !== undefined
+            ? { managedUnitCodes: scope.managedUnitCodes }
             : {}),
         })
       );
@@ -1312,6 +1432,7 @@ export default function App() {
     companyCode: string;
     areaCode: string;
     departmentCode: string;
+    unitCode?: string;
   }): Promise<boolean> => {
     if (!currentUser) return false;
 
@@ -1329,6 +1450,9 @@ export default function App() {
       }
     }
 
+    const nextUnitCode =
+      updated.unitCode !== undefined ? updated.unitCode.trim() : currentUser.unitCode || '';
+
     const patch = JSON.parse(
       JSON.stringify({
         fullName: updated.fullName,
@@ -1338,11 +1462,12 @@ export default function App() {
         companyCode: updated.companyCode,
         areaCode: updated.areaCode,
         departmentCode: updated.departmentCode,
+        ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
       })
     );
 
     try {
-      // Đồng bộ nguyên tử hồ sơ tài khoản, thành viên và các MĐ của chính mình để không lệch khu vực
+      // Đồng bộ nguyên tử hồ sơ tài khoản, thành viên và các MĐ của chính mình để không lệch khu vực / Uni
       const batch = writeBatch(db);
       batch.update(doc(db, 'users', currentUser.id), patch);
 
@@ -1358,23 +1483,27 @@ export default function App() {
               companyCode: updated.companyCode,
               areaCode: updated.areaCode,
               departmentCode: updated.departmentCode,
+              ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
             })
           ),
           { merge: true }
         );
       }
 
-      const areaOrNameChanged =
+      const orgOrNameChanged =
         updated.companyCode !== currentUser.companyCode ||
         updated.areaCode !== currentUser.areaCode ||
-        updated.fullName !== currentUser.fullName;
+        updated.fullName !== currentUser.fullName ||
+        nextUnitCode !== (currentUser.unitCode || '');
 
-      if (areaOrNameChanged) {
+      if (orgOrNameChanged) {
         const ownDisciples = disciples.filter((d) => d.ownerUid === currentUser.id);
+        const syncedUnit = (nextUnitCode || updated.departmentCode || '').slice(0, 50);
         ownDisciples.slice(0, 350).forEach((d) => {
           batch.update(doc(db, 'disciples', d.id), {
             companyCode: updated.companyCode,
             areaCode: updated.areaCode,
+            ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
             ownerName: updated.fullName,
             updatedAt: new Date().toISOString(),
           });
@@ -1805,7 +1934,7 @@ export default function App() {
                     />
                   );
                 case 'KPI':
-                  return <KpiCards key="KPI" kpi={kpiData} overlapBanner={overlapBanner} />;
+                  return <KpiCards key="KPI" kpi={rbacKpiData} overlapBanner={overlapBanner} />;
                 case 'EVENTS_STRIP':
                   return (
                     <div
@@ -1819,14 +1948,16 @@ export default function App() {
                   return (
                     <LeaderboardTable
                       key="LEADERBOARD"
-                      members={rankedMembers}
-                      companyRankings={companyRankings}
-                      areaRankings={areaRankings}
+                      members={rbacLeaderboard.visibleMembers}
+                      companyRankings={rbacLeaderboard.visibleCompanies}
+                      areaRankings={rbacLeaderboard.visibleAreas}
                       lastUpdated={lastUpdated}
                       selectedAreaCode={selectedAreaCode}
                       onSelectAreaCode={setSelectedAreaCode}
-                      onSelectMember={setSelectedMember}
+                      onSelectMember={handleSelectLeaderboardMember}
                       onOpenRules={() => setIsRulesModalOpen(true)}
+                      rbacInfo={rbacLeaderboard}
+                      currentMemberId={effectiveCurrentUser?.memberId}
                     />
                   );
                 case 'NEWS':
@@ -1844,17 +1975,17 @@ export default function App() {
                   return (
                     <PodiumTop3
                       key="PODIUM"
-                      members={rankedMembers}
-                      areaRankings={areaRankings}
-                      companyRankings={companyRankings}
-                      onSelectMember={setSelectedMember}
+                      members={rbacLeaderboard.visibleMembers}
+                      areaRankings={rbacLeaderboard.visibleAreas}
+                      companyRankings={rbacLeaderboard.visibleCompanies}
+                      onSelectMember={handleSelectLeaderboardMember}
                     />
                   );
                 case 'REGIONAL':
                   return (
                     <RegionalStats
                       key="REGIONAL"
-                      areaRankings={areaRankings}
+                      areaRankings={rbacLeaderboard.visibleAreas}
                       selectedAreaCode={selectedAreaCode}
                       onSelectAreaCode={setSelectedAreaCode}
                       onOpenDetailsModal={() => setIsRegionalModalOpen(true)}
@@ -2018,7 +2149,7 @@ export default function App() {
             </main>
           )}
 
-          {/* TAB: CHIẾN DỊCH & THỂ LỆ (Mục Event) */}
+          {/* TAB: TRANG EVENT (Mục Event) */}
           {activeTab === 'EVENT_HUB' && (
             <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
               <EventHubPage
@@ -2029,7 +2160,14 @@ export default function App() {
                 currentMember={currentMemberData}
                 onOpenRulesModal={() => setIsRulesModalOpen(true)}
                 onNavigateToEntry={() => setActiveTab('ENTRY')}
-                onNavigateToAdmin={isAdminUser ? () => setActiveTab('ADMIN') : undefined}
+                onNavigateToAdmin={
+                  isAdminUser
+                    ? () => {
+                        setAdminNavTab('EVENTS');
+                        setActiveTab('ADMIN');
+                      }
+                    : undefined
+                }
               />
             </main>
           )}
@@ -2086,6 +2224,7 @@ export default function App() {
                 <ProfilePage
                   currentUser={effectiveCurrentUser}
                   memberData={currentMemberData}
+                  members={allMembersRanked}
                   myHuongKhiList={myHuongKhiList}
                   dailyReports={dailyReports}
                   periodGoals={periodGoals}
@@ -2133,6 +2272,7 @@ export default function App() {
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
               {isAdminUser ? (
                 <AdminPanel
+                  initialTab={adminNavTab}
                   companies={companies}
                   areas={areas}
                   departments={departments}
@@ -2171,6 +2311,11 @@ export default function App() {
                   activeEvent={activeEvent}
                   onSaveScoringConfig={handleSaveScoringConfig}
                   onSaveAppearanceConfig={handleSaveAppearanceConfig}
+                  disciples={disciples}
+                  dailyReports={dailyReports}
+                  eduTopics={eduTopics}
+                  eduAssignments={eduAssignments}
+                  eduCmsProfiles={eduCmsProfiles}
                 />
               ) : (
                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-lg mx-auto text-center shadow-sm border border-slate-100 dark:border-slate-800 my-12">
@@ -2230,7 +2375,7 @@ export default function App() {
       <RegionalDetailModal
         isOpen={isRegionalModalOpen}
         onClose={() => setIsRegionalModalOpen(false)}
-        areaRankings={areaRankings}
+        areaRankings={rbacLeaderboard.visibleAreas}
         onSelectAreaCode={(code) => setSelectedAreaCode(code)}
       />
 

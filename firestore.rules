@@ -1,12 +1,14 @@
 rules_version = '2';
 
 // ============================================================
-//  Hành Thực Lục - Quy tắc bảo mật Firestore (5 cấp phân quyền)
-//  - Quản trị viên tổng (SUPER_ADMIN): Toàn quyền cấu hình, phân quyền tất cả các cấp.
-//  - Ban Quản Trị (ADMIN): Quản lý danh mục, banner, sự kiện, thành viên và toàn bộ dữ liệu MĐ.
-//  - Nhà quản lý (MANAGER): Xem & hỗ trợ cập nhật tiến độ/ghi chú MĐ tại các khu vực/công ty được giao.
-//  - Khu vực trưởng (AREA_LEADER): Xem & hỗ trợ cập nhật tiến độ/ghi chú MĐ trong khu vực mình.
-//  - Thành viên (MEMBER): Tự quản lý hồ sơ MĐ của chính mình, nhập báo cáo hằng ngày.
+//  Hành Thực Lục - Quy tắc bảo mật Firestore (7 cấp phân quyền)
+//  - Admin Tổng / HT (SUPER_ADMIN): Toàn quyền cấu hình, phân quyền tất cả các cấp.
+//  - Ban Quản Trị HT (ADMIN): Quản lý danh mục, banner, sự kiện, thành viên và toàn bộ dữ liệu MĐ.
+//  - QL Cụm (MANAGER): Xem & giám sát tổng hợp các Sion / Khu vực được giao.
+//  - Ts, nq (SION_LEADER): Xem & giám sát các khu vực và thành viên trong Sion của mình.
+//  - Gru (AREA_LEADER): Xem & hỗ trợ cập nhật tiến độ/ghi chú MĐ trong khu vực / Uni mình quản lý.
+//  - Uni (UNI_LEADER): Xem & hỗ trợ thành viên thuộc đội (Uni) mình phụ trách.
+//  - TĐ (MEMBER): Tự quản lý hồ sơ MĐ của chính mình, nhập báo cáo hằng ngày.
 // ============================================================
 
 service cloud.firestore {
@@ -72,26 +74,55 @@ service cloud.firestore {
       );
     }
 
-    // Khu vực trưởng (AREA_LEADER)
+    // Ts, nq (SION_LEADER)
+    function isSionLeader() {
+      return isSignedIn()
+        && exists(userDocPath())
+        && get(userDocPath()).data.role == 'SION_LEADER';
+    }
+
+    // Gru (AREA_LEADER)
     function isAreaLeader() {
       return isSignedIn()
         && exists(userDocPath())
         && get(userDocPath()).data.role == 'AREA_LEADER';
     }
 
-    // Nhà quản lý (MANAGER)
+    // Uni (UNI_LEADER)
+    function isUniLeader() {
+      return isSignedIn()
+        && exists(userDocPath())
+        && get(userDocPath()).data.role == 'UNI_LEADER';
+    }
+
+    // QL Cụm (MANAGER)
     function isManager() {
       return isSignedIn()
         && exists(userDocPath())
         && get(userDocPath()).data.role == 'MANAGER';
     }
 
-    // Kiểm tra quyền giám sát theo khu vực / công ty đối với hồ sơ MĐ
+    // Kiểm tra quyền giám sát theo Sion / Khu vực / Uni đối với hồ sơ MĐ
     function canSupervisorAccessDisciple(data) {
       return (
+        isUniLeader()
+        && get(userDocPath()).data.companyCode == data.companyCode
+        && get(userDocPath()).data.areaCode == data.areaCode
+        && ('ownerUnitCode' in data)
+        && (
+          ('unitCode' in get(userDocPath()).data && data.ownerUnitCode == get(userDocPath()).data.unitCode)
+          || ('managedUnitCodes' in get(userDocPath()).data && data.ownerUnitCode in get(userDocPath()).data.managedUnitCodes)
+        )
+      ) || (
         isAreaLeader()
         && get(userDocPath()).data.areaCode == data.areaCode
         && get(userDocPath()).data.companyCode == data.companyCode
+      ) || (
+        isSionLeader()
+        && (
+          get(userDocPath()).data.companyCode == data.companyCode
+          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+        )
       ) || (
         isManager()
         && (
@@ -108,7 +139,7 @@ service cloud.firestore {
           'ageMode', 'ageRange', 'progress', 'isStopped', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
-          'ownerUid', 'ownerMemberId', 'ownerName', 'companyCode', 'areaCode',
+          'ownerUid', 'ownerMemberId', 'ownerName', 'companyCode', 'areaCode', 'ownerUnitCode',
           'nickname', 'ageMode', 'ageRange', 'exactAge', 'job', 'traits',
           'progress', 'isStopped', 'statusNote', 'createdAt', 'updatedAt', 'updatedBy'
         ])
@@ -117,6 +148,7 @@ service cloud.firestore {
         && (!('ownerName' in data) || (data.ownerName is string && data.ownerName.size() <= 100))
         && data.companyCode is string && data.companyCode.size() <= 30
         && data.areaCode is string && data.areaCode.size() <= 30
+        && (!('ownerUnitCode' in data) || (data.ownerUnitCode is string && data.ownerUnitCode.size() <= 50))
         && data.nickname is string && data.nickname.size() > 0 && data.nickname.size() <= 60
         && data.ageMode in ['RANGE', 'EXACT']
         && data.ageRange in ['<18', '18-22', '23-30', '31-45', '>45']
@@ -133,12 +165,22 @@ service cloud.firestore {
         && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 100));
     }
 
-    // Kiểm tra quyền giám sát theo khu vực / công ty đối với hồ sơ Edu
+    // Kiểm tra quyền giám sát theo Sion / Khu vực / Uni đối với hồ sơ Edu
     function canSupervisorAccessEdu(data) {
       return (
+        isUniLeader()
+        && get(userDocPath()).data.areaCode == data.areaCode
+        && get(userDocPath()).data.companyCode == data.companyCode
+      ) || (
         isAreaLeader()
         && get(userDocPath()).data.areaCode == data.areaCode
         && get(userDocPath()).data.companyCode == data.companyCode
+      ) || (
+        isSionLeader()
+        && (
+          get(userDocPath()).data.companyCode == data.companyCode
+          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+        )
       ) || (
         isManager()
         && (
@@ -290,7 +332,9 @@ service cloud.firestore {
         && (
           isAdmin()
           || request.resource.data.ownerUid == request.auth.uid
+          || isUniLeader()
           || isAreaLeader()
+          || isSionLeader()
           || isManager()
         );
       allow update: if isValidId(profileId)
@@ -311,7 +355,7 @@ service cloud.firestore {
         );
     }
 
-    // ---------- Trang thông tin Môn Đồ (disciples/{discipleId}) ----------
+    // ---------- Trang thông tin MĐ (disciples/{discipleId}) ----------
     match /disciples/{discipleId} {
       allow get: if isValidId(discipleId) && isSignedIn() && (
         isAdmin()
@@ -376,7 +420,7 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
 
-    // ---------- users/{uid}: hồ sơ tài khoản & phân quyền 5 cấp ----------
+    // ---------- users/{uid}: hồ sơ tài khoản & phân quyền 7 cấp ----------
     match /users/{uid} {
       allow get: if isSignedIn();
       allow list: if isAdmin();
@@ -388,7 +432,7 @@ service cloud.firestore {
         && request.resource.data.fullName.size() <= 100
         && (
           (request.resource.data.role == 'MEMBER') ||
-          (request.resource.data.role in ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'AREA_LEADER'] && (isSuperAdmin() || isSuperAdminEmail(request.auth.token.email)))
+          (request.resource.data.role in ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'SION_LEADER', 'AREA_LEADER', 'UNI_LEADER'] && (isSuperAdmin() || isSuperAdminEmail(request.auth.token.email)))
         );
 
       allow update: if isSignedIn() && (
@@ -401,7 +445,7 @@ service cloud.firestore {
         )
         || (
           request.auth.uid == uid
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['managedCompanyCodes', 'managedAreaCodes'])
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['managedCompanyCodes', 'managedAreaCodes', 'managedUnitCodes'])
           && (
             request.resource.data.role == resource.data.role
             || (request.resource.data.role == 'SUPER_ADMIN' && isSuperAdminEmail(request.auth.token.email))

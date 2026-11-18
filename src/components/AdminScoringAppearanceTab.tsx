@@ -15,8 +15,15 @@ import {
   Sparkles,
   Home,
   Trophy,
+  Users,
+  Megaphone,
+  Handshake,
+  Heart,
+  TrendingUp,
+  Star,
 } from 'lucide-react';
 import {
+  DailyMetricKey,
   DailyReportMetrics,
   DAILY_METRIC_DEFINITIONS,
   DEFAULT_EVENT_WEIGHTS,
@@ -34,16 +41,32 @@ import {
   FestivalEvent,
 } from '../types/edulms';
 
+export type AdminAppearanceSection = 'SCORING' | 'TYPOGRAPHY' | 'HOME_LAYOUT' | 'HONORS_LAYOUT';
+
 interface AdminScoringAppearanceTabProps {
   scoringConfig: SystemScoringConfig | null;
   appearanceConfig: SystemAppearanceConfig | null;
   activeEvent: FestivalEvent | null;
+  forcedSection?: AdminAppearanceSection;
   onSaveScoringConfig: (weights: DailyReportMetrics) => Promise<void>;
   onSaveAppearanceConfig: (config: SystemAppearanceConfig) => Promise<void>;
   onShowNotification: (msg: string) => void;
 }
 
-type AdminAppearanceSubTab = 'SCORING' | 'TYPOGRAPHY' | 'HOME_LAYOUT' | 'HONORS_LAYOUT';
+type AdminAppearanceSubTab = AdminAppearanceSection;
+
+const METRIC_ICON_META: Record<
+  DailyMetricKey,
+  { icon: React.ComponentType<{ className?: string }>; bgCls: string; iconCls: string }
+> = {
+  kn: { icon: Users, bgCls: 'bg-sky-100 dark:bg-sky-950/70', iconCls: 'text-sky-600 dark:text-sky-400' },
+  tham: { icon: Home, bgCls: 'bg-emerald-100 dark:bg-emerald-950/70', iconCls: 'text-emerald-600 dark:text-emerald-400' },
+  gm: { icon: Megaphone, bgCls: 'bg-amber-100 dark:bg-amber-950/70', iconCls: 'text-amber-600 dark:text-amber-400' },
+  dt: { icon: Handshake, bgCls: 'bg-indigo-100 dark:bg-indigo-950/70', iconCls: 'text-indigo-600 dark:text-indigo-400' },
+  hh: { icon: Heart, bgCls: 'bg-rose-100 dark:bg-rose-950/70', iconCls: 'text-rose-500 dark:text-rose-400' },
+  kt: { icon: TrendingUp, bgCls: 'bg-emerald-100 dark:bg-emerald-950/70', iconCls: 'text-emerald-600 dark:text-emerald-400' },
+  wsNew: { icon: Star, bgCls: 'bg-amber-100 dark:bg-amber-950/70', iconCls: 'text-amber-500 dark:text-amber-400' },
+};
 
 const HOME_WIDGET_ITEMS: Array<{
   key: keyof HomeWidgetVisibilityConfig;
@@ -58,7 +81,7 @@ const HOME_WIDGET_ITEMS: Array<{
   {
     key: 'showQuickShortcuts',
     title: 'Dải 5 lối tắt nhanh',
-    desc: '5 nút truy cập nhanh: Báo cáo, Xếp hạng, Môn đồ, Edu LMS, Edu CMS.',
+    desc: '5 nút truy cập nhanh: Xếp hạng, Sự kiện, MĐ, Edu LMS, Edu CMS.',
   },
   {
     key: 'showCheerTicker',
@@ -81,31 +104,66 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
   scoringConfig,
   appearanceConfig,
   activeEvent,
+  forcedSection,
   onSaveScoringConfig,
   onSaveAppearanceConfig,
   onShowNotification,
 }) => {
-  const [subTab, setSubTab] = useState<AdminAppearanceSubTab>('SCORING');
+  const [internalSubTab, setInternalSubTab] = useState<AdminAppearanceSubTab>(
+    forcedSection || 'SCORING'
+  );
+  const subTab = forcedSection || internalSubTab;
 
-  // ---------- 1. System Default Scoring State ----------
-  const [weightsDraft, setWeightsDraft] = useState<DailyReportMetrics>({
-    ...DEFAULT_EVENT_WEIGHTS,
-    ...(scoringConfig?.weights || {}),
+  // ---------- 1. System Default Scoring State (string-backed to prevent 0 snapback) ----------
+  const toTextMap = (w: DailyReportMetrics): Record<DailyMetricKey, string> => ({
+    kn: String(w.kn ?? 0),
+    tham: String(w.tham ?? 0),
+    gm: String(w.gm ?? 0),
+    dt: String(w.dt ?? 0),
+    hh: String(w.hh ?? 0),
+    kt: String(w.kt ?? 0),
+    wsNew: String(w.wsNew ?? 0),
   });
+
+  const [weightsText, setWeightsText] = useState<Record<DailyMetricKey, string>>(() =>
+    toTextMap({ ...DEFAULT_EVENT_WEIGHTS, ...(scoringConfig?.weights || {}) })
+  );
   const [isSavingWeights, setIsSavingWeights] = useState(false);
 
   useEffect(() => {
-    setWeightsDraft({
-      ...DEFAULT_EVENT_WEIGHTS,
-      ...(scoringConfig?.weights || {}),
-    });
+    setWeightsText(
+      toTextMap({
+        ...DEFAULT_EVENT_WEIGHTS,
+        ...(scoringConfig?.weights || {}),
+      })
+    );
   }, [scoringConfig]);
+
+  const handleWeightInputChange = (key: DailyMetricKey, raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (digits === '') {
+      setWeightsText((prev) => ({ ...prev, [key]: '' }));
+      return;
+    }
+    const normalized = digits.length > 1 ? digits.replace(/^0+/, '') || '0' : digits;
+    setWeightsText((prev) => ({ ...prev, [key]: normalized }));
+  };
 
   const handleSaveWeights = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingWeights(true);
     try {
-      await onSaveScoringConfig(weightsDraft);
+      const numericWeights: DailyReportMetrics = {
+        kn: parseInt(weightsText.kn, 10) || 0,
+        tham: parseInt(weightsText.tham, 10) || 0,
+        gm: parseInt(weightsText.gm, 10) || 0,
+        dt: parseInt(weightsText.dt, 10) || 0,
+        hh: parseInt(weightsText.hh, 10) || 0,
+        kt: parseInt(weightsText.kt, 10) || 0,
+        wsNew: parseInt(weightsText.wsNew, 10) || 0,
+      };
+      await onSaveScoringConfig(numericWeights);
+      setWeightsText(toTextMap(numericWeights));
       onShowNotification('Đã lưu Bảng điểm mặc định hệ thống cho toàn web!');
     } catch (err: any) {
       onShowNotification(`Lỗi lưu bảng điểm: ${err?.message || 'Thử lại sau'}`);
@@ -115,7 +173,7 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
   };
 
   const handleResetDefaultWeights = () => {
-    setWeightsDraft({ ...DEFAULT_EVENT_WEIGHTS });
+    setWeightsText(toTextMap({ ...DEFAULT_EVENT_WEIGHTS }));
     onShowNotification('Đã khôi phục giá trị điểm gốc (bấm Lưu để áp dụng lên hệ thống).');
   };
 
@@ -264,88 +322,87 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
   );
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
-      {/* Categorized Navigation Selector (Clear, Non-Overwhelming) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700">
-        {(
-          [
-            {
-              id: 'SCORING' as const,
-              label: '1. Điểm mặc định',
-              sub: '7 hệ số quy đổi',
-              icon: Scale,
-            },
-            {
-              id: 'TYPOGRAPHY' as const,
-              label: '2. Font & Cỡ chữ',
-              sub: selectedFontMeta.label,
-              icon: Type,
-            },
-            {
-              id: 'HOME_LAYOUT' as const,
-              label: '3. Trang chủ',
-              sub: `${Object.values(homeWidgets).filter(Boolean).length}/5 khối bật`,
-              icon: Home,
-            },
-            {
-              id: 'HONORS_LAYOUT' as const,
-              label: '4. Bảng Vinh danh',
-              sub: `${widgetOrder.length - hiddenWidgets.length}/${widgetOrder.length} widget bật`,
-              icon: Trophy,
-            },
-          ]
-        ).map((tab) => {
-          const Icon = tab.icon;
-          const active = subTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSubTab(tab.id)}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition cursor-pointer ${
-                active
-                  ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs ring-1 ring-indigo-200 dark:ring-indigo-800'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-900/50'
-              }`}
-            >
-              <div
-                className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+    <div className="space-y-5 animate-in fade-in duration-200">
+      {/* Sub-tab Selector (only shown when forcedSection is not specified) */}
+      {!forcedSection && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700">
+          {(
+            [
+              {
+                id: 'SCORING' as const,
+                label: '1. Điểm mặc định',
+                sub: '7 hệ số quy đổi',
+                icon: Scale,
+              },
+              {
+                id: 'TYPOGRAPHY' as const,
+                label: '2. Font & Cỡ chữ',
+                sub: selectedFontMeta.label,
+                icon: Type,
+              },
+              {
+                id: 'HOME_LAYOUT' as const,
+                label: '3. Trang chủ',
+                sub: `${Object.values(homeWidgets).filter(Boolean).length}/5 khối bật`,
+                icon: Home,
+              },
+              {
+                id: 'HONORS_LAYOUT' as const,
+                label: '4. Bảng Vinh danh',
+                sub: `${widgetOrder.length - hiddenWidgets.length}/${widgetOrder.length} widget bật`,
+                icon: Trophy,
+              },
+            ]
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const active = subTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setInternalSubTab(tab.id)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition cursor-pointer ${
                   active
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs ring-1 ring-indigo-200 dark:ring-indigo-800'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-900/50'
                 }`}
               >
-                <Icon className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-extrabold truncate">{tab.label}</div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                  {tab.sub}
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                    active
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
                 </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-extrabold truncate">{tab.label}</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                    {tab.sub}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      {/* SUB-TAB 1: SYSTEM DEFAULT SCORING TABLE */}
+      {/* SUB-TAB 1: SYSTEM DEFAULT SCORING TABLE (Compact Daily-Report-Style) */}
       {subTab === 'SCORING' && (
         <form
           onSubmit={handleSaveWeights}
-          className="rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-5 sm:p-6 space-y-5"
+          className="rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-4 sm:p-6 space-y-4"
         >
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300 mb-1">
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300">
                 <Scale className="w-3.5 h-3.5" />
                 <span>Bảng Điểm Mặc Định Hệ Thống</span>
               </div>
-              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-0.5">
                 Hệ số quy đổi điểm Báo cáo hằng ngày
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl leading-relaxed">
-                Bảng điểm gốc dùng để tính điểm thi đua khi chưa có Chiến dịch Event kích hoạt, đồng thời tự động điền sẵn làm gợi ý khi Admin tạo Event mới.
-              </p>
             </div>
 
             <button
@@ -359,50 +416,67 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
           </div>
 
           {activeEvent && (
-            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
-              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <strong>Lưu ý về mức ưu tiên:</strong> Chiến dịch Event{' '}
-                <span className="font-black">“{activeEvent.title}”</span> đang kích hoạt nên bảng xếp hạng ưu tiên dùng hệ số riêng của Event đó. Khi Event kết thúc hoặc tạm ngưng, hệ thống áp dụng ngay bảng điểm mặc định này.
-              </div>
+            <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>
+                Event <strong className="font-black">“{activeEvent.title}”</strong> đang bật nên BXH ưu tiên dùng điểm riêng của Event này.
+              </span>
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
-            {DAILY_METRIC_DEFINITIONS.map((m) => (
-              <div
-                key={m.key}
-                className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-2 text-center"
-              >
-                <div className="flex items-center justify-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${m.dotColor}`} />
-                  <span className={`text-xs font-black ${m.colorClass}`}>{m.label}</span>
-                </div>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={weightsDraft[m.key] ?? 0}
-                  onChange={(e) =>
-                    setWeightsDraft((prev) => ({
-                      ...prev,
-                      [m.key]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                    }))
-                  }
-                  className="w-full text-center py-2 px-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-black text-base tabular-nums"
-                />
-                <div className="text-[10px] text-slate-400">điểm / lượt</div>
-              </div>
-            ))}
+          {/* Compact 2-Column Daily-Report-Style Table */}
+          <div className="max-w-xl mx-auto rounded-2xl overflow-hidden border border-sky-200/80 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs">
+            <div className="grid grid-cols-[1fr_130px] sm:grid-cols-[1fr_160px] gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-700 via-blue-600 to-blue-700 text-white text-xs font-extrabold items-center">
+              <div>Hạng mục</div>
+              <div className="text-center">Điểm / lượt</div>
+            </div>
+
+            <div className="divide-y divide-sky-100 dark:divide-slate-800">
+              {DAILY_METRIC_DEFINITIONS.map((m) => {
+                const iconMeta = METRIC_ICON_META[m.key];
+                const RowIcon = iconMeta.icon;
+                return (
+                  <div
+                    key={m.key}
+                    className="grid grid-cols-[1fr_130px] sm:grid-cols-[1fr_160px] gap-2 items-center px-4 py-2 hover:bg-sky-50/40 dark:hover:bg-slate-800/40 transition"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={`w-7 h-7 rounded-xl ${iconMeta.bgCls} flex items-center justify-center shrink-0`}
+                      >
+                        <RowIcon className={`w-3.5 h-3.5 ${iconMeta.iconCls}`} />
+                      </div>
+                      <span className="font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 truncate">
+                        {m.label}:
+                      </span>
+                    </div>
+
+                    <div>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={weightsText[m.key] ?? ''}
+                        placeholder="0"
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) => handleWeightInputChange(m.key, e.target.value)}
+                        aria-label={`Điểm ${m.label}`}
+                        className="w-full h-9 text-center rounded-full border border-sky-200 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800 text-slate-900 dark:text-white font-black text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <div className="text-[11px] text-slate-500 dark:text-slate-400">
               {scoringConfig?.updatedAt
-                ? `Cập nhật gần nhất: ${scoringConfig.updatedBy || 'Admin'} (${new Date(
+                ? `Lưu gần nhất: ${scoringConfig.updatedBy || 'Admin'} (${new Date(
                     scoringConfig.updatedAt
                   ).toLocaleString('vi-VN')})`
-                : 'Đang dùng mức mặc định khởi tạo của hệ thống.'}
+                : 'Đang dùng mức mặc định khởi tạo.'}
             </div>
 
             <button
@@ -466,31 +540,53 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
             </div>
 
             <div className="lg:col-span-5 space-y-4">
-              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-2.5">
-                <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Cỡ chữ tổng thể
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    Cỡ chữ tổng thể (Preset hiển thị)
+                  </span>
+                  <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                    {fontScale === 'SM' ? '93%' : fontScale === 'LG' ? '108%' : '100%'}
+                  </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {(
                     [
-                      { key: 'SM', label: 'Gọn nhẹ (93%)' },
-                      { key: 'MD', label: 'Chuẩn (100%)' },
-                      { key: 'LG', label: 'To rõ (108%)' },
+                      { key: 'SM', label: 'Gọn nhẹ', ratio: '93%', sample: 'Aa' },
+                      { key: 'MD', label: 'Chuẩn', ratio: '100%', sample: 'Aa' },
+                      { key: 'LG', label: 'To rõ', ratio: '108%', sample: 'Aa' },
                     ] as const
-                  ).map((s) => (
-                    <button
-                      key={s.key}
-                      type="button"
-                      onClick={() => setFontScale(s.key)}
-                      className={`py-2 px-2 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                        fontScale === s.key
-                          ? 'bg-slate-900 dark:bg-indigo-600 text-white border-slate-900 dark:border-indigo-500'
-                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                  ).map((s) => {
+                    const active = fontScale === s.key;
+                    return (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => setFontScale(s.key)}
+                        className={`p-2.5 rounded-2xl text-center border transition cursor-pointer flex flex-col items-center gap-0.5 ${
+                          active
+                            ? 'bg-gradient-to-br from-indigo-600 to-blue-700 text-white border-indigo-600 shadow-sm ring-2 ring-indigo-500/25'
+                            : 'bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'
+                        }`}
+                      >
+                        <span
+                          className={`font-black leading-none ${
+                            s.key === 'SM' ? 'text-xs' : s.key === 'LG' ? 'text-lg' : 'text-sm'
+                          }`}
+                        >
+                          {s.sample}
+                        </span>
+                        <span className="text-xs font-extrabold mt-1">{s.label}</span>
+                        <span
+                          className={`text-[10px] font-semibold ${
+                            active ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-400'
+                          }`}
+                        >
+                          {s.ratio}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -521,17 +617,44 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
       {/* SUB-TAB 3: HOME PAGE WIDGETS (ẢNH 1 + ẢNH 2) */}
       {subTab === 'HOME_LAYOUT' && (
         <div className="rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-5 sm:p-6 space-y-5">
-          <div>
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1">
-              <Home className="w-3.5 h-3.5" />
-              <span>Tùy biến Trang chủ (Báo cáo hằng ngày)</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1">
+                <Home className="w-3.5 h-3.5" />
+                <span>Tùy biến Trang chủ (Báo cáo hằng ngày)</span>
+              </div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                Bật / Tắt các khối tiện ích trên Trang chủ
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Bảng nhập 7 chỉ số luôn là trọng tâm; chọn nhanh mẫu hoặc bật/tắt từng khối bên dưới rồi bấm Lưu.
+              </p>
             </div>
-            <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-              Bật / Tắt các khối tiện ích trên Trang chủ
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Bảng nhập 7 chỉ số Báo cáo hằng ngày luôn được giữ làm trọng tâm trang chủ; bạn có thể bật hoặc ẩn các khối trang trí &amp; lối tắt đi kèm bên dưới.
-            </p>
+
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setHomeWidgets({ ...DEFAULT_HOME_WIDGET_VISIBILITY })}
+                className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer whitespace-nowrap"
+              >
+                Bật đủ 5 khối
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setHomeWidgets({
+                    showHeaderBanner: false,
+                    showQuickShortcuts: false,
+                    showCheerTicker: false,
+                    showProgressShowcase: false,
+                    showFeatureCards: false,
+                  })
+                }
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold hover:bg-slate-100 cursor-pointer whitespace-nowrap"
+              >
+                Tối giản (Chỉ bảng nhập)
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -578,7 +701,7 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
       {/* SUB-TAB 4: HONORS PAGE DRAG-AND-DROP WIDGETS (1 -> 8) */}
       {subTab === 'HONORS_LAYOUT' && (
         <div className="rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-5 sm:p-6 space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div>
               <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1">
                 <LayoutGrid className="w-3.5 h-3.5" />
@@ -588,12 +711,25 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
                 Kéo thả sắp xếp thứ tự 1 → 8 &amp; Bật / Tắt Widget
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Trang Vinh danh tự động gom hàng theo đúng thứ tự 1 → 8 bạn kéo. Nếu ẩn cột chính, các khối cột phụ tự giãn ngang cân đối toàn màn hình.
+                Trang Vinh danh tự động gom hàng theo đúng thứ tự 1 → 8 bạn kéo. Kéo biểu tượng ⋮⋮ hoặc dùng nút ↑ ↓.
               </p>
             </div>
-            <span className="text-[11px] font-semibold text-slate-400 shrink-0">
-              Kéo biểu tượng ⋮⋮ hoặc bấm ↑ ↓
-            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setHiddenWidgets([])}
+                className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer whitespace-nowrap"
+              >
+                Hiện tất cả 8
+              </button>
+              <button
+                type="button"
+                onClick={() => setWidgetOrder([...DEFAULT_HONORS_WIDGET_ORDER])}
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold hover:bg-slate-100 cursor-pointer whitespace-nowrap"
+              >
+                Thứ tự 1 → 8
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2">

@@ -18,12 +18,23 @@ import {
   Check,
   SlidersHorizontal,
 } from 'lucide-react';
-import { UserAccount, UserRole, RoleAssignment, Company, Area, Department } from '../types/edulms';
+import {
+  UserAccount,
+  UserRole,
+  RoleAssignment,
+  Company,
+  Area,
+  Department,
+  ROLE_DISPLAY_META,
+  ROLE_ORDER,
+} from '../types/edulms';
 import { BOOTSTRAP_SUPER_ADMIN_EMAILS } from '../firebase';
+import { CustomSelect } from './CustomSelect';
 
 interface ScopeSelection {
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
+  managedUnitCodes?: string[];
 }
 
 interface RoleManagementTabProps {
@@ -50,12 +61,16 @@ interface RoleManagementTabProps {
 }
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  SUPER_ADMIN: 'Quản trị Tổng',
-  ADMIN: 'Ban Quản Trị',
-  MANAGER: 'Nhà quản lý',
-  AREA_LEADER: 'Khu vực trưởng',
-  MEMBER: 'Thành viên',
+  SUPER_ADMIN: ROLE_DISPLAY_META.SUPER_ADMIN.label,
+  ADMIN: ROLE_DISPLAY_META.ADMIN.label,
+  MANAGER: ROLE_DISPLAY_META.MANAGER.label,
+  SION_LEADER: ROLE_DISPLAY_META.SION_LEADER.label,
+  AREA_LEADER: ROLE_DISPLAY_META.AREA_LEADER.label,
+  UNI_LEADER: ROLE_DISPLAY_META.UNI_LEADER.label,
+  MEMBER: ROLE_DISPLAY_META.MEMBER.label,
 };
+
+const SCOPE_ENABLED_ROLES: UserRole[] = ['MANAGER', 'SION_LEADER', 'AREA_LEADER', 'UNI_LEADER'];
 
 export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   currentUser,
@@ -78,13 +93,15 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   const [newNote, setNewNote] = useState('');
   const [newManagedCompanies, setNewManagedCompanies] = useState<string[]>([]);
   const [newManagedAreas, setNewManagedAreas] = useState<string[]>([]);
+  const [newManagedUnitsText, setNewManagedUnitsText] = useState('');
   const [isSubmittingPreGrant, setIsSubmittingPreGrant] = useState(false);
 
-  // Scope Config Modal for MANAGER / AREA_LEADER
+  // Scope Config Modal for MANAGER / SION_LEADER / AREA_LEADER / UNI_LEADER
   const [scopeModalUser, setScopeModalUser] = useState<UserAccount | null>(null);
   const [modalRole, setModalRole] = useState<UserRole>('MANAGER');
   const [modalCompanies, setModalCompanies] = useState<string[]>([]);
   const [modalAreas, setModalAreas] = useState<string[]>([]);
+  const [modalUnitsText, setModalUnitsText] = useState<string>('');
 
   const isSuperAdmin = useMemo(() => {
     if (!currentUser) return false;
@@ -109,7 +126,9 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     const pre = preAssignedRoles.find((p) => p.email.toLowerCase() === uEmail);
     if (u.role === 'ADMIN' || pre?.role === 'ADMIN') return 'ADMIN';
     if (u.role === 'MANAGER' || pre?.role === 'MANAGER') return 'MANAGER';
+    if (u.role === 'SION_LEADER' || pre?.role === 'SION_LEADER') return 'SION_LEADER';
     if (u.role === 'AREA_LEADER' || pre?.role === 'AREA_LEADER') return 'AREA_LEADER';
+    if (u.role === 'UNI_LEADER' || pre?.role === 'UNI_LEADER') return 'UNI_LEADER';
     return 'MEMBER';
   };
 
@@ -124,7 +143,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       const r = resolveEffectiveRole(u);
       if (r === 'SUPER_ADMIN') superAdminsCount++;
       else if (r === 'ADMIN') adminsCount++;
-      else if (r === 'MANAGER' || r === 'AREA_LEADER') leadersAndManagersCount++;
+      else if (SCOPE_ENABLED_ROLES.includes(r)) leadersAndManagersCount++;
       else membersCount++;
     });
 
@@ -148,11 +167,18 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         const matchEmail = u.email?.toLowerCase().includes(q);
         const matchCompany = u.companyCode?.toLowerCase().includes(q);
         const matchArea = u.areaCode?.toLowerCase().includes(q);
-        return matchName || matchEmail || matchCompany || matchArea;
+        const matchUnit = (u.unitCode || u.departmentCode)?.toLowerCase().includes(q);
+        return matchName || matchEmail || matchCompany || matchArea || matchUnit;
       }
       return true;
     });
   }, [usersList, roleFilter, searchQuery, preAssignedRoles]);
+
+  const parseUnitList = (raw: string): string[] =>
+    raw
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
 
   const openScopeModal = (user: UserAccount, targetRole?: UserRole) => {
     const roleToEdit = targetRole || resolveEffectiveRole(user);
@@ -166,6 +192,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         ? [user.areaCode]
         : []
     );
+    const defaultUnits = user.managedUnitCodes?.length
+      ? user.managedUnitCodes
+      : user.unitCode
+      ? [user.unitCode]
+      : [];
+    setModalUnitsText(defaultUnits.join(', '));
   };
 
   const handleRoleChange = async (targetUser: UserAccount, targetRole: UserRole) => {
@@ -179,21 +211,41 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
 
-    // Nếu chọn Nhà quản lý -> mở modal chọn các Khu vực / Công ty phụ trách
+    // Nếu chọn QL Cụm -> mở modal chọn các Sion / Khu vực phụ trách
     if (targetRole === 'MANAGER') {
       openScopeModal(targetUser, 'MANAGER');
       return;
     }
 
     const defaultScope: ScopeSelection =
-      targetRole === 'AREA_LEADER'
+      targetRole === 'SION_LEADER'
+        ? {
+            managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
+            managedAreaCodes: [],
+            managedUnitCodes: [],
+          }
+        : targetRole === 'AREA_LEADER'
         ? {
             managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
             managedAreaCodes: targetUser.areaCode ? [targetUser.areaCode] : [],
+            managedUnitCodes: targetUser.managedUnitCodes || [],
+          }
+        : targetRole === 'UNI_LEADER'
+        ? {
+            managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
+            managedAreaCodes: targetUser.areaCode ? [targetUser.areaCode] : [],
+            managedUnitCodes: targetUser.managedUnitCodes?.length
+              ? targetUser.managedUnitCodes
+              : targetUser.unitCode
+              ? [targetUser.unitCode]
+              : targetUser.departmentCode
+              ? [targetUser.departmentCode]
+              : [],
           }
         : {
             managedCompanyCodes: [],
             managedAreaCodes: [],
+            managedUnitCodes: [],
           };
 
     setIsUpdating(targetUser.id);
@@ -209,8 +261,9 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
 
   const handleSaveScopeModal = async () => {
     if (!scopeModalUser) return;
+    const parsedUnits = parseUnitList(modalUnitsText);
     if (modalRole === 'MANAGER' && modalCompanies.length === 0 && modalAreas.length === 0) {
-      onShowNotification('Vui lòng chọn ít nhất 1 Công ty hoặc Khu vực phụ trách cho Nhà quản lý.');
+      onShowNotification('Vui lòng chọn ít nhất 1 Sion hoặc Khu vực phụ trách cho QL Cụm.');
       return;
     }
     setIsUpdating(scopeModalUser.id);
@@ -218,6 +271,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       await onUpdateUserRole(scopeModalUser.id, modalRole, scopeModalUser.fullName, {
         managedCompanyCodes: modalCompanies,
         managedAreaCodes: modalAreas,
+        managedUnitCodes: parsedUnits,
       });
       setScopeModalUser(null);
     } catch (err: any) {
@@ -239,12 +293,14 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
 
-    const scope: ScopeSelection | undefined =
-      newRole === 'MANAGER'
-        ? { managedCompanyCodes: newManagedCompanies, managedAreaCodes: newManagedAreas }
-        : newRole === 'AREA_LEADER'
-        ? { managedCompanyCodes: newManagedCompanies, managedAreaCodes: newManagedAreas }
-        : undefined;
+    const parsedUnits = parseUnitList(newManagedUnitsText);
+    const scope: ScopeSelection | undefined = SCOPE_ENABLED_ROLES.includes(newRole)
+      ? {
+          managedCompanyCodes: newManagedCompanies,
+          managedAreaCodes: newManagedAreas,
+          managedUnitCodes: parsedUnits,
+        }
+      : undefined;
 
     setIsSubmittingPreGrant(true);
     try {
@@ -261,6 +317,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       setNewNote('');
       setNewManagedCompanies([]);
       setNewManagedAreas([]);
+      setNewManagedUnitsText('');
     } catch (err: any) {
       onShowNotification(`Lỗi cấp quyền: ${err?.message || 'Không thể cấp quyền'}`);
     } finally {
@@ -280,13 +337,13 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
           <div className="space-y-1.5 max-w-2xl">
             <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
               <Crown className="w-4 h-4" />
-              <span>Hệ thống Phân quyền 5 Cấp · Hành Thực Lục</span>
+              <span>Phân quyền theo cấp độ · HT → QL Cụm → Ts, Nq → Gru → Uni → TĐ</span>
             </div>
             <h3 className="text-xl font-black text-white">
-              Quản Lý Vai Trò &amp; Phạm Vi Khu Vực
+              Quản Lý Vai Trò &amp; Phạm Vi Quyền Xem
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Phân quyền rõ ràng từ Thành viên → Khu vực trưởng → Nhà quản lý → Ban Quản trị → Quản trị Tổng. Dữ liệu MĐ và báo cáo tự động giới hạn đúng theo phạm vi cấp bậc.
+              Quy tắc chung: Mọi cấp đều xem được BXH 15 người đầu tiên. Phạm vi chi tiết và dữ liệu được phân tách chặt chẽ theo Sion, Khu vực và Đội/Uni.
             </p>
           </div>
 
@@ -387,17 +444,19 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Vai trò cấp
                 </label>
-                <select
+                <CustomSelect
+                  size="sm"
+                  searchable={false}
                   value={newRole}
-                  onChange={(e) => setNewRole(e.target.value as UserRole)}
-                  className="w-full px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="AREA_LEADER">Khu vực trưởng</option>
-                  <option value="MANAGER">Nhà quản lý</option>
-                  <option value="ADMIN">Ban Quản Trị</option>
-                  <option value="SUPER_ADMIN">Quản Trị Tổng</option>
-                  <option value="MEMBER">Thành Viên</option>
-                </select>
+                  onChange={(val) => setNewRole(val as UserRole)}
+                  menuMinWidth={250}
+                  options={ROLE_ORDER.map((r) => ({
+                    value: r,
+                    label: ROLE_DISPLAY_META[r].label,
+                    badge: ROLE_DISPLAY_META[r].codeBadge,
+                    description: ROLE_DISPLAY_META[r].scopeSummary,
+                  }))}
+                />
               </div>
 
               <div className="sm:col-span-4 flex gap-2">
@@ -419,39 +478,40 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               </div>
             </div>
 
-            {/* Scope selector for MANAGER or AREA_LEADER */}
-            {(newRole === 'MANAGER' || newRole === 'AREA_LEADER') && (
+            {/* Scope selector for MANAGER / SION_LEADER / AREA_LEADER / UNI_LEADER */}
+            {SCOPE_ENABLED_ROLES.includes(newRole) && (
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-3">
                 <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Chọn phạm vi phụ trách (Công ty / Khu vực):
+                  Chọn phạm vi phụ trách (Sion / Khu vực / Đội Uni):
                 </div>
-                {newRole === 'MANAGER' && companies.length > 0 && (
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-semibold text-slate-500">Theo Công ty:</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {companies.map((c) => {
-                        const checked = newManagedCompanies.includes(c.code);
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() =>
-                              toggleItem(newManagedCompanies, c.code, setNewManagedCompanies)
-                            }
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                              checked
-                                ? 'bg-blue-700 text-white border-blue-700'
-                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                            }`}
-                          >
-                            {c.code} · {c.name}
-                          </button>
-                        );
-                      })}
+                {(newRole === 'MANAGER' || newRole === 'SION_LEADER' || newRole === 'AREA_LEADER') &&
+                  companies.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-semibold text-slate-500">Theo Sion / Công ty:</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {companies.map((c) => {
+                          const checked = newManagedCompanies.includes(c.code);
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() =>
+                                toggleItem(newManagedCompanies, c.code, setNewManagedCompanies)
+                              }
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                                checked
+                                  ? 'bg-blue-700 text-white border-blue-700'
+                                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {c.code} · {c.name}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
-                {areas.length > 0 && (
+                  )}
+                {(newRole === 'MANAGER' || newRole === 'AREA_LEADER') && areas.length > 0 && (
                   <div className="space-y-1.5">
                     <div className="text-[11px] font-semibold text-slate-500">Theo Khu vực:</div>
                     <div className="flex flex-wrap gap-1.5">
@@ -473,6 +533,20 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                         );
                       })}
                     </div>
+                  </div>
+                )}
+                {(newRole === 'AREA_LEADER' || newRole === 'UNI_LEADER') && (
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-500 mb-1">
+                      Đội / Uni quản lý (cách nhau bởi dấu phẩy):
+                    </div>
+                    <input
+                      type="text"
+                      value={newManagedUnitsText}
+                      onChange={(e) => setNewManagedUnitsText(e.target.value)}
+                      placeholder="VD: Uni 1, Đội Sứ Đồ 2..."
+                      className="w-full px-3 py-2 rounded-xl text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                    />
                   </div>
                 )}
               </div>
@@ -541,18 +615,23 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               />
             </div>
 
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value as 'ALL' | UserRole)}
-              className="px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 cursor-pointer"
-            >
-              <option value="ALL">Tất cả cấp</option>
-              <option value="SUPER_ADMIN">Quản trị Tổng</option>
-              <option value="ADMIN">Ban Quản Trị</option>
-              <option value="MANAGER">Nhà quản lý</option>
-              <option value="AREA_LEADER">Khu vực trưởng</option>
-              <option value="MEMBER">Thành viên</option>
-            </select>
+            <div className="w-48">
+              <CustomSelect
+                size="sm"
+                searchable={false}
+                value={roleFilter}
+                onChange={(val) => setRoleFilter(val as 'ALL' | UserRole)}
+                menuMinWidth={240}
+                options={[
+                  { value: 'ALL', label: 'Tất cả cấp bậc' },
+                  ...ROLE_ORDER.map((r) => ({
+                    value: r,
+                    label: ROLE_DISPLAY_META[r].label,
+                    badge: ROLE_DISPLAY_META[r].codeBadge,
+                  })),
+                ]}
+              />
+            </div>
           </div>
         </div>
 
@@ -576,11 +655,13 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               ) : (
                 filteredUsers.map((user) => {
                   const effectiveRole = resolveEffectiveRole(user);
+                  const roleMeta = ROLE_DISPLAY_META[effectiveRole];
                   const isSelf = user.id === currentUser?.id;
                   const companyObj = companies.find((c) => c.code === user.companyCode);
                   const scopeParts = [
-                    ...(user.managedCompanyCodes || []).map((c) => `CT ${c}`),
+                    ...(user.managedCompanyCodes || []).map((c) => `Sion ${c}`),
                     ...(user.managedAreaCodes || []).map((a) => `KV ${a}`),
+                    ...(user.managedUnitCodes || []).map((u) => `Uni ${u}`),
                   ];
 
                   return (
@@ -615,6 +696,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                       <td className="py-3 px-3">
                         <div className="text-slate-800 dark:text-slate-200 font-semibold">
                           {companyObj?.code || user.companyCode} · KV {user.areaCode}
+                          {user.unitCode ? ` · ${user.unitCode}` : ''}
                         </div>
                         {scopeParts.length > 0 && (
                           <div className="text-[11px] text-teal-700 dark:text-teal-300 font-semibold mt-0.5">
@@ -625,44 +707,38 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
 
                       <td className="py-3 px-3">
                         <span
-                          className={`inline-block font-bold text-xs ${
-                            effectiveRole === 'SUPER_ADMIN'
-                              ? 'text-purple-700 dark:text-purple-300'
-                              : effectiveRole === 'ADMIN'
-                              ? 'text-blue-700 dark:text-blue-300'
-                              : effectiveRole === 'MANAGER'
-                              ? 'text-indigo-700 dark:text-indigo-300'
-                              : effectiveRole === 'AREA_LEADER'
-                              ? 'text-teal-700 dark:text-teal-300'
-                              : 'text-slate-600 dark:text-slate-300'
-                          }`}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${roleMeta.badgeClass}`}
                         >
-                          {ROLE_LABELS[effectiveRole]}
+                          <span>{roleMeta.label}</span>
                         </span>
                       </td>
 
                       <td className="py-3 px-3 text-right">
                         {isSuperAdmin ? (
                           <div className="flex items-center justify-end gap-1.5">
-                            <select
-                              value={effectiveRole}
-                              disabled={isUpdating === user.id}
-                              onChange={(e) => handleRoleChange(user, e.target.value as UserRole)}
-                              className="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white cursor-pointer"
-                            >
-                              <option value="MEMBER">Thành viên</option>
-                              <option value="AREA_LEADER">Khu vực trưởng</option>
-                              <option value="MANAGER">Nhà quản lý</option>
-                              <option value="ADMIN">Ban Quản Trị</option>
-                              <option value="SUPER_ADMIN">Quản trị Tổng</option>
-                            </select>
+                            <div className="w-48">
+                              <CustomSelect
+                                size="sm"
+                                align="right"
+                                searchable={false}
+                                menuMinWidth={240}
+                                disabled={isUpdating === user.id}
+                                value={effectiveRole}
+                                onChange={(val) => handleRoleChange(user, val as UserRole)}
+                                options={ROLE_ORDER.map((r) => ({
+                                  value: r,
+                                  label: ROLE_DISPLAY_META[r].label,
+                                  badge: ROLE_DISPLAY_META[r].codeBadge,
+                                }))}
+                              />
+                            </div>
 
-                            {(effectiveRole === 'MANAGER' || effectiveRole === 'AREA_LEADER') && (
+                            {SCOPE_ENABLED_ROLES.includes(effectiveRole) && (
                               <button
                                 type="button"
                                 onClick={() => openScopeModal(user, effectiveRole)}
-                                className="p-1.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 cursor-pointer"
-                                title="Chọn các khu vực / công ty phụ trách"
+                                className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 cursor-pointer shrink-0"
+                                title="Chọn Sion / Khu vực / Uni phụ trách"
                               >
                                 <SlidersHorizontal className="w-3.5 h-3.5" />
                               </button>
@@ -685,25 +761,32 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
 
       {/* Permission Matrix */}
       <div className="bg-white dark:bg-slate-800/90 rounded-3xl p-5 border border-slate-200 dark:border-slate-700 space-y-3">
-        <div className="flex items-center gap-2 text-xs font-bold text-purple-700 dark:text-purple-300">
-          <ShieldCheck className="w-4 h-4" />
-          <span>Ma trận Phân quyền 5 Cấp</span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-purple-700 dark:text-purple-300">
+            <ShieldCheck className="w-4 h-4" />
+            <span>Ma trận Phân quyền Theo Cấp Độ (HT → QL Cụm → Ts, Nq → Gru → Uni → TĐ)</span>
+          </div>
+          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+            Chung: Xem được BXH 15 người đầu tiên
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[11px] text-left">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
-                <th className="py-2 px-2">Chức năng</th>
-                <th className="py-2 px-2 text-center">Tổng</th>
-                <th className="py-2 px-2 text-center">Admin</th>
-                <th className="py-2 px-2 text-center">Quản lý</th>
-                <th className="py-2 px-2 text-center">KV Trưởng</th>
-                <th className="py-2 px-2 text-center">TV</th>
+                <th className="py-2 px-2">Phạm vi / Chức năng</th>
+                <th className="py-2 px-2 text-center">HT (Admin)</th>
+                <th className="py-2 px-2 text-center">QL Cụm</th>
+                <th className="py-2 px-2 text-center">Ts, Nq</th>
+                <th className="py-2 px-2 text-center">Gru</th>
+                <th className="py-2 px-2 text-center">Uni</th>
+                <th className="py-2 px-2 text-center">TĐ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               <tr>
-                <td className="py-2 px-2 font-medium">Báo cáo hằng ngày &amp; Sổ tay MĐ cá nhân</td>
+                <td className="py-2 px-2 font-medium">Xem BXH 15 người đầu tiên (Chung)</td>
+                <td className="py-2 px-2 text-center text-emerald-600 font-bold">✓</td>
                 <td className="py-2 px-2 text-center text-emerald-600 font-bold">✓</td>
                 <td className="py-2 px-2 text-center text-emerald-600 font-bold">✓</td>
                 <td className="py-2 px-2 text-center text-emerald-600 font-bold">✓</td>
@@ -711,27 +794,28 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                 <td className="py-2 px-2 text-center text-emerald-600 font-bold">✓</td>
               </tr>
               <tr>
-                <td className="py-2 px-2 font-medium">Xem &amp; sửa hộ tiến độ/ghi chú MĐ khu vực mình</td>
+                <td className="py-2 px-2 font-medium">Xem BXH chi tiết &amp; Dữ liệu tổng hợp</td>
                 <td className="py-2 px-2 text-center text-emerald-600 font-bold">Toàn bộ</td>
+                <td className="py-2 px-2 text-center text-amber-600 font-bold">Tổng các Sion trong cụm</td>
+                <td className="py-2 px-2 text-center text-purple-600 font-bold">Thành viên Sion</td>
+                <td className="py-2 px-2 text-center text-teal-600 font-bold">Uni &amp; TV quản lý</td>
+                <td className="py-2 px-2 text-center text-sky-600 font-bold">TV đội mình</td>
+                <td className="py-2 px-2 text-center text-slate-600 font-bold">Chỉ KQ của mình</td>
+              </tr>
+              <tr>
+                <td className="py-2 px-2 font-medium">Xem &amp; hỗ trợ Sổ tay MĐ</td>
                 <td className="py-2 px-2 text-center text-emerald-600 font-bold">Toàn bộ</td>
-                <td className="py-2 px-2 text-center text-teal-600 font-bold">KV được giao</td>
-                <td className="py-2 px-2 text-center text-teal-600 font-bold">1 KV</td>
-                <td className="py-2 px-2 text-center text-slate-300">✗</td>
+                <td className="py-2 px-2 text-center text-amber-600 font-bold">Cụm quản lý</td>
+                <td className="py-2 px-2 text-center text-purple-600 font-bold">Sion mình</td>
+                <td className="py-2 px-2 text-center text-teal-600 font-bold">KV quản lý</td>
+                <td className="py-2 px-2 text-center text-sky-600 font-bold">Đội Uni mình</td>
+                <td className="py-2 px-2 text-center text-slate-600 font-bold">Cá nhân</td>
               </tr>
               <tr>
-                <td className="py-2 px-2 font-medium">Quản lý Banner, Event, Nhân sự, Excel</td>
+                <td className="py-2 px-2 font-medium">Quản trị Hệ thống, Banner, Edu &amp; Phân quyền</td>
                 <td className="py-2 px-2 text-center text-emerald-600 font-bold">✓</td>
-                <td className="py-2 px-2 text-center text-emerald-600 font-bold">✓</td>
                 <td className="py-2 px-2 text-center text-slate-300">✗</td>
                 <td className="py-2 px-2 text-center text-slate-300">✗</td>
-                <td className="py-2 px-2 text-center text-slate-300">✗</td>
-              </tr>
-              <tr>
-                <td className="py-2 px-2 font-bold text-purple-700 dark:text-purple-300">
-                  Phân quyền các cấp &amp; Phạm vi quản lý
-                </td>
-                <td className="py-2 px-2 text-center text-purple-700 font-black">✓</td>
-                <td className="py-2 px-2 text-center text-slate-400">Chỉ xem</td>
                 <td className="py-2 px-2 text-center text-slate-300">✗</td>
                 <td className="py-2 px-2 text-center text-slate-300">✗</td>
                 <td className="py-2 px-2 text-center text-slate-300">✗</td>
@@ -741,7 +825,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         </div>
       </div>
 
-      {/* Modal chọn phạm vi Công ty / Khu vực cho Nhà quản lý & Khu vực trưởng */}
+      {/* Modal chọn phạm vi Sion / Khu vực / Uni cho QL Cụm, Ts/Nq, Gru, Uni */}
       {scopeModalUser && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-xs p-4"
@@ -771,7 +855,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               <div className="space-y-2">
                 <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Chọn toàn Công ty phụ trách (nếu quản lý cả công ty):</span>
+                  <span>Chọn Sion / Công ty phụ trách:</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {companies.map((c) => {
@@ -826,6 +910,21 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {(modalRole === 'AREA_LEADER' || modalRole === 'UNI_LEADER') && (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Mã Đội / Uni quản lý (cách nhau bởi dấu phẩy):
+                </label>
+                <input
+                  type="text"
+                  value={modalUnitsText}
+                  onChange={(e) => setModalUnitsText(e.target.value)}
+                  placeholder="VD: Uni 1, Đội Sứ Đồ 1 (để trống nếu quản cả khu vực)"
+                  className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                />
               </div>
             )}
 

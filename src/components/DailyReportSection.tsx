@@ -43,6 +43,7 @@ import {
   DEFAULT_EVENT_WEIGHTS,
 } from '../types/edulms';
 import type { AppTab } from './Navbar';
+import { CustomSelect } from './CustomSelect';
 import { computeDailyMetricsScore, sumDailyReportMetrics } from '../utils/scoringEngine';
 
 interface DailyReportSectionProps {
@@ -306,15 +307,19 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
     return activeEvent.participantIds.includes(currentMember.id);
   }, [activeEvent, currentMember]);
 
+  const sanitizeNumericInput = (raw: string): number => {
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return 0;
+    return Math.max(0, parseInt(digits, 10) || 0);
+  };
+
   const handleGoalChange = (key: DailyMetricKey, raw: string) => {
-    const num = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
-    setGoalsDraft((prev) => ({ ...prev, [key]: num }));
+    setGoalsDraft((prev) => ({ ...prev, [key]: sanitizeNumericInput(raw) }));
   };
 
   const handleResultChange = (key: DailyMetricKey, raw: string) => {
     if (activePeriod !== 'DAY') return;
-    const num = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
-    setResultsDraft((prev) => ({ ...prev, [key]: num }));
+    setResultsDraft((prev) => ({ ...prev, [key]: sanitizeNumericInput(raw) }));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -560,7 +565,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-center gap-1">
+                <div className="inline-flex items-center p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 gap-1 shadow-2xs">
                   {[
                     { label: 'Hôm kia', value: dayBeforeYesterdayStr },
                     { label: 'Hôm qua', value: yesterdayStr },
@@ -572,10 +577,10 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                         key={preset.value}
                         type="button"
                         onClick={() => setSelectedDate(preset.value)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer border ${
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap ${
                           isSelected
-                            ? 'bg-blue-700 text-white border-blue-700 shadow-2xs'
-                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:hover:bg-slate-800'
+                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800'
                         }`}
                       >
                         {preset.label}
@@ -585,7 +590,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                 </div>
               </div>
             ) : (
-              /* Month / Year Navigator & Locked Result Notice */
+              /* Month / Year Navigator with CustomSelect Presets & Locked Result Notice */
               <div className="px-3.5 py-2.5 bg-blue-50/90 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/50 flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900 dark:text-blue-200">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <Lock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
@@ -601,18 +606,45 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                       if (activePeriod === 'MONTH') setSelectedMonth((m) => shiftMonthStr(m, -1));
                       else setSelectedYear((y) => String((parseInt(y, 10) || 2026) - 1));
                     }}
-                    className="p-1 rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 cursor-pointer"
+                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 hover:bg-blue-100/60 cursor-pointer"
+                    aria-label="Kỳ trước"
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </button>
                   {activePeriod === 'MONTH' ? (
-                    <span className="font-extrabold text-[11px] tabular-nums px-1">
-                      {formatDisplayMonth(selectedMonth)} ({dayDaysReportedThisMonth} ngày)
-                    </span>
+                    <div className="w-[155px]">
+                      <CustomSelect
+                        size="sm"
+                        searchable={false}
+                        value={selectedMonth}
+                        onChange={setSelectedMonth}
+                        menuMinWidth={195}
+                        options={Array.from({ length: 12 }, (_, idx) => {
+                          const y = selectedMonth.split('-')[0] || String(new Date().getFullYear());
+                          const mm = String(idx + 1).padStart(2, '0');
+                          const val = `${y}-${mm}`;
+                          return {
+                            value: val,
+                            label: `Tháng ${mm}/${y}`,
+                            badge: val === selectedMonth ? `${dayDaysReportedThisMonth} ngày` : undefined,
+                          };
+                        })}
+                      />
+                    </div>
                   ) : (
-                    <span className="font-extrabold text-[11px] tabular-nums px-1">
-                      Năm {selectedYear}
-                    </span>
+                    <div className="w-[120px]">
+                      <CustomSelect
+                        size="sm"
+                        searchable={false}
+                        value={selectedYear}
+                        onChange={setSelectedYear}
+                        menuMinWidth={145}
+                        options={['2024', '2025', '2026', '2027', '2028', '2029'].map((yr) => ({
+                          value: yr,
+                          label: `Năm ${yr}`,
+                        }))}
+                      />
+                    </div>
                   )}
                   <button
                     type="button"
@@ -620,7 +652,8 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                       if (activePeriod === 'MONTH') setSelectedMonth((m) => shiftMonthStr(m, 1));
                       else setSelectedYear((y) => String((parseInt(y, 10) || 2026) + 1));
                     }}
-                    className="p-1 rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 cursor-pointer"
+                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 hover:bg-blue-100/60 cursor-pointer"
+                    aria-label="Kỳ sau"
                   >
                     <ChevronRight className="w-3.5 h-3.5" />
                   </button>
@@ -688,11 +721,12 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                       {/* Goal Pill Input */}
                       <div>
                         <input
-                          type="number"
-                          min={0}
+                          type="text"
                           inputMode="numeric"
-                          value={goalVal === 0 ? '' : goalVal}
+                          pattern="[0-9]*"
+                          value={goalVal === 0 ? '' : String(goalVal)}
                           placeholder="0"
+                          onFocus={(e) => e.currentTarget.select()}
                           onChange={(e) => handleGoalChange(metric.key, e.target.value)}
                           aria-label={`Mục tiêu ${metric.label}`}
                           className="w-full h-9 text-center text-xs sm:text-sm font-bold rounded-full border border-sky-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums shadow-2xs"
@@ -703,11 +737,12 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                       <div>
                         {activePeriod === 'DAY' ? (
                           <input
-                            type="number"
-                            min={0}
+                            type="text"
                             inputMode="numeric"
-                            value={resVal === 0 ? '' : resVal}
+                            pattern="[0-9]*"
+                            value={resVal === 0 ? '' : String(resVal)}
                             placeholder="0"
+                            onFocus={(e) => e.currentTarget.select()}
                             onChange={(e) => handleResultChange(metric.key, e.target.value)}
                             aria-label={`Kết quả ${metric.label}`}
                             className="w-full h-9 text-center text-xs sm:text-sm font-extrabold rounded-full border border-emerald-200 dark:border-emerald-800/80 bg-white dark:bg-slate-800 text-emerald-900 dark:text-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums shadow-2xs"
@@ -841,7 +876,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                         badge: Boolean(activeEvent),
                       },
                       {
-                        label: 'Môn đồ',
+                        label: 'MĐ',
                         tab: 'DISCIPLES' as AppTab,
                         icon: Users,
                         bg: 'bg-indigo-100 dark:bg-indigo-950/60',
