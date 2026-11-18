@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Users,
   CalendarDays,
+  CalendarCheck2,
   GraduationCap,
   BookMarked,
   Home,
@@ -26,6 +27,7 @@ export type AppTab =
   | 'HONORS'
   | 'DISCIPLES'
   | 'PROFILE'
+  | 'WORK_SCHEDULE'
   | 'EVENT_HUB'
   | 'EDU_LMS'
   | 'EDU_CMS'
@@ -275,6 +277,14 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
           subLabel: 'Thông tin & Hương khí',
           icon: User,
           accent: 'text-sky-400',
+          visible: true,
+        },
+        {
+          id: 'WORK_SCHEDULE',
+          label: 'Lịch làm việc',
+          subLabel: 'Hoạt động buổi & WS',
+          icon: CalendarCheck2,
+          accent: 'text-emerald-400',
           visible: true,
         },
       ],

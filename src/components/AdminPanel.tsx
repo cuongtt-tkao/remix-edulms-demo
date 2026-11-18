@@ -32,6 +32,7 @@ import {
   BookOpen,
   BarChart3,
   GraduationCap,
+  CalendarDays,
 } from 'lucide-react';
 import {
   Company,
@@ -51,6 +52,7 @@ import {
   EduWeeklyTopic,
   EduTopicAssignment,
   EduCmsProfile,
+  WorkScheduleRecord,
   DEFAULT_EVENT_WEIGHTS,
 } from '../types/edulms';
 import {
@@ -67,6 +69,10 @@ import {
   exportDailyReportsByRbacExcel,
   DailyReportExportPeriod,
 } from '../utils/reportExporter';
+import {
+  exportWorkSchedulesByRbacExcel,
+  WorkScheduleExportPeriod,
+} from '../utils/workScheduleExporter';
 import { RoleManagementTab } from './RoleManagementTab';
 import { AdminBannerEventTab } from './AdminBannerEventTab';
 import { AdminScoringAppearanceTab } from './AdminScoringAppearanceTab';
@@ -149,6 +155,7 @@ interface AdminPanelProps {
   eduTopics?: EduWeeklyTopic[];
   eduAssignments?: EduTopicAssignment[];
   eduCmsProfiles?: EduCmsProfile[];
+  workSchedules?: WorkScheduleRecord[];
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -196,6 +203,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   eduTopics = [],
   eduAssignments = [],
   eduCmsProfiles = [],
+  workSchedules = [],
 }) => {
   const [activeTab, setActiveTab] = useState<AdminSectionId>(initialTab || 'SCORING');
 
@@ -238,6 +246,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [adminReportCompany, setAdminReportCompany] = useState<string>('ALL');
   const [adminReportArea, setAdminReportArea] = useState<string>('ALL');
   const [eduExportCompany, setEduExportCompany] = useState<string>('ALL');
+  const [wsExportPeriod, setWsExportPeriod] = useState<WorkScheduleExportPeriod>('WEEK');
+  const [wsExportDate, setWsExportDate] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+      now.getDate()
+    ).padStart(2, '0')}`;
+  });
+  const [wsExportCompany, setWsExportCompany] = useState<string>('ALL');
+  const [wsExportArea, setWsExportArea] = useState<string>('ALL');
+  const [wsExportOwnerKey, setWsExportOwnerKey] = useState<string>('ALL');
 
   // Modals / Editing state
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
@@ -1904,7 +1922,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* BLOCK 5: XUẤT DỮ LIỆU EDU (LMS & CMS) */}
-              <div className="xl:col-span-2 p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
@@ -1925,57 +1943,279 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-3 items-center">
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Chủ đề LMS</div>
-                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                        {eduTopics.length}
-                      </div>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Phân công TĐ</div>
-                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                        {eduAssignments.length}
-                      </div>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Hồ sơ CMS/NGV</div>
-                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                        {eduCmsProfiles.length}
-                      </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Chủ đề LMS</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {eduTopics.length}
                     </div>
                   </div>
-
-                  <div className="min-w-0">
-                    <CustomSelect
-                      size="sm"
-                      searchable={false}
-                      value={eduExportCompany}
-                      onChange={setEduExportCompany}
-                      options={[
-                        { value: 'ALL', label: 'Tất cả Sion' },
-                        ...companies.map((c) => ({ value: c.code, label: c.name })),
-                      ]}
-                    />
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Phân công TĐ</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {eduAssignments.length}
+                    </div>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const res = exportEduDataExcel(eduTopics, eduAssignments, eduCmsProfiles, {
-                        companyCode: eduExportCompany,
-                      });
-                      onShowNotification(
-                        `Đã xuất ${res.fileName} (${res.topicsCount} chủ đề, ${res.assignmentsCount} phân công, ${res.cmsCount} CMS).`
-                      );
-                    }}
-                    className="py-2.5 px-4 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
-                  >
-                    <FileDown className="w-4 h-4" />
-                    <span>Xuất Excel Edu</span>
-                  </button>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Hồ sơ CMS</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {eduCmsProfiles.length}
+                    </div>
+                  </div>
                 </div>
+
+                <div className="min-w-0">
+                  <CustomSelect
+                    size="sm"
+                    searchable={false}
+                    value={eduExportCompany}
+                    onChange={setEduExportCompany}
+                    options={[
+                      { value: 'ALL', label: 'Tất cả Sion' },
+                      ...companies.map((c) => ({ value: c.code, label: c.name })),
+                    ]}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const res = exportEduDataExcel(eduTopics, eduAssignments, eduCmsProfiles, {
+                      companyCode: eduExportCompany,
+                    });
+                    onShowNotification(
+                      `Đã xuất ${res.fileName} (${res.topicsCount} chủ đề, ${res.assignmentsCount} phân công, ${res.cmsCount} CMS).`
+                    );
+                  }}
+                  className="w-full py-2.5 px-4 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span>Xuất Excel Edu</span>
+                </button>
+              </div>
+
+              {/* BLOCK 6: XUẤT LỊCH LÀM VIỆC TUẦN (3 BUỔI & WS) */}
+              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-teal-100 dark:bg-teal-950/70 text-teal-700 dark:text-teal-300 flex items-center justify-center shrink-0">
+                      <CalendarDays className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        6. Lịch Làm Việc Tuần (3 Buổi &amp; WS)
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Xuất lịch theo tuần, tháng, toàn hệ thống hoặc cá nhân
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] font-mono font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 px-2 py-0.5 rounded-md shrink-0">
+                    2–3 Sheets
+                  </span>
+                </div>
+
+                {(() => {
+                  const uniquePeopleCount = new Set(
+                    workSchedules.map((w) => w.ownerUid || w.ownerMemberId || w.ownerName)
+                  ).size;
+
+                  const parsedDate = (() => {
+                    const parts = wsExportDate.split('-').map((n) => parseInt(n, 10));
+                    if (parts.length === 3 && parts.every((n) => !Number.isNaN(n))) {
+                      return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+                    }
+                    return new Date();
+                  })();
+                  const sunday = new Date(parsedDate);
+                  sunday.setDate(sunday.getDate() - sunday.getDay());
+                  const weekStartStr = `${sunday.getFullYear()}-${String(
+                    sunday.getMonth() + 1
+                  ).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')}`;
+                  const saturday = new Date(sunday);
+                  saturday.setDate(saturday.getDate() + 6);
+                  const weekLabel = `${String(sunday.getDate()).padStart(2, '0')}/${String(
+                    sunday.getMonth() + 1
+                  ).padStart(2, '0')} – ${String(saturday.getDate()).padStart(2, '0')}/${String(
+                    saturday.getMonth() + 1
+                  ).padStart(2, '0')}`;
+                  const monthStr = wsExportDate.slice(0, 7);
+
+                  const ownerOptionsMap = new Map<string, string>();
+                  members
+                    .filter((m) => m.active)
+                    .filter(
+                      (m) => wsExportCompany === 'ALL' || m.companyCode === wsExportCompany
+                    )
+                    .filter((m) => wsExportArea === 'ALL' || m.areaCode === wsExportArea)
+                    .forEach((m) => {
+                      ownerOptionsMap.set(m.id, `${m.fullName} (${m.companyCode} · ${m.areaCode})`);
+                    });
+                  workSchedules.forEach((w) => {
+                    const key = w.ownerMemberId || w.ownerUid;
+                    if (!ownerOptionsMap.has(key)) {
+                      ownerOptionsMap.set(
+                        key,
+                        `${w.ownerName} (${w.companyCode || '—'} · ${w.areaCode || '—'})`
+                      );
+                    }
+                  });
+
+                  const ownerOptions = Array.from(ownerOptionsMap.entries())
+                    .sort((a, b) => a[1].localeCompare(b[1], 'vi'))
+                    .map(([value, label]) => ({ value, label }));
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                          <div className="text-[10px] text-slate-400 font-semibold uppercase">
+                            Bản ghi tuần
+                          </div>
+                          <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                            {workSchedules.length}
+                          </div>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                          <div className="text-[10px] text-slate-400 font-semibold uppercase">
+                            Nhân sự có lịch
+                          </div>
+                          <div className="text-base font-black text-teal-700 dark:text-teal-300 mt-0.5 tabular-nums">
+                            {uniquePeopleCount}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable={false}
+                            value={wsExportPeriod}
+                            onChange={(val) =>
+                              setWsExportPeriod(val as WorkScheduleExportPeriod)
+                            }
+                            options={[
+                              { value: 'WEEK', label: `Tuần (${weekLabel})` },
+                              {
+                                value: 'MONTH',
+                                label: `Tháng ${monthStr.split('-').reverse().join('/')}`,
+                              },
+                              { value: 'ALL', label: 'Tất cả thời gian' },
+                            ]}
+                          />
+                        </div>
+                        {wsExportPeriod === 'WEEK' ? (
+                          <input
+                            type="date"
+                            value={wsExportDate}
+                            onChange={(e) => e.target.value && setWsExportDate(e.target.value)}
+                            aria-label="Chọn ngày thuộc tuần cần xuất"
+                            className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:border-teal-500"
+                          />
+                        ) : (
+                          <div className="min-w-0">
+                            <CustomSelect
+                              size="sm"
+                              searchable
+                              value={wsExportOwnerKey}
+                              onChange={setWsExportOwnerKey}
+                              options={[
+                                { value: 'ALL', label: 'Tất cả nhân sự' },
+                                ...ownerOptions,
+                              ]}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable={false}
+                            value={wsExportCompany}
+                            onChange={(val) => {
+                              setWsExportCompany(val);
+                              setWsExportArea('ALL');
+                              setWsExportOwnerKey('ALL');
+                            }}
+                            options={[
+                              { value: 'ALL', label: 'Tất cả Sion' },
+                              ...companies.map((c) => ({ value: c.code, label: c.name })),
+                            ]}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable={false}
+                            value={wsExportArea}
+                            onChange={(val) => {
+                              setWsExportArea(val);
+                              setWsExportOwnerKey('ALL');
+                            }}
+                            options={[
+                              { value: 'ALL', label: 'Tất cả KV' },
+                              ...areas
+                                .filter(
+                                  (a) =>
+                                    wsExportCompany === 'ALL' ||
+                                    a.companyCode === wsExportCompany
+                                )
+                                .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
+                            ]}
+                          />
+                        </div>
+                        {wsExportPeriod === 'WEEK' ? (
+                          <div className="min-w-0">
+                            <CustomSelect
+                              size="sm"
+                              searchable
+                              value={wsExportOwnerKey}
+                              onChange={setWsExportOwnerKey}
+                              options={[
+                                { value: 'ALL', label: 'Tất cả cá nhân' },
+                                ...ownerOptions,
+                              ]}
+                            />
+                          </div>
+                        ) : (
+                          <div className="hidden sm:flex items-center justify-center text-[11px] text-slate-400 dark:text-slate-500 font-semibold">
+                            Đúng phân quyền
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!currentUser) return;
+                          const res = exportWorkSchedulesByRbacExcel({
+                            viewer: currentUser,
+                            workSchedules,
+                            members,
+                            period: wsExportPeriod,
+                            selectedWeekStart: weekStartStr,
+                            targetMonth: monthStr,
+                            scopeMode: 'TEAM',
+                            filterCompanyCode: wsExportCompany,
+                            filterAreaCode: wsExportArea,
+                            filterOwnerKey: wsExportOwnerKey,
+                          });
+                          onShowNotification(
+                            `Đã xuất ${res.fileName} (${res.recordsCount} tuần · ${res.peopleCount} nhân sự).`
+                          );
+                        }}
+                        className="w-full py-2.5 px-4 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <FileDown className="w-4 h-4" />
+                        <span>Xuất Excel Lịch làm việc</span>
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

@@ -181,6 +181,28 @@
         "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["fullName", "companyCode", "areaCode", "stage", "ngvName", "ownerUid", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "WorkSchedule": {
+      "title": "WorkSchedule",
+      "description": "Weekly personal activity schedule (CN-T7, 3 daily sessions + toggleable WS sessions)",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "ownerMemberId": { "type": "string", "maxLength": 128 },
+        "ownerName": { "type": "string", "maxLength": 100 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 30 },
+        "ownerUnitCode": { "type": "string", "maxLength": 50 },
+        "weekStart": { "type": "string", "maxLength": 15 },
+        "weekEnd": { "type": "string", "maxLength": 15 },
+        "sessions": { "type": "object" },
+        "wsActiveDays": { "type": "array" },
+        "ws": { "type": "object" },
+        "noteLegend": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["ownerUid", "ownerName", "companyCode", "areaCode", "weekStart", "weekEnd", "sessions", "wsActiveDays", "ws", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -219,6 +241,10 @@
     "/edu_cms_profiles/{profileId}": {
       "schema": "EduCmsProfile",
       "description": "CMS learner progression (TĐ Mới -> TĐ-II) and NGV mentor roster"
+    },
+    "/work_schedules/{scheduleId}": {
+      "schema": "WorkSchedule",
+      "description": "Weekly activity schedules (CN -> T7) scoped by owner and RBAC supervisors"
     }
   }
 }

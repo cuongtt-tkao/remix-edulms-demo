@@ -834,4 +834,61 @@ export interface EduCmsProfile {
   updatedAt: string;
 }
 
+// ---------- Lịch làm việc tuần (CN -> T7: 3 buổi tách riêng WS) ----------
+export type WeekDayKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
 
+export const WORK_WEEK_DAYS: Array<{
+  key: WeekDayKey;
+  shortLabel: string;
+  fullLabel: string;
+}> = [
+  { key: 'sun', shortLabel: 'CN', fullLabel: 'Chủ Nhật' },
+  { key: 'mon', shortLabel: 'T2', fullLabel: 'Thứ Hai' },
+  { key: 'tue', shortLabel: 'T3', fullLabel: 'Thứ Ba' },
+  { key: 'wed', shortLabel: 'T4', fullLabel: 'Thứ Tư' },
+  { key: 'thu', shortLabel: 'T5', fullLabel: 'Thứ Năm' },
+  { key: 'fri', shortLabel: 'T6', fullLabel: 'Thứ Sáu' },
+  { key: 'sat', shortLabel: 'T7', fullLabel: 'Thứ Bảy' },
+];
+
+export const DEFAULT_WS_ACTIVE_DAYS: WeekDayKey[] = ['tue', 'sat'];
+
+export interface DayThreeSessions {
+  morning: string;
+  afternoon: string;
+  evening: string;
+}
+
+export interface WorkScheduleRecord {
+  id: string; // `${uid}_${weekStart}`
+  ownerUid: string;
+  ownerMemberId?: string;
+  ownerName: string;
+  companyCode: string;
+  areaCode: string;
+  ownerUnitCode?: string;
+  weekStart: string; // YYYY-MM-DD (Chủ Nhật)
+  weekEnd: string;   // YYYY-MM-DD (Thứ Bảy)
+  sessions: Record<WeekDayKey, DayThreeSessions>;
+  wsActiveDays: WeekDayKey[]; // Mặc định ['tue', 'sat']
+  ws: Record<WeekDayKey, DayThreeSessions>;
+  noteLegend?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function createEmptyDaySessions(): DayThreeSessions {
+  return { morning: '', afternoon: '', evening: '' };
+}
+
+export function createEmptyWeekSessionsMap(): Record<WeekDayKey, DayThreeSessions> {
+  return {
+    sun: createEmptyDaySessions(),
+    mon: createEmptyDaySessions(),
+    tue: createEmptyDaySessions(),
+    wed: createEmptyDaySessions(),
+    thu: createEmptyDaySessions(),
+    fri: createEmptyDaySessions(),
+    sat: createEmptyDaySessions(),
+  };
+}

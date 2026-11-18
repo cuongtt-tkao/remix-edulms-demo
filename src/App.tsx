@@ -49,6 +49,7 @@ import {
   EduWeeklyTopic,
   EduTopicAssignment,
   EduCmsProfile,
+  WorkScheduleRecord,
 } from './types/edulms';
 import {
   rankMembers,
@@ -80,6 +81,7 @@ import { DisciplesPage } from './components/DisciplesPage';
 import { EventHubPage } from './components/EventHubPage';
 import { EduLmsPage } from './components/EduLmsPage';
 import { EduCmsPage } from './components/EduCmsPage';
+import { WorkSchedulePage } from './components/WorkSchedulePage';
 import { AdminPanel, AdminSectionId } from './components/AdminPanel';
 import { ProfilePage } from './components/ProfilePage';
 import { AuthModal, RegistrationData } from './components/AuthModal';
@@ -885,6 +887,146 @@ export default function App() {
     showNotification,
   ]);
 
+  // ---------- Lịch làm việc tuần (work_schedules) - Truy vấn theo cấp bậc (7 cấp) ----------
+  const [workSchedules, setWorkSchedules] = useState<WorkScheduleRecord[]>([]);
+  const [workSchedulesLoading, setWorkSchedulesLoading] = useState<boolean>(false);
+  const [workSchedulesError, setWorkSchedulesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!signedIn || !firebaseUser?.uid || !effectiveCurrentUser) {
+      setWorkSchedules([]);
+      setWorkSchedulesLoading(false);
+      setWorkSchedulesError(null);
+      return;
+    }
+
+    setWorkSchedulesLoading(true);
+    setWorkSchedulesError(null);
+    const uid = firebaseUser.uid;
+    const role = effectiveCurrentUser.role;
+    const buckets = new Map<string, Map<string, WorkScheduleRecord>>();
+    const unsubs: Array<() => void> = [];
+
+    const syncMerged = () => {
+      const merged = new Map<string, WorkScheduleRecord>();
+      buckets.forEach((b) => {
+        b.forEach((rec, id) => merged.set(id, rec));
+      });
+      setWorkSchedules(Array.from(merged.values()));
+    };
+
+    const attachQuery = (bucketKey: string, qRef: any) => {
+      const unsub = onSnapshot(
+        qRef,
+        (snap: any) => {
+          const map = new Map<string, WorkScheduleRecord>();
+          snap.docs.forEach((d: any) => {
+            map.set(d.id, { ...(d.data() as Omit<WorkScheduleRecord, 'id'>), id: d.id });
+          });
+          buckets.set(bucketKey, map);
+          syncMerged();
+          setWorkSchedulesError(null);
+          setWorkSchedulesLoading(false);
+        },
+        (err: any) => {
+          setWorkSchedulesLoading(false);
+          const msg = err?.message || String(err || 'Permission error');
+          setWorkSchedulesError(`[${bucketKey}] ${msg}`);
+          console.error(`[Firestore] Lỗi đọc work_schedules (${bucketKey}):`, err);
+          showNotification(`Không đọc được lịch làm việc (${bucketKey}): ${msg}`);
+        }
+      );
+      unsubs.push(unsub);
+    };
+
+    if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      attachQuery('all', collection(db, 'work_schedules'));
+    } else if (role === 'MANAGER') {
+      attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      compCodes.forEach((cCode) => {
+        if (cCode) {
+          attachQuery(
+            `comp_${cCode}`,
+            query(collection(db, 'work_schedules'), where('companyCode', '==', cCode))
+          );
+        }
+      });
+      areaCodes.forEach((aCode) => {
+        if (aCode) {
+          attachQuery(
+            `area_${aCode}`,
+            query(collection(db, 'work_schedules'), where('areaCode', '==', aCode))
+          );
+        }
+      });
+    } else if (role === 'SION_LEADER') {
+      attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const effectiveComps = Array.from(
+        new Set(
+          (compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean)
+        )
+      );
+      effectiveComps.forEach((cCode) => {
+        attachQuery(
+          `sion_${cCode}`,
+          query(collection(db, 'work_schedules'), where('companyCode', '==', cCode))
+        );
+      });
+    } else if (role === 'AREA_LEADER') {
+      attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
+      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
+        attachQuery(
+          'leader_area',
+          query(
+            collection(db, 'work_schedules'),
+            where('companyCode', '==', effectiveCurrentUser.companyCode),
+            where('areaCode', '==', effectiveCurrentUser.areaCode)
+          )
+        );
+      }
+    } else if (role === 'UNI_LEADER') {
+      attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
+      const unitCodes: string[] = JSON.parse(managedUnitKey);
+      const ownUnit = effectiveCurrentUser.unitCode || '';
+      const effectiveUnits = Array.from(
+        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
+      );
+      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
+        effectiveUnits.forEach((uCode) => {
+          attachQuery(
+            `uni_${uCode}`,
+            query(
+              collection(db, 'work_schedules'),
+              where('companyCode', '==', effectiveCurrentUser.companyCode),
+              where('areaCode', '==', effectiveCurrentUser.areaCode),
+              where('ownerUnitCode', '==', uCode)
+            )
+          );
+        });
+      }
+    } else {
+      attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
+    }
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [
+    signedIn,
+    firebaseUser?.uid,
+    effectiveCurrentUser?.role,
+    effectiveCurrentUser?.companyCode,
+    effectiveCurrentUser?.areaCode,
+    effectiveCurrentUser?.unitCode,
+    managedCompKey,
+    managedAreaKey,
+    managedUnitKey,
+    showNotification,
+  ]);
+
   const currentMemberData = useMemo(() => {
     if (!currentUser) return null;
     return (
@@ -1148,6 +1290,33 @@ export default function App() {
       await deleteDoc(doc(db, 'disciples', discipleId));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `disciples/${discipleId}`);
+    }
+  };
+
+  // ---------- Lịch làm việc tuần (work_schedules) CRUD ----------
+  const handleSaveWorkSchedule = async (schedule: WorkScheduleRecord) => {
+    if (!firebaseUser) return;
+    const { id, ...rest } = schedule;
+    const clean = JSON.parse(
+      JSON.stringify({
+        ...rest,
+        ownerUid: firebaseUser.uid,
+      })
+    );
+    try {
+      await setDoc(doc(db, 'work_schedules', id), clean);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `work_schedules/${id}`);
+      throw err;
+    }
+  };
+
+  const handleDeleteWorkSchedule = async (scheduleId: string) => {
+    try {
+      await deleteDoc(doc(db, 'work_schedules', scheduleId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `work_schedules/${scheduleId}`);
+      throw err;
     }
   };
 
@@ -1501,6 +1670,17 @@ export default function App() {
         const syncedUnit = (nextUnitCode || updated.departmentCode || '').slice(0, 50);
         ownDisciples.slice(0, 350).forEach((d) => {
           batch.update(doc(db, 'disciples', d.id), {
+            companyCode: updated.companyCode,
+            areaCode: updated.areaCode,
+            ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
+            ownerName: updated.fullName,
+            updatedAt: new Date().toISOString(),
+          });
+        });
+
+        const ownSchedules = workSchedules.filter((w) => w.ownerUid === currentUser.id);
+        ownSchedules.slice(0, 100).forEach((w) => {
+          batch.update(doc(db, 'work_schedules', w.id), {
             companyCode: updated.companyCode,
             areaCode: updated.areaCode,
             ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
@@ -2267,6 +2447,25 @@ export default function App() {
             </main>
           )}
 
+          {/* TAB: LỊCH LÀM VIỆC TUẦN (Mục Công Việc) */}
+          {activeTab === 'WORK_SCHEDULE' && (
+            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+              <WorkSchedulePage
+                currentUser={effectiveCurrentUser}
+                workSchedules={workSchedules}
+                isLoading={workSchedulesLoading}
+                readError={workSchedulesError}
+                members={allMembersRanked}
+                companies={companies}
+                areas={areas}
+                onSaveWorkSchedule={handleSaveWorkSchedule}
+                onDeleteWorkSchedule={handleDeleteWorkSchedule}
+                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onShowNotification={showNotification}
+              />
+            </main>
+          )}
+
           {/* TAB: TRANG QUẢN TRỊ */}
           {activeTab === 'ADMIN' && (
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
@@ -2316,6 +2515,7 @@ export default function App() {
                   eduTopics={eduTopics}
                   eduAssignments={eduAssignments}
                   eduCmsProfiles={eduCmsProfiles}
+                  workSchedules={workSchedules}
                 />
               ) : (
                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-lg mx-auto text-center shadow-sm border border-slate-100 dark:border-slate-800 my-12">

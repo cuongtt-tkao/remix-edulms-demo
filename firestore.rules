@@ -25,7 +25,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
     function userDocPath() {
@@ -272,6 +272,37 @@ service cloud.firestore {
         && data.updatedAt is string && data.updatedAt.size() <= 50;
     }
 
+    function isValidWorkSchedule(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'ownerName', 'companyCode', 'areaCode',
+          'weekStart', 'weekEnd', 'sessions', 'wsActiveDays', 'ws',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'ownerMemberId', 'ownerName', 'companyCode', 'areaCode', 'ownerUnitCode',
+          'weekStart', 'weekEnd', 'sessions', 'wsActiveDays', 'ws', 'noteLegend',
+          'createdAt', 'updatedAt'
+        ])
+        && data.ownerUid is string && data.ownerUid.size() > 0 && data.ownerUid.size() <= 128
+        && (!('ownerMemberId' in data) || (data.ownerMemberId is string && data.ownerMemberId.size() <= 128))
+        && data.ownerName is string && data.ownerName.size() > 0 && data.ownerName.size() <= 100
+        && data.companyCode is string && data.companyCode.size() <= 30
+        && data.areaCode is string && data.areaCode.size() <= 30
+        && (!('ownerUnitCode' in data) || (data.ownerUnitCode is string && data.ownerUnitCode.size() <= 50))
+        && data.weekStart is string && data.weekStart.size() >= 8 && data.weekStart.size() <= 15
+        && data.weekEnd is string && data.weekEnd.size() >= 8 && data.weekEnd.size() <= 15
+        && data.sessions is map
+        && data.sessions.keys().hasOnly(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+        && data.wsActiveDays is list
+        && data.wsActiveDays.size() <= 7
+        && data.wsActiveDays.hasOnly(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+        && data.ws is map
+        && data.ws.keys().hasOnly(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+        && (!('noteLegend' in data) || (data.noteLegend is string && data.noteLegend.size() <= 600))
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
     // Mã thành viên của chính người dùng đang đăng nhập
     function ownMemberId() {
       return 'm-' + request.auth.uid;
@@ -390,6 +421,37 @@ service cloud.firestore {
         );
 
       allow delete: if isValidId(discipleId) && isSignedIn() && (
+        isAdmin() || resource.data.ownerUid == request.auth.uid
+      );
+    }
+
+    // ---------- Lịch làm việc tuần (work_schedules/{scheduleId}) ----------
+    match /work_schedules/{scheduleId} {
+      allow get: if isValidId(scheduleId) && isSignedIn() && (
+        isAdmin()
+        || resource.data.ownerUid == request.auth.uid
+        || canSupervisorAccessDisciple(resource.data)
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin()
+        || resource.data.ownerUid == request.auth.uid
+        || canSupervisorAccessDisciple(resource.data)
+      );
+
+      allow create: if isValidId(scheduleId)
+        && isSignedIn()
+        && isValidWorkSchedule(request.resource.data)
+        && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+
+      allow update: if isValidId(scheduleId)
+        && isSignedIn()
+        && isValidWorkSchedule(request.resource.data)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.weekStart == resource.data.weekStart
+        && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+
+      allow delete: if isValidId(scheduleId) && isSignedIn() && (
         isAdmin() || resource.data.ownerUid == request.auth.uid
       );
     }
