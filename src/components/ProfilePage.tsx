@@ -1877,7 +1877,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   2. Hoặc chọn nhanh từ bộ avatar có sẵn
                 </label>
-                <div className="grid grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   {presetAvatars.map((url, i) => (
                     <div
                       key={i}

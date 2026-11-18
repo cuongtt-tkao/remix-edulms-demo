@@ -23,6 +23,8 @@ import {
 import {
   SystemBannerConfig,
   BannerSlide,
+  BannerVisibilityConfig,
+  DEFAULT_BANNER_VISIBILITY,
   FestivalEvent,
   Member,
   Company,
@@ -52,7 +54,9 @@ const DEFAULT_BANNER_CONFIG: SystemBannerConfig = {
   highlightTitle: 'VINH DANH THI ĐUA',
   description:
     'Hệ thống ghi nhận báo cáo hằng ngày, theo dõi tiến độ mục tiêu và tôn vinh thành tích cá nhân, khu vực, công ty.',
-  tagline: 'Báo cáo hằng ngày • Lan tỏa thực hành • Tiến bước vững vàng',
+  tagline: 'Báo cáo hằng ngày · Lan tỏa thực hành · Tiến bước vững vàng',
+  actionStripLabel: 'Xem thể lệ & quy đổi điểm thi đua',
+  visibility: { ...DEFAULT_BANNER_VISIBILITY },
   slides: SPOTLIGHT_COVERS.map((c) => ({
     id: String(c.id),
     title: c.title,
@@ -83,6 +87,13 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   const [highlightTitle, setHighlightTitle] = useState(initialBanner.highlightTitle);
   const [description, setDescription] = useState(initialBanner.description);
   const [tagline, setTagline] = useState(initialBanner.tagline);
+  const [actionStripLabel, setActionStripLabel] = useState(
+    initialBanner.actionStripLabel || DEFAULT_BANNER_CONFIG.actionStripLabel || ''
+  );
+  const [bannerVisibility, setBannerVisibility] = useState<BannerVisibilityConfig>({
+    ...DEFAULT_BANNER_VISIBILITY,
+    ...(initialBanner.visibility || {}),
+  });
   const [autoSlideSeconds, setAutoSlideSeconds] = useState(initialBanner.autoSlideSeconds || 7);
   const [slides, setSlides] = useState<BannerSlide[]>(
     initialBanner.slides?.length ? initialBanner.slides : DEFAULT_BANNER_CONFIG.slides
@@ -99,6 +110,13 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
       setHighlightTitle(bannerConfig.highlightTitle || DEFAULT_BANNER_CONFIG.highlightTitle);
       setDescription(bannerConfig.description || DEFAULT_BANNER_CONFIG.description);
       setTagline(bannerConfig.tagline || DEFAULT_BANNER_CONFIG.tagline);
+      setActionStripLabel(
+        bannerConfig.actionStripLabel || DEFAULT_BANNER_CONFIG.actionStripLabel || ''
+      );
+      setBannerVisibility({
+        ...DEFAULT_BANNER_VISIBILITY,
+        ...(bannerConfig.visibility || {}),
+      });
       setAutoSlideSeconds(bannerConfig.autoSlideSeconds || 7);
       if (bannerConfig.slides?.length) setSlides(bannerConfig.slides);
     }
@@ -156,6 +174,8 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
         highlightTitle: highlightTitle.trim() || DEFAULT_BANNER_CONFIG.highlightTitle,
         description: description.trim(),
         tagline: tagline.trim(),
+        actionStripLabel: actionStripLabel.trim(),
+        visibility: bannerVisibility,
         slides,
         autoSlideSeconds: Math.max(3, Number(autoSlideSeconds) || 7),
         updatedAt: new Date().toISOString(),
@@ -584,6 +604,19 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Thanh hành động đáy Banner (kiểu thẻ hiện đại)
+                  </label>
+                  <input
+                    type="text"
+                    value={actionStripLabel}
+                    onChange={(e) => setActionStripLabel(e.target.value)}
+                    placeholder="Ví dụ: Xem thể lệ & quy đổi điểm thi đua"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Thời gian tự đổi ảnh nền (giây)
                   </label>
                   <input
@@ -594,6 +627,55 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
                     onChange={(e) => setAutoSlideSeconds(Number(e.target.value) || 7)}
                     className="w-28 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold"
                   />
+                </div>
+
+                {/* Visibility Toggles for Banner Elements */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                  <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Tùy chọn Ẩn / Hiện chi tiết trên Banner</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(
+                      [
+                        { key: 'showHighlight', label: 'Tiêu đề phụ nổi bật' },
+                        { key: 'showDescription', label: 'Mô tả ngắn trên ảnh' },
+                        { key: 'showActionStrip', label: 'Thanh hành động đáy Banner' },
+                        { key: 'showRightCard', label: 'Thẻ Chiến dịch / Khẩu hiệu bên phải' },
+                        { key: 'showSlideControls', label: 'Nút & chấm chuyển ảnh' },
+                      ] as const
+                    ).map((item) => {
+                      const active = bannerVisibility[item.key];
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() =>
+                            setBannerVisibility((prev) => ({
+                              ...prev,
+                              [item.key]: !prev[item.key],
+                            }))
+                          }
+                          className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-left transition cursor-pointer ${
+                            active
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          <span className="font-semibold text-[11px] truncate">{item.label}</span>
+                          <span
+                            className={`text-[10px] font-black px-1.5 py-0.5 rounded shrink-0 ${
+                              active
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}
+                          >
+                            {active ? 'HIỆN' : 'ẨN'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

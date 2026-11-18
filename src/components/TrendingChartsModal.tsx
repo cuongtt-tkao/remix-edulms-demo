@@ -112,10 +112,10 @@ export const TrendingChartsModal: React.FC<TrendingChartsModalProps> = ({
             <span className="text-[11px] text-slate-400 font-mono">Đơn vị: điểm / người</span>
           </div>
 
-          <div className="w-full overflow-x-auto">
+          <div className="w-full">
             <svg
               viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-              className="w-full h-56 min-w-[500px]"
+              className="w-full h-48 sm:h-56"
             >
               {/* Horizontal Grid Lines */}
               {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {

@@ -105,6 +105,9 @@
         "fontScale": { "type": "string", "enum": ["SM", "MD", "LG"] },
         "widgetOrder": { "type": "array" },
         "hiddenWidgets": { "type": "array" },
+        "homeWidgets": { "type": "object" },
+        "actionStripLabel": { "type": "string", "maxLength": 150 },
+        "visibility": { "type": "object" },
         "updatedAt": { "type": "string", "maxLength": 50 },
         "updatedBy": { "type": "string", "maxLength": 100 }
       }

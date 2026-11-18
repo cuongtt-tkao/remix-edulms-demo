@@ -17,6 +17,7 @@ import {
   CalendarDays,
   GraduationCap,
   BookMarked,
+  Home,
 } from 'lucide-react';
 import { UserAccount } from '../types/edulms';
 
@@ -510,5 +511,94 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         </div>
       )}
     </>
+  );
+};
+
+interface MobileBottomNavProps {
+  activeTab: AppTab;
+  onSelectTab: (tab: AppTab) => void;
+  onOpenMobileDrawer: () => void;
+}
+
+export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
+  activeTab,
+  onSelectTab,
+  onOpenMobileDrawer,
+}) => {
+  const handleCenterAction = () => {
+    if (activeTab !== 'ENTRY') {
+      onSelectTab('ENTRY');
+    } else if (typeof document !== 'undefined') {
+      document.getElementById('entry-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  return (
+    <nav
+      aria-label="Điều hướng nhanh di động"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 shadow-[0_-4px_20px_-6px_rgba(15,23,42,0.12)] pb-[env(safe-area-inset-bottom)]"
+    >
+      <div className="grid grid-cols-5 items-center h-14 max-w-md mx-auto px-1 relative">
+        <button
+          type="button"
+          onClick={() => onSelectTab('ENTRY')}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 cursor-pointer transition-colors ${
+            activeTab === 'ENTRY'
+              ? 'text-sky-600 dark:text-sky-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <Home className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">Trang chủ</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSelectTab('HONORS')}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 cursor-pointer transition-colors ${
+            activeTab === 'HONORS'
+              ? 'text-sky-600 dark:text-sky-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <Trophy className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">Xếp hạng</span>
+        </button>
+
+        {/* Center primary circular action button (Image 2 style) */}
+        <div className="flex items-center justify-center">
+          <button
+            type="button"
+            onClick={handleCenterAction}
+            aria-label="Nhập báo cáo hằng ngày"
+            className="-mt-5 w-12 h-12 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-white shadow-lg shadow-sky-500/35 ring-4 ring-white dark:ring-slate-900 flex items-center justify-center active:scale-95 transition cursor-pointer"
+          >
+            <ClipboardList className="w-5 h-5" />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onSelectTab('EDU_LMS')}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 cursor-pointer transition-colors ${
+            activeTab === 'EDU_LMS' || activeTab === 'EDU_CMS'
+              ? 'text-sky-600 dark:text-sky-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <GraduationCap className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">Giáo dục</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenMobileDrawer}
+          className="flex flex-col items-center justify-center gap-0.5 py-1 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer transition-colors"
+        >
+          <Menu className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">Toàn thể</span>
+        </button>
+      </div>
+    </nav>
   );
 };

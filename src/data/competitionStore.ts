@@ -2,12 +2,12 @@ import { Company, Area, Department, Member, TargetRecord } from '../types/edulms
 import { calculateTargetScore, computeMemberScore, rankMembers } from '../utils/scoringEngine';
 
 export const INITIAL_COMPANIES: Company[] = [
-  { id: 'c-th1', code: 'Th1', name: 'Thương Hội 1 (Th1)', description: 'Công ty Thương Hội 1', active: true },
-  { id: 'c-th2', code: 'Th2', name: 'Thương Hội 2 (Th2)', description: 'Công ty Thương Hội 2', active: true },
-  { id: 'c-th3', code: 'Th3', name: 'Thương Hội 3 (Th3)', description: 'Công ty Thương Hội 3', active: true },
-  { id: 'c-ht', code: 'HT', name: 'Hội Thánh (HT)', description: 'Công ty Hội Thánh trung tâm', active: true },
-  { id: 'c-nc', code: 'NC', name: 'Nam Cali (NC)', description: 'Chi nhánh Nam Cali', active: true },
-  { id: 'c-qn', code: 'QN', name: 'Quảng Nam (QN)', description: 'Đơn vị Quảng Nam', active: true },
+  { id: 'c-th1', code: 'Th1', name: 'Thương Hội 1', description: 'Công ty Thương Hội 1', active: true },
+  { id: 'c-th2', code: 'Th2', name: 'Thương Hội 2', description: 'Công ty Thương Hội 2', active: true },
+  { id: 'c-th3', code: 'Th3', name: 'Thương Hội 3', description: 'Công ty Thương Hội 3', active: true },
+  { id: 'c-ht', code: 'HT', name: 'Hội Thánh', description: 'Công ty Hội Thánh trung tâm', active: true },
+  { id: 'c-nc', code: 'NC', name: 'Nam Cali', description: 'Chi nhánh Nam Cali', active: true },
+  { id: 'c-qn', code: 'QN', name: 'Quảng Nam', description: 'Đơn vị Quảng Nam', active: true },
 ];
 
 export const INITIAL_AREAS: Area[] = [

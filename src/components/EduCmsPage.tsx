@@ -462,7 +462,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
       {subTab === 'PROGRESSION' && (
         <div className="space-y-4">
           {/* Pipeline KPI Row */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
             {(
               [
                 { key: 'TD_MOI', label: 'TĐ Mới', color: 'text-sky-600 dark:text-sky-400' },
@@ -472,12 +472,12 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
             ).map((st) => (
               <div
                 key={st.key}
-                className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 text-center"
+                className="bg-white dark:bg-slate-900 rounded-2xl p-2.5 sm:p-4 border border-slate-200 dark:border-slate-800 text-center"
               >
-                <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                <div className="text-[11px] sm:text-xs font-bold text-slate-500 dark:text-slate-400">
                   {st.label}
                 </div>
-                <div className={`text-2xl font-black tabular-nums mt-1 ${st.color}`}>
+                <div className={`text-xl sm:text-2xl font-black tabular-nums mt-0.5 sm:mt-1 ${st.color}`}>
                   {learnersList.filter((l) => l.stage === st.key).length}
                 </div>
               </div>
@@ -490,100 +490,183 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 Chưa có học viên nào trong danh sách lộ trình TĐ Mới → TĐ-II.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800">
-                    <tr>
-                      <th className="py-3 px-4">Tên TĐ</th>
-                      <th className="py-3 px-4">Khu vực</th>
-                      <th className="py-3 px-4">Giai đoạn</th>
-                      <th className="py-3 px-4">NGV phụ trách</th>
-                      <th className="py-3 px-4">Chủ đề / Ghi chú</th>
-                      <th className="py-3 px-4 text-right">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredLearners.map((p) => {
-                      const canEdit = canModifyProfile(p);
-                      const nextStage: EduCmsStage | null =
-                        p.stage === 'TD_MOI' ? 'TD_I' : p.stage === 'TD_I' ? 'TD_II' : null;
-                      return (
-                        <tr
-                          key={p.id}
-                          className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition"
-                        >
-                          <td className="py-3 px-4 font-extrabold text-slate-900 dark:text-white">
-                            {p.fullName}
-                          </td>
-                          <td className="py-3 px-4 font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
-                            {p.companyCode} • KV {p.areaCode}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                                p.stage === 'TD_II'
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
-                                  : p.stage === 'TD_I'
-                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
-                                  : 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300'
-                              }`}
-                            >
-                              {EDU_CMS_STAGE_LABELS[p.stage]}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 font-semibold text-slate-700 dark:text-slate-300">
-                            {p.ngvName || 'Chưa phân công'}
-                          </td>
-                          <td className="py-3 px-4 text-slate-500 dark:text-slate-400 max-w-[240px] truncate">
-                            {p.currentTopicTitle ? `[${p.currentTopicTitle}] ` : ''}
-                            {p.note || '—'}
-                          </td>
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5">
-                              {canEdit && nextStage && (
-                                <button
-                                  type="button"
-                                  onClick={() => handlePromoteStage(p, nextStage)}
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
-                                  title={`Chuyển lên ${EDU_CMS_STAGE_LABELS[nextStage]}`}
-                                >
-                                  <span>Lên {EDU_CMS_STAGE_LABELS[nextStage]}</span>
-                                  <ArrowRight className="w-3 h-3" />
-                                </button>
-                              )}
-                              {canEdit && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditModal(p)}
-                                    className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer"
-                                    title="Chỉnh sửa"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setConfirmDelete({
-                                        title: `Xóa hồ sơ "${p.fullName}" khỏi CMS?`,
-                                        onConfirm: () => onDeleteCmsProfile(p.id),
-                                      })
-                                    }
-                                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 cursor-pointer"
-                                    title="Xóa"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
+              <>
+                {/* Mobile Card List */}
+                <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredLearners.map((p) => {
+                    const canEdit = canModifyProfile(p);
+                    const nextStage: EduCmsStage | null =
+                      p.stage === 'TD_MOI' ? 'TD_I' : p.stage === 'TD_I' ? 'TD_II' : null;
+                    return (
+                      <div key={p.id} className="p-3.5 space-y-2 text-xs">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                              {p.fullName}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            <div className="text-[11px] font-bold text-blue-700 dark:text-blue-300">
+                              {p.companyCode} • KV {p.areaCode}
+                            </div>
+                          </div>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
+                              p.stage === 'TD_II'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+                                : p.stage === 'TD_I'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                                : 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300'
+                            }`}
+                          >
+                            {EDU_CMS_STAGE_LABELS[p.stage]}
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                          NGV phụ trách: <strong>{p.ngvName || 'Chưa phân công'}</strong>
+                        </div>
+                        {(p.currentTopicTitle || p.note) && (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {p.currentTopicTitle ? `[${p.currentTopicTitle}] ` : ''}
+                            {p.note || ''}
+                          </div>
+                        )}
+
+                        {canEdit && (
+                          <div className="flex items-center justify-end gap-1.5 pt-1">
+                            {nextStage && (
+                              <button
+                                type="button"
+                                onClick={() => handlePromoteStage(p, nextStage)}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>Lên {EDU_CMS_STAGE_LABELS[nextStage]}</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(p)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer"
+                              title="Chỉnh sửa"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmDelete({
+                                  title: `Xóa hồ sơ "${p.fullName}" khỏi CMS?`,
+                                  onConfirm: () => onDeleteCmsProfile(p.id),
+                                })
+                              }
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 cursor-pointer"
+                              title="Xóa"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">Tên TĐ</th>
+                        <th className="py-3 px-4">Khu vực</th>
+                        <th className="py-3 px-4">Giai đoạn</th>
+                        <th className="py-3 px-4">NGV phụ trách</th>
+                        <th className="py-3 px-4">Chủ đề / Ghi chú</th>
+                        <th className="py-3 px-4 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredLearners.map((p) => {
+                        const canEdit = canModifyProfile(p);
+                        const nextStage: EduCmsStage | null =
+                          p.stage === 'TD_MOI' ? 'TD_I' : p.stage === 'TD_I' ? 'TD_II' : null;
+                        return (
+                          <tr
+                            key={p.id}
+                            className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition"
+                          >
+                            <td className="py-3 px-4 font-extrabold text-slate-900 dark:text-white">
+                              {p.fullName}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                              {p.companyCode} • KV {p.areaCode}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                                  p.stage === 'TD_II'
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+                                    : p.stage === 'TD_I'
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                                    : 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300'
+                                }`}
+                              >
+                                {EDU_CMS_STAGE_LABELS[p.stage]}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 font-semibold text-slate-700 dark:text-slate-300">
+                              {p.ngvName || 'Chưa phân công'}
+                            </td>
+                            <td className="py-3 px-4 text-slate-500 dark:text-slate-400 max-w-[240px] truncate">
+                              {p.currentTopicTitle ? `[${p.currentTopicTitle}] ` : ''}
+                              {p.note || '—'}
+                            </td>
+                            <td className="py-3 px-4 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                {canEdit && nextStage && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePromoteStage(p, nextStage)}
+                                    className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                                    title={`Chuyển lên ${EDU_CMS_STAGE_LABELS[nextStage]}`}
+                                  >
+                                    <span>Lên {EDU_CMS_STAGE_LABELS[nextStage]}</span>
+                                    <ArrowRight className="w-3 h-3" />
+                                  </button>
+                                )}
+                                {canEdit && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditModal(p)}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer"
+                                      title="Chỉnh sửa"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setConfirmDelete({
+                                          title: `Xóa hồ sơ "${p.fullName}" khỏi CMS?`,
+                                          onConfirm: () => onDeleteCmsProfile(p.id),
+                                        })
+                                      }
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 cursor-pointer"
+                                      title="Xóa"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>

@@ -345,16 +345,41 @@ export interface BannerSlide {
   url: string;
 }
 
+export interface BannerVisibilityConfig {
+  showHighlight: boolean;
+  showDescription: boolean;
+  showActionStrip: boolean;
+  showRightCard: boolean;
+  showSlideControls: boolean;
+}
+
+export const DEFAULT_BANNER_VISIBILITY: BannerVisibilityConfig = {
+  showHighlight: true,
+  showDescription: false,
+  showActionStrip: true,
+  showRightCard: true,
+  showSlideControls: true,
+};
+
 export interface SystemBannerConfig {
   id?: string;
   mainTitle: string;
   highlightTitle: string;
   description: string;
   tagline: string;
+  actionStripLabel?: string;
+  visibility?: BannerVisibilityConfig;
   slides: BannerSlide[];
   autoSlideSeconds?: number;
   updatedAt?: string;
   updatedBy?: string;
+}
+
+export function formatCompanyDisplayName(name?: string | null, fallbackCode?: string): string {
+  const raw = (name || '').trim();
+  if (!raw) return fallbackCode || '';
+  const cleaned = raw.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  return cleaned || raw;
 }
 
 export interface FestivalEvent {
@@ -595,12 +620,29 @@ export const DEFAULT_HONORS_WIDGET_ORDER: HonorsWidgetId[] = [
   'NEWS',
 ];
 
+export interface HomeWidgetVisibilityConfig {
+  showHeaderBanner: boolean;
+  showQuickShortcuts: boolean;
+  showCheerTicker: boolean;
+  showProgressShowcase: boolean;
+  showFeatureCards: boolean;
+}
+
+export const DEFAULT_HOME_WIDGET_VISIBILITY: HomeWidgetVisibilityConfig = {
+  showHeaderBanner: true,
+  showQuickShortcuts: true,
+  showCheerTicker: true,
+  showProgressShowcase: true,
+  showFeatureCards: true,
+};
+
 export interface SystemAppearanceConfig {
   id?: string;
   fontKey: AppFontKey;
   fontScale: AppFontScale;
   widgetOrder: HonorsWidgetId[];
   hiddenWidgets: HonorsWidgetId[];
+  homeWidgets?: HomeWidgetVisibilityConfig;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -610,6 +652,7 @@ export const DEFAULT_APPEARANCE_CONFIG: SystemAppearanceConfig = {
   fontScale: 'MD',
   widgetOrder: [...DEFAULT_HONORS_WIDGET_ORDER],
   hiddenWidgets: [],
+  homeWidgets: { ...DEFAULT_HOME_WIDGET_VISIBILITY },
 };
 
 // ---------- Hệ thống Giáo dục: Edu (LMS & CMS) ----------

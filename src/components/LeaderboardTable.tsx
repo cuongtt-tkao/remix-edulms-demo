@@ -155,17 +155,17 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
         </div>
 
         {/* 3 Tab Vinh danh (Cá nhân, Khu vực, Công ty) */}
-        <div className="inline-flex p-1.5 bg-slate-100 dark:bg-slate-800/90 rounded-2xl text-xs font-bold self-start sm:self-auto gap-1">
+        <div className="grid grid-cols-3 sm:inline-flex p-1.5 bg-slate-100 dark:bg-slate-800/90 rounded-2xl text-[11px] sm:text-xs font-bold w-full sm:w-auto gap-1">
           <button
             onClick={() => setActiveTab('PERSON')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition cursor-pointer ${
+            className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-4 py-2 rounded-xl transition cursor-pointer ${
               activeTab === 'PERSON'
                 ? 'bg-blue-900 text-white shadow-sm'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-700/60'
             }`}
           >
-            <User className="w-3.5 h-3.5" />
-            <span>Vinh danh Cá nhân</span>
+            <User className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Cá nhân</span>
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'PERSON' ? 'bg-blue-800 text-blue-200' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
               {members.length}
             </span>
@@ -173,14 +173,14 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
 
           <button
             onClick={() => setActiveTab('AREA')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition cursor-pointer ${
+            className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-4 py-2 rounded-xl transition cursor-pointer ${
               activeTab === 'AREA'
                 ? 'bg-blue-900 text-white shadow-sm'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-700/60'
             }`}
           >
-            <MapPin className="w-3.5 h-3.5" />
-            <span>Vinh danh Khu vực</span>
+            <MapPin className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Khu vực</span>
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'AREA' ? 'bg-blue-800 text-blue-200' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
               {areaRankings.length}
             </span>
@@ -188,14 +188,14 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
 
           <button
             onClick={() => setActiveTab('COMPANY')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition cursor-pointer ${
+            className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-4 py-2 rounded-xl transition cursor-pointer ${
               activeTab === 'COMPANY'
                 ? 'bg-blue-900 text-white shadow-sm'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-700/60'
             }`}
           >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Vinh danh Công ty</span>
+            <Building2 className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Công ty</span>
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'COMPANY' ? 'bg-blue-800 text-blue-200' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
               {companyRankings.length}
             </span>
@@ -264,71 +264,112 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
         </div>
       </div>
 
-      {/* VIEW 1: CÁ NHÂN TABLE */}
+      {/* VIEW 1: CÁ NHÂN */}
       {activeTab === 'PERSON' && (
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="text-xs uppercase text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
-                <th className="py-3 px-3 w-16 text-center">Hạng</th>
-                <th className="py-3 px-3">Họ và tên</th>
-                <th className="py-3 px-3">Công ty</th>
-                <th className="py-3 px-3">Khu vực</th>
-                <th className="py-3 px-3">Ban ngành</th>
-                <th className="py-3 px-3 text-center">Số đối tượng</th>
-                <th className="py-3 px-3 text-right">Tổng điểm</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/60">
-              {visibleMembers.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                    Không tìm thấy thành viên nào phù hợp bộ lọc.
-                  </td>
-                </tr>
-              ) : (
-                visibleMembers.map((mem) => (
-                  <tr
-                    key={mem.id}
-                    onClick={() => onSelectMember(mem)}
-                    className="hover:bg-blue-50/80 dark:hover:bg-slate-800/90 transition-all duration-150 cursor-pointer group"
-                  >
-                    <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                      {renderRankBadge(mem.rank || 1)}
-                    </td>
-                    <td className="py-3.5 px-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xs font-black shadow-2xs shrink-0 group-hover:scale-105 transition-transform">
-                          <User className="w-4 h-4 text-white" />
-                        </div>
-                        <div>
-                          <div className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
-                            {mem.fullName}
-                          </div>
-                          <div className="text-[10px] text-slate-400 font-mono">{mem.code}</div>
-                        </div>
+        <div className="mt-4">
+          {/* Mobile Card List */}
+          <div className="md:hidden space-y-2.5">
+            {visibleMembers.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs">
+                Không tìm thấy thành viên nào phù hợp bộ lọc.
+              </div>
+            ) : (
+              visibleMembers.map((mem) => (
+                <button
+                  key={mem.id}
+                  type="button"
+                  onClick={() => onSelectMember(mem)}
+                  className="w-full text-left p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 hover:bg-blue-50/70 dark:hover:bg-slate-800 transition flex items-center justify-between gap-2.5 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {renderRankBadge(mem.rank || 1)}
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                        {mem.fullName}
                       </div>
-                    </td>
-                    <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.companyCode}</td>
-                    <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.areaCode}</td>
-                    <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 text-xs">{mem.departmentCode}</td>
-                    <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">
-                      {mem.targets?.length || 0}
-                    </td>
-                    <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white tabular-nums">
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        {mem.companyCode} • KV {mem.areaCode} • {mem.departmentCode}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-black text-sm text-blue-700 dark:text-blue-300 tabular-nums">
                       {formatNumber(mem.score)} đ
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {mem.targets?.length || 0} mục tiêu
+                    </div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                  <th className="py-3 px-3 w-16 text-center">Hạng</th>
+                  <th className="py-3 px-3">Họ và tên</th>
+                  <th className="py-3 px-3">Công ty</th>
+                  <th className="py-3 px-3">Khu vực</th>
+                  <th className="py-3 px-3">Ban ngành</th>
+                  <th className="py-3 px-3 text-center">Số đối tượng</th>
+                  <th className="py-3 px-3 text-right">Tổng điểm</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-800/60">
+                {visibleMembers.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
+                      Không tìm thấy thành viên nào phù hợp bộ lọc.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  visibleMembers.map((mem) => (
+                    <tr
+                      key={mem.id}
+                      onClick={() => onSelectMember(mem)}
+                      className="hover:bg-blue-50/80 dark:hover:bg-slate-800/90 transition-all duration-150 cursor-pointer group"
+                    >
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                        {renderRankBadge(mem.rank || 1)}
+                      </td>
+                      <td className="py-3.5 px-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xs font-black shadow-2xs shrink-0 group-hover:scale-105 transition-transform">
+                            <User className="w-4 h-4 text-white" />
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
+                              {mem.fullName}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">{mem.code}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.companyCode}</td>
+                      <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.areaCode}</td>
+                      <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 text-xs">{mem.departmentCode}</td>
+                      <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">
+                        {mem.targets?.length || 0}
+                      </td>
+                      <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white tabular-nums">
+                        {formatNumber(mem.score)} đ
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
 
           {filteredMembers.length > displayCount && (
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
               <button
                 onClick={() => setDisplayCount((prev) => prev + 10)}
-                className="font-bold text-blue-700 hover:underline"
+                className="font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
               >
                 Xem thêm 10 thành viên khác →
               </button>
@@ -340,93 +381,157 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
         </div>
       )}
 
-      {/* VIEW 2: KHU VỰC TABLE */}
+      {/* VIEW 2: KHU VỰC */}
       {activeTab === 'AREA' && (
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="text-xs uppercase text-slate-400 border-b border-slate-100">
-                <th className="py-3 px-3 w-16 text-center">Hạng</th>
-                <th className="py-3 px-3">Khu vực</th>
-                <th className="py-3 px-3">Trực thuộc Cty</th>
-                <th className="py-3 px-3 text-center">Số thành viên hoạt động</th>
-                <th className="py-3 px-3 text-right">Tổng điểm khu vực</th>
-                <th className="py-3 px-3 text-right font-bold text-blue-900">Điểm TB/Thành viên</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filteredAreas.map((area, idx) => (
-                <tr
-                  key={`${area.companyCode}_${area.areaCode}_${idx}`}
-                  onClick={() => onSelectAreaCode(area.areaCode)}
-                  className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                >
-                  <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                    {renderRankBadge(area.rank)}
-                  </td>
-                  <td className="py-3.5 px-3">
-                    <div className="flex items-center gap-2">
+        <div className="mt-4">
+          <div className="md:hidden space-y-2.5">
+            {filteredAreas.map((area, idx) => (
+              <button
+                key={`${area.companyCode}_${area.areaCode}_${idx}`}
+                type="button"
+                onClick={() => onSelectAreaCode(area.areaCode)}
+                className="w-full text-left p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 hover:bg-blue-50/70 dark:hover:bg-slate-800 transition flex items-center justify-between gap-2.5 cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {renderRankBadge(area.rank)}
+                  <div className="min-w-0">
+                    <div className="font-bold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5">
                       <span
-                        className="w-3 h-3 rounded-full shrink-0"
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: area.color || '#3b82f6' }}
                       />
-                      <span className="font-bold text-slate-900 group-hover:text-blue-700 transition">
-                        {area.areaName} ({area.areaCode})
-                      </span>
+                      <span className="truncate">{area.areaName} ({area.areaCode})</span>
                     </div>
-                  </td>
-                  <td className="py-3.5 px-3 font-semibold text-slate-700">{area.companyCode}</td>
-                  <td className="py-3.5 px-3 text-center font-bold text-slate-700">
-                    {area.activeMembersCount} người
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-semibold text-slate-600 tabular-nums">
-                    {formatNumber(area.totalScore)} đ
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-black text-blue-800 text-base tabular-nums">
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {area.companyCode} • {area.activeMembersCount} thành viên • Tổng {formatNumber(area.totalScore)} đ
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-black text-sm text-blue-700 dark:text-blue-300 tabular-nums">
                     {formatNumber(area.averageScore)} đ
-                  </td>
+                  </div>
+                  <div className="text-[10px] text-slate-400">TB/người</div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                  <th className="py-3 px-3 w-16 text-center">Hạng</th>
+                  <th className="py-3 px-3">Khu vực</th>
+                  <th className="py-3 px-3">Trực thuộc Cty</th>
+                  <th className="py-3 px-3 text-center">Số thành viên hoạt động</th>
+                  <th className="py-3 px-3 text-right">Tổng điểm khu vực</th>
+                  <th className="py-3 px-3 text-right font-bold text-blue-900 dark:text-blue-300">Điểm TB/Thành viên</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-800/60">
+                {filteredAreas.map((area, idx) => (
+                  <tr
+                    key={`${area.companyCode}_${area.areaCode}_${idx}`}
+                    onClick={() => onSelectAreaCode(area.areaCode)}
+                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/70 transition-colors cursor-pointer group"
+                  >
+                    <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                      {renderRankBadge(area.rank)}
+                    </td>
+                    <td className="py-3.5 px-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: area.color || '#3b82f6' }}
+                        />
+                        <span className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-400 transition">
+                          {area.areaName} ({area.areaCode})
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{area.companyCode}</td>
+                    <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">
+                      {area.activeMembersCount} người
+                    </td>
+                    <td className="py-3.5 px-3 text-right font-semibold text-slate-600 dark:text-slate-400 tabular-nums">
+                      {formatNumber(area.totalScore)} đ
+                    </td>
+                    <td className="py-3.5 px-3 text-right font-black text-blue-800 dark:text-blue-300 text-base tabular-nums">
+                      {formatNumber(area.averageScore)} đ
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* VIEW 3: CÔNG TY TABLE */}
+      {/* VIEW 3: CÔNG TY */}
       {activeTab === 'COMPANY' && (
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="text-xs uppercase text-slate-400 border-b border-slate-100">
-                <th className="py-3 px-3 w-16 text-center">Hạng</th>
-                <th className="py-3 px-3">Mã Cty</th>
-                <th className="py-3 px-3">Tên Công ty</th>
-                <th className="py-3 px-3 text-center">Số thành viên hoạt động</th>
-                <th className="py-3 px-3 text-right">Tổng điểm tích lũy</th>
-                <th className="py-3 px-3 text-right font-bold text-blue-900">Điểm TB/Thành viên</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filteredCompanies.map((comp, idx) => (
-                <tr key={`${comp.companyCode}_${idx}`} className="hover:bg-slate-50/80 transition-colors group">
-                  <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                    {renderRankBadge(comp.rank)}
-                  </td>
-                  <td className="py-3.5 px-3 font-black text-blue-700">{comp.companyCode}</td>
-                  <td className="py-3.5 px-3 font-bold text-slate-900">{comp.companyName}</td>
-                  <td className="py-3.5 px-3 text-center font-bold text-slate-700">
-                    {comp.activeMembersCount} người
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-semibold text-slate-600 tabular-nums">
-                    {formatNumber(comp.totalScore)} đ
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-black text-blue-800 text-base tabular-nums">
+        <div className="mt-4">
+          <div className="md:hidden space-y-2.5">
+            {filteredCompanies.map((comp, idx) => (
+              <div
+                key={`${comp.companyCode}_${idx}`}
+                className="p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 flex items-center justify-between gap-2.5"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {renderRankBadge(comp.rank)}
+                  <div className="min-w-0">
+                    <div className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                      {comp.companyName} <span className="text-blue-600 dark:text-blue-400">({comp.companyCode})</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {comp.activeMembersCount} thành viên • Tổng {formatNumber(comp.totalScore)} đ
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-black text-sm text-blue-700 dark:text-blue-300 tabular-nums">
                     {formatNumber(comp.averageScore)} đ
-                  </td>
+                  </div>
+                  <div className="text-[10px] text-slate-400">TB/người</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                  <th className="py-3 px-3 w-16 text-center">Hạng</th>
+                  <th className="py-3 px-3">Mã Cty</th>
+                  <th className="py-3 px-3">Tên Công ty</th>
+                  <th className="py-3 px-3 text-center">Số thành viên hoạt động</th>
+                  <th className="py-3 px-3 text-right">Tổng điểm tích lũy</th>
+                  <th className="py-3 px-3 text-right font-bold text-blue-900 dark:text-blue-300">Điểm TB/Thành viên</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-800/60">
+                {filteredCompanies.map((comp, idx) => (
+                  <tr key={`${comp.companyCode}_${idx}`} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/70 transition-colors group">
+                    <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                      {renderRankBadge(comp.rank)}
+                    </td>
+                    <td className="py-3.5 px-3 font-black text-blue-700 dark:text-blue-300">{comp.companyCode}</td>
+                    <td className="py-3.5 px-3 font-bold text-slate-900 dark:text-slate-100">{comp.companyName}</td>
+                    <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">
+                      {comp.activeMembersCount} người
+                    </td>
+                    <td className="py-3.5 px-3 text-right font-semibold text-slate-600 dark:text-slate-400 tabular-nums">
+                      {formatNumber(comp.totalScore)} đ
+                    </td>
+                    <td className="py-3.5 px-3 text-right font-black text-blue-800 dark:text-blue-300 text-base tabular-nums">
+                      {formatNumber(comp.averageScore)} đ
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

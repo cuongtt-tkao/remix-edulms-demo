@@ -718,105 +718,202 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                       <strong>“Gán Tên KV &amp; TĐ”</strong> để đăng ký tham gia.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200/80 dark:border-slate-800">
-                          <tr>
-                            <th className="py-2.5 px-3">Tên KV</th>
-                            <th className="py-2.5 px-3">Tên TĐ</th>
-                            <th className="py-2.5 px-3">Tên Chủ đề</th>
-                            <th className="py-2.5 px-3">Trạng thái</th>
-                            <th className="py-2.5 px-3">Ghi chú</th>
-                            <th className="py-2.5 px-3 text-right">Thao tác</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {topicAssigns.map((a) => {
-                            const canEdit = canModifyAssignment(a);
-                            return (
-                              <tr
-                                key={a.id}
-                                className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition"
-                              >
-                                <td className="py-2.5 px-3 font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
-                                  {a.companyCode} • KV {a.areaCode}
-                                </td>
-                                <td className="py-2.5 px-3 font-extrabold text-slate-900 dark:text-white">
-                                  {a.studentName}
-                                </td>
-                                <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
-                                  {topic.topicTitle}
-                                </td>
-                                <td className="py-2.5 px-3">
-                                  {canEdit ? (
-                                    <select
-                                      value={a.status}
-                                      onChange={(e) =>
-                                        handleQuickStatusChange(
-                                          topic,
-                                          a,
-                                          e.target.value as EduAssignmentStatus
-                                        )
+                    <div className="space-y-2.5">
+                      {/* Mobile Cards */}
+                      <div className="md:hidden space-y-2.5">
+                        {topicAssigns.map((a) => {
+                          const canEdit = canModifyAssignment(a);
+                          return (
+                            <div
+                              key={a.id}
+                              className="p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 space-y-2 text-xs"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="font-extrabold text-slate-900 dark:text-white truncate">
+                                    {a.studentName}
+                                  </div>
+                                  <div className="text-[11px] font-bold text-blue-700 dark:text-blue-300">
+                                    {a.companyCode} • KV {a.areaCode}
+                                  </div>
+                                </div>
+                                {canEdit && (
+                                  <div className="inline-flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => openAssignModal(topic, a)}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer"
+                                      title="Chỉnh sửa"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setConfirmDelete({
+                                          title: `Gỡ "${a.studentName}" (KV ${a.areaCode}) khỏi chủ đề này?`,
+                                          onConfirm: () => onDeleteAssignment(a.id),
+                                        })
                                       }
-                                      className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-bold text-slate-800 dark:text-slate-100"
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 cursor-pointer"
+                                      title="Xóa"
                                     >
-                                      {(['REGISTERED', 'IN_PROGRESS', 'COMPLETED'] as EduAssignmentStatus[]).map(
-                                        (st) => (
-                                          <option key={st} value={st}>
-                                            {EDU_ASSIGNMENT_STATUS_LABELS[st]}
-                                          </option>
-                                        )
-                                      )}
-                                    </select>
-                                  ) : (
-                                    <span
-                                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                        a.status === 'COMPLETED'
-                                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
-                                          : a.status === 'IN_PROGRESS'
-                                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
-                                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                                      }`}
-                                    >
-                                      {EDU_ASSIGNMENT_STATUS_LABELS[a.status]}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400 max-w-[220px] truncate">
-                                  {a.note || '—'}
-                                </td>
-                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                                  {canEdit && (
-                                    <div className="inline-flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => openAssignModal(topic, a)}
-                                        className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer"
-                                        title="Chỉnh sửa"
-                                      >
-                                        <Pencil className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setConfirmDelete({
-                                            title: `Gỡ "${a.studentName}" (KV ${a.areaCode}) khỏi chủ đề này?`,
-                                            onConfirm: () => onDeleteAssignment(a.id),
-                                          })
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                                Chủ đề: <span className="font-semibold">{topic.topicTitle}</span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                {canEdit ? (
+                                  <select
+                                    value={a.status}
+                                    onChange={(e) =>
+                                      handleQuickStatusChange(
+                                        topic,
+                                        a,
+                                        e.target.value as EduAssignmentStatus
+                                      )
+                                    }
+                                    className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-bold text-slate-800 dark:text-slate-100"
+                                  >
+                                    {(['REGISTERED', 'IN_PROGRESS', 'COMPLETED'] as EduAssignmentStatus[]).map(
+                                      (st) => (
+                                        <option key={st} value={st}>
+                                          {EDU_ASSIGNMENT_STATUS_LABELS[st]}
+                                        </option>
+                                      )
+                                    )}
+                                  </select>
+                                ) : (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      a.status === 'COMPLETED'
+                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                                        : a.status === 'IN_PROGRESS'
+                                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+                                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    {EDU_ASSIGNMENT_STATUS_LABELS[a.status]}
+                                  </span>
+                                )}
+                                {a.note && (
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
+                                    {a.note}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Desktop Table */}
+                      <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200/80 dark:border-slate-800">
+                            <tr>
+                              <th className="py-2.5 px-3">Tên KV</th>
+                              <th className="py-2.5 px-3">Tên TĐ</th>
+                              <th className="py-2.5 px-3">Tên Chủ đề</th>
+                              <th className="py-2.5 px-3">Trạng thái</th>
+                              <th className="py-2.5 px-3">Ghi chú</th>
+                              <th className="py-2.5 px-3 text-right">Thao tác</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {topicAssigns.map((a) => {
+                              const canEdit = canModifyAssignment(a);
+                              return (
+                                <tr
+                                  key={a.id}
+                                  className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition"
+                                >
+                                  <td className="py-2.5 px-3 font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                                    {a.companyCode} • KV {a.areaCode}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-extrabold text-slate-900 dark:text-white">
+                                    {a.studentName}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                                    {topic.topicTitle}
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    {canEdit ? (
+                                      <select
+                                        value={a.status}
+                                        onChange={(e) =>
+                                          handleQuickStatusChange(
+                                            topic,
+                                            a,
+                                            e.target.value as EduAssignmentStatus
+                                          )
                                         }
-                                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 cursor-pointer"
-                                        title="Xóa"
+                                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-bold text-slate-800 dark:text-slate-100"
                                       >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                                        {(['REGISTERED', 'IN_PROGRESS', 'COMPLETED'] as EduAssignmentStatus[]).map(
+                                          (st) => (
+                                            <option key={st} value={st}>
+                                              {EDU_ASSIGNMENT_STATUS_LABELS[st]}
+                                            </option>
+                                          )
+                                        )}
+                                      </select>
+                                    ) : (
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                          a.status === 'COMPLETED'
+                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                                            : a.status === 'IN_PROGRESS'
+                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+                                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                                        }`}
+                                      >
+                                        {EDU_ASSIGNMENT_STATUS_LABELS[a.status]}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400 max-w-[220px] truncate">
+                                    {a.note || '—'}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                    {canEdit && (
+                                      <div className="inline-flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => openAssignModal(topic, a)}
+                                          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer"
+                                          title="Chỉnh sửa"
+                                        >
+                                          <Pencil className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setConfirmDelete({
+                                              title: `Gỡ "${a.studentName}" (KV ${a.areaCode}) khỏi chủ đề này?`,
+                                              onConfirm: () => onDeleteAssignment(a.id),
+                                            })
+                                          }
+                                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 cursor-pointer"
+                                          title="Xóa"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </div>

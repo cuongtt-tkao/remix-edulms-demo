@@ -17,7 +17,7 @@ import {
   ExternalLink,
   Loader2,
 } from 'lucide-react';
-import { Company, Area, Department } from '../types/edulms';
+import { Company, Area, Department, formatCompanyDisplayName } from '../types/edulms';
 import { signInWithGoogle, signInWithEmail, sendResetPasswordEmail, describeAuthError } from '../firebase';
 
 export interface RegistrationData {
@@ -439,7 +439,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
                 >
                   {companies.map((c) => (
-                    <option key={c.code} value={c.code}>{c.name}</option>
+                    <option key={c.code} value={c.code}>
+                      {formatCompanyDisplayName(c.name, c.code)}
+                    </option>
                   ))}
                 </select>
               </div>

@@ -62,7 +62,7 @@ import {
   testFirestoreConnection,
 } from './utils/firestoreError';
 
-import { TopHeader, SideNavigation, AppTab } from './components/Navbar';
+import { TopHeader, SideNavigation, MobileBottomNav, AppTab } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { KpiCards } from './components/KpiCards';
 import { LeaderboardTable } from './components/LeaderboardTable';
@@ -373,7 +373,7 @@ export default function App() {
   const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
 
   // Navigation & Sidebar states
-  const [activeTab, setActiveTab] = useState<AppTab>('HONORS');
+  const [activeTab, setActiveTab] = useState<AppTab>('ENTRY');
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState<boolean>(true);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
@@ -1613,7 +1613,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#f3f6fb] dark:bg-[#0b1120] text-slate-800 dark:text-slate-100 antialiased selection:bg-amber-200 selection:text-amber-900 transition-colors duration-300">
       {/* Toast Notification */}
       {notification && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+        <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
           <span>{notification}</span>
         </div>
@@ -1628,7 +1628,7 @@ export default function App() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
-        onNavigateHome={() => setActiveTab(currentUser ? 'ENTRY' : 'HONORS')}
+        onNavigateHome={() => setActiveTab('ENTRY')}
       />
 
       {/* Shell: Vertical Left Sidebar (3 Mục Chính) + Main Workspace */}
@@ -1664,7 +1664,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: BÁO CÁO HẰNG NGÀY (Trang mặc định sau khi đăng nhập) */}
+          {/* TAB: BÁO CÁO HẰNG NGÀY (Trang chủ mặc định) */}
           {activeTab === 'ENTRY' && (
             <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
               <DailyReportSection
@@ -1674,6 +1674,10 @@ export default function App() {
                 periodGoals={periodGoals}
                 activeEvent={activeEvent}
                 defaultWeights={effectiveDefaultWeights}
+                appearanceConfig={appearanceConfig}
+                huongKhiList={huongKhiView}
+                onReactHuongKhi={handleReactHuongKhi}
+                onNavigateTab={setActiveTab}
                 onSaveDailyReport={handleSaveDailyReport}
                 onSavePeriodGoal={handleSavePeriodGoal}
                 onOpenAuthModal={() => setIsAuthModalOpen(true)}
@@ -1683,7 +1687,7 @@ export default function App() {
             </main>
           )}
 
-          {/* TAB: BẢNG VINH DANH & SỰ KIỆN (Hỗ trợ bố cục Widget tùy biến từ Admin) */}
+          {/* TAB: BẢNG VINH DANH & SỰ KIỆN (Hỗ trợ bố cục Widget 1→8 tùy biến từ Admin) */}
           {activeTab === 'HONORS' && (() => {
             const orderedIds: HonorsWidgetId[] = [
               ...(appearanceConfig?.widgetOrder || DEFAULT_HONORS_WIDGET_ORDER).filter((id) =>
@@ -1697,10 +1701,32 @@ export default function App() {
             const visibleOrdered = orderedIds.filter((id) => !hiddenSet.has(id));
             const fullIds: HonorsWidgetId[] = ['BANNER', 'KPI', 'EVENTS_STRIP'];
             const mainIds: HonorsWidgetId[] = ['LEADERBOARD', 'NEWS'];
-            const sideIds: HonorsWidgetId[] = ['PODIUM', 'REGIONAL', 'QUICK_ACTIONS'];
 
-            const orderedMain = visibleOrdered.filter((id) => mainIds.includes(id));
-            const orderedSide = visibleOrdered.filter((id) => sideIds.includes(id));
+            type HonorsRowBatch =
+              | { kind: 'FULL'; id: HonorsWidgetId; overlapBanner: boolean }
+              | { kind: 'COLUMNS'; items: HonorsWidgetId[] };
+
+            const batches: HonorsRowBatch[] = [];
+            let columnBuffer: HonorsWidgetId[] = [];
+
+            visibleOrdered.forEach((id, idx) => {
+              if (fullIds.includes(id)) {
+                if (columnBuffer.length > 0) {
+                  batches.push({ kind: 'COLUMNS', items: columnBuffer });
+                  columnBuffer = [];
+                }
+                batches.push({
+                  kind: 'FULL',
+                  id,
+                  overlapBanner: id === 'KPI' && idx > 0 && visibleOrdered[idx - 1] === 'BANNER',
+                });
+              } else {
+                columnBuffer.push(id);
+              }
+            });
+            if (columnBuffer.length > 0) {
+              batches.push({ kind: 'COLUMNS', items: columnBuffer });
+            }
 
             const renderEventsStrip = () =>
               sortedEvents.length > 0 ? (
@@ -1767,7 +1793,7 @@ export default function App() {
                 </div>
               ) : null;
 
-            const renderWidgetById = (wId: HonorsWidgetId) => {
+            const renderWidgetById = (wId: HonorsWidgetId, overlapBanner = false) => {
               switch (wId) {
                 case 'BANNER':
                   return (
@@ -1779,12 +1805,12 @@ export default function App() {
                     />
                   );
                 case 'KPI':
-                  return <KpiCards key="KPI" kpi={kpiData} />;
+                  return <KpiCards key="KPI" kpi={kpiData} overlapBanner={overlapBanner} />;
                 case 'EVENTS_STRIP':
                   return (
                     <div
                       key="EVENTS_STRIP"
-                      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-6"
+                      className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full mt-6"
                     >
                       {renderEventsStrip()}
                     </div>
@@ -1877,7 +1903,7 @@ export default function App() {
             return (
               <div className="flex-1 pb-16">
                 {isAdminUser && (
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pt-3 flex justify-end">
+                  <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full pt-3 flex justify-end">
                     <button
                       type="button"
                       onClick={() => setActiveTab('ADMIN')}
@@ -1889,27 +1915,85 @@ export default function App() {
                   </div>
                 )}
 
-                {visibleOrdered.filter((id) => fullIds.includes(id)).map((wId) => renderWidgetById(wId))}
-
-                {(orderedMain.length > 0 || orderedSide.length > 0) && (
-                  <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-8 sm:mt-10">
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                      {orderedSide.length > 0 && (
-                        <div className="order-1 lg:order-2 lg:col-span-4 space-y-6">
-                          {orderedSide.map((wId) => renderWidgetById(wId))}
-                        </div>
-                      )}
-                      {orderedMain.length > 0 && (
-                        <div
-                          className={`order-2 lg:order-1 space-y-6 ${
-                            orderedSide.length > 0 ? 'lg:col-span-8' : 'lg:col-span-12'
-                          }`}
+                {visibleOrdered.length === 0 ? (
+                  <div className="max-w-xl mx-auto px-4 py-14 text-center">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                      <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+                        Các khối trên Bảng Vinh danh đang tạm ẩn
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Quản trị viên có thể bật lại các widget hiển thị trong mục Quản trị → Giao diện.
+                      </p>
+                      <div className="flex items-center justify-center gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('ENTRY')}
+                          className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer"
                         >
-                          {orderedMain.map((wId) => renderWidgetById(wId))}
-                        </div>
-                      )}
+                          Về Báo cáo hằng ngày
+                        </button>
+                        {isAdminUser && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('ADMIN')}
+                            className="px-4 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-bold cursor-pointer"
+                          >
+                            Mở Tùy chỉnh Widget
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </main>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {batches.map((batch, batchIdx) => {
+                      if (batch.kind === 'FULL') {
+                        return (
+                          <React.Fragment key={`${batch.id}_${batchIdx}`}>
+                            {renderWidgetById(batch.id, batch.overlapBanner)}
+                          </React.Fragment>
+                        );
+                      }
+
+                      const mainInBatch = batch.items.filter((id) => mainIds.includes(id));
+                      const sideInBatch = batch.items.filter((id) => !mainIds.includes(id));
+                      const firstIsSide = !mainIds.includes(batch.items[0]);
+
+                      return (
+                        <main
+                          key={`batch_${batchIdx}`}
+                          className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full"
+                        >
+                          {mainInBatch.length > 0 && sideInBatch.length > 0 ? (
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                              <div
+                                className={`lg:col-span-8 space-y-6 ${
+                                  firstIsSide ? 'order-2 lg:order-1' : 'order-1'
+                                }`}
+                              >
+                                {mainInBatch.map((wId) => renderWidgetById(wId))}
+                              </div>
+                              <div
+                                className={`lg:col-span-4 space-y-6 ${
+                                  firstIsSide ? 'order-1 lg:order-2' : 'order-2'
+                                }`}
+                              >
+                                {sideInBatch.map((wId) => renderWidgetById(wId))}
+                              </div>
+                            </div>
+                          ) : mainInBatch.length > 0 ? (
+                            <div className="space-y-6">
+                              {mainInBatch.map((wId) => renderWidgetById(wId))}
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+                              {sideInBatch.map((wId) => renderWidgetById(wId))}
+                            </div>
+                          )}
+                        </main>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             );
@@ -2155,6 +2239,12 @@ export default function App() {
         onClose={() => setIsRulesModalOpen(false)}
         activeEvent={activeEvent}
         defaultWeights={effectiveDefaultWeights}
+      />
+
+      <MobileBottomNav
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
       />
     </div>
   );

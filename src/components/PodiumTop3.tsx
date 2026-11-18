@@ -63,45 +63,47 @@ export const PodiumTop3: React.FC<PodiumTop3Props> = ({
   if (!top1) return null;
 
   return (
-    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 relative overflow-hidden">
-      
+    <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/80 dark:border-slate-800 relative overflow-hidden">
       {/* Header with Title and 3 Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          <Crown className="w-5 h-5 text-amber-500 fill-amber-500" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Crown className="w-5 h-5 text-amber-500 fill-amber-500 shrink-0" />
           <span>Vinh danh Top 3 Xuất Sắc</span>
         </h3>
 
         {/* 3 Tabs: Top 3 Cá nhân, Top 3 Khu vực, Top 3 Công ty */}
-        <div className="inline-flex p-1 bg-slate-100 rounded-xl text-[11px] font-bold">
+        <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-[11px] font-bold self-start sm:self-auto">
           <button
+            type="button"
             onClick={() => setActivePodiumTab('PERSON')}
-            className={`px-2.5 py-1 rounded-lg transition ${
+            className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
               activePodiumTab === 'PERSON'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-900 dark:bg-blue-700 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             Cá nhân
           </button>
 
           <button
+            type="button"
             onClick={() => setActivePodiumTab('AREA')}
-            className={`px-2.5 py-1 rounded-lg transition ${
+            className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
               activePodiumTab === 'AREA'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-900 dark:bg-blue-700 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             Khu vực
           </button>
 
           <button
+            type="button"
             onClick={() => setActivePodiumTab('COMPANY')}
-            className={`px-2.5 py-1 rounded-lg transition ${
+            className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
               activePodiumTab === 'COMPANY'
-                ? 'bg-blue-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-900 dark:bg-blue-700 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             Công ty
@@ -110,7 +112,7 @@ export const PodiumTop3: React.FC<PodiumTop3Props> = ({
       </div>
 
       {/* Subtitle note on calculation */}
-      <div className="text-[11px] text-slate-400 mb-4">
+      <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-4">
         {activePodiumTab === 'PERSON' && 'Xếp hạng theo tổng điểm cá nhân tích lũy'}
         {activePodiumTab === 'AREA' && 'Xếp hạng theo điểm trung bình mỗi thành viên khu vực'}
         {activePodiumTab === 'COMPANY' && 'Xếp hạng theo điểm trung bình mỗi thành viên công ty'}
@@ -140,13 +142,13 @@ export const PodiumTop3: React.FC<PodiumTop3Props> = ({
             </div>
 
             <div className="w-full text-center">
-              <div className="font-extrabold text-xs text-slate-900 truncate group-hover:text-blue-700 transition">
+              <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
                 {top2.name}
               </div>
-              <div className="text-[10px] text-slate-500 truncate mt-0.5">
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
                 {top2.sub}
               </div>
-              <div className="mt-1.5 inline-block text-[11px] font-black text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full">
+              <div className="mt-1.5 inline-block text-[11px] font-black text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-full tabular-nums">
                 {formatNumber(top2.score)} {unitLabel}
               </div>
             </div>
@@ -176,13 +178,13 @@ export const PodiumTop3: React.FC<PodiumTop3Props> = ({
             </div>
 
             <div className="w-full text-center">
-              <div className="font-black text-sm text-slate-900 truncate group-hover:text-amber-600 transition">
+              <div className="font-black text-sm text-slate-900 dark:text-white truncate group-hover:text-amber-500 transition">
                 {top1.name}
               </div>
-              <div className="text-xs text-slate-500 truncate mt-0.5">
+              <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                 {top1.sub}
               </div>
-              <div className="mt-2 inline-block text-xs font-black text-amber-900 bg-gradient-to-r from-amber-100 to-amber-200 px-3 py-1 rounded-full border border-amber-300/80 shadow-xs">
+              <div className="mt-2 inline-block text-xs font-black text-amber-900 dark:text-amber-200 bg-gradient-to-r from-amber-100 to-amber-200 dark:from-amber-950/70 dark:to-amber-900/60 px-3 py-1 rounded-full border border-amber-300/80 dark:border-amber-700/80 shadow-xs tabular-nums">
                 {formatNumber(top1.score)} {unitLabel}
               </div>
             </div>
@@ -204,20 +206,20 @@ export const PodiumTop3: React.FC<PodiumTop3Props> = ({
                 <div className="w-11 h-11 rounded-full bg-gradient-to-b from-amber-600 to-amber-800 flex items-center justify-center text-white font-extrabold text-lg shadow-inner">
                   3
                 </div>
-                <div className="absolute -top-3 text-amber-700">
+                <div className="absolute -top-3 text-amber-700 dark:text-amber-400">
                   <Crown className="w-4 h-4" />
                 </div>
               </div>
             </div>
 
             <div className="w-full text-center">
-              <div className="font-extrabold text-xs text-slate-900 truncate group-hover:text-orange-700 transition">
+              <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate group-hover:text-orange-600 dark:group-hover:text-orange-400 transition">
                 {top3.name}
               </div>
-              <div className="text-[10px] text-slate-500 truncate mt-0.5">
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
                 {top3.sub}
               </div>
-              <div className="mt-1.5 inline-block text-[11px] font-black text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200/50">
+              <div className="mt-1.5 inline-block text-[11px] font-black text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full border border-amber-200/50 dark:border-amber-800/60 tabular-nums">
                 {formatNumber(top3.score)} {unitLabel}
               </div>
             </div>
