@@ -1975,7 +1975,7 @@ export default function App() {
 
           {/* TAB: BÁO CÁO HẰNG NGÀY (Trang chủ mặc định) */}
           {activeTab === 'ENTRY' && (
-            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               <DailyReportSection
                 currentUser={effectiveCurrentUser}
                 currentMember={currentMemberData}
@@ -2212,13 +2212,13 @@ export default function App() {
             };
 
             return (
-              <div className="flex-1 pb-16">
+              <div className="flex-1 pb-8 sm:pb-12">
                 {isAdminUser && (
-                  <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full pt-3 flex justify-end">
+                  <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full pt-2 flex justify-end">
                     <button
                       type="button"
                       onClick={() => setActiveTab('ADMIN')}
-                      className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-800 flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] sm:text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-800 flex items-center gap-1.5 shadow-2xs cursor-pointer"
                     >
                       <Sliders className="w-3.5 h-3.5" />
                       <span>Tùy chỉnh Font &amp; Sắp xếp Widget</span>
@@ -2227,8 +2227,8 @@ export default function App() {
                 )}
 
                 {visibleOrdered.length === 0 ? (
-                  <div className="max-w-xl mx-auto px-4 py-14 text-center">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                  <div className="max-w-xl mx-auto px-4 py-10 text-center">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
                       <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
                         Các khối trên Bảng Vinh danh đang tạm ẩn
                       </h3>
@@ -2256,7 +2256,7 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-6">
+                  <div className="space-y-3 sm:space-y-5">
                     {batches.map((batch, batchIdx) => {
                       if (batch.kind === 'FULL') {
                         return (
@@ -2273,19 +2273,19 @@ export default function App() {
                       return (
                         <main
                           key={`batch_${batchIdx}`}
-                          className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full"
+                          className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full"
                         >
                           {mainInBatch.length > 0 && sideInBatch.length > 0 ? (
-                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 items-start">
                               <div
-                                className={`lg:col-span-8 space-y-6 ${
+                                className={`lg:col-span-8 space-y-3 sm:space-y-5 ${
                                   firstIsSide ? 'order-2 lg:order-1' : 'order-1'
                                 }`}
                               >
                                 {mainInBatch.map((wId) => renderWidgetById(wId))}
                               </div>
                               <div
-                                className={`lg:col-span-4 space-y-6 ${
+                                className={`lg:col-span-4 space-y-3 sm:space-y-5 ${
                                   firstIsSide ? 'order-1 lg:order-2' : 'order-2'
                                 }`}
                               >
@@ -2293,11 +2293,11 @@ export default function App() {
                               </div>
                             </div>
                           ) : mainInBatch.length > 0 ? (
-                            <div className="space-y-6">
+                            <div className="space-y-3 sm:space-y-5">
                               {mainInBatch.map((wId) => renderWidgetById(wId))}
                             </div>
                           ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5 items-start">
                               {sideInBatch.map((wId) => renderWidgetById(wId))}
                             </div>
                           )}
@@ -2312,7 +2312,7 @@ export default function App() {
 
           {/* TAB: TRANG THÔNG TIN MĐ (Mục Turbo) */}
           {activeTab === 'DISCIPLES' && (
-            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               <DisciplesPage
                 currentUser={effectiveCurrentUser}
                 disciples={disciples}
@@ -2331,7 +2331,7 @@ export default function App() {
 
           {/* TAB: TRANG EVENT (Mục Event) */}
           {activeTab === 'EVENT_HUB' && (
-            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               <EventHubPage
                 events={sortedEvents}
                 activeEvent={activeEvent}
@@ -2354,7 +2354,7 @@ export default function App() {
 
           {/* TAB: EDU LMS (Mục Edu) */}
           {activeTab === 'EDU_LMS' && (
-            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               <EduLmsPage
                 currentUser={effectiveCurrentUser}
                 topics={eduTopics}
@@ -2379,7 +2379,7 @@ export default function App() {
 
           {/* TAB: EDU CMS (Mục Edu) */}
           {activeTab === 'EDU_CMS' && (
-            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               <EduCmsPage
                 currentUser={effectiveCurrentUser}
                 cmsProfiles={eduCmsProfiles}
@@ -2399,7 +2399,7 @@ export default function App() {
 
           {/* TAB: HỒ SƠ CÁ NHÂN (Mục Công Việc) */}
           {activeTab === 'PROFILE' && (
-            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               {effectiveCurrentUser ? (
                 <ProfilePage
                   currentUser={effectiveCurrentUser}
@@ -2426,7 +2426,7 @@ export default function App() {
                   onShowNotification={showNotification}
                 />
               ) : (
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-md mx-auto text-center shadow-sm border border-slate-100 dark:border-slate-800 my-12">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-6 max-w-md mx-auto text-center shadow-sm border border-slate-100 dark:border-slate-800 my-8">
                   <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-4">
                     <Lock className="w-8 h-8" />
                   </div>
@@ -2449,7 +2449,7 @@ export default function App() {
 
           {/* TAB: LỊCH LÀM VIỆC TUẦN (Mục Công Việc) */}
           {activeTab === 'WORK_SCHEDULE' && (
-            <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full py-4 sm:py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               <WorkSchedulePage
                 currentUser={effectiveCurrentUser}
                 workSchedules={workSchedules}
@@ -2468,7 +2468,7 @@ export default function App() {
 
           {/* TAB: TRANG QUẢN TRỊ */}
           {activeTab === 'ADMIN' && (
-            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 flex-1">
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
               {isAdminUser ? (
                 <AdminPanel
                   initialTab={adminNavTab}

@@ -18,7 +18,6 @@ import {
   CalendarCheck2,
   GraduationCap,
   BookMarked,
-  Home,
 } from 'lucide-react';
 import { UserAccount } from '../types/edulms';
 
@@ -564,15 +563,17 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       <div className="grid grid-cols-5 items-center h-14 max-w-md mx-auto px-1 relative">
         <button
           type="button"
-          onClick={() => onSelectTab('ENTRY')}
+          onClick={() => onSelectTab('WORK_SCHEDULE')}
+          aria-label="Lịch làm việc"
+          title="Lịch làm việc"
           className={`flex flex-col items-center justify-center gap-0.5 py-1 cursor-pointer transition-colors ${
-            activeTab === 'ENTRY'
+            activeTab === 'WORK_SCHEDULE'
               ? 'text-sky-600 dark:text-sky-400 font-bold'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <Home className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">Trang chủ</span>
+          <CalendarCheck2 className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">Lịch LV</span>
         </button>
 
         <button

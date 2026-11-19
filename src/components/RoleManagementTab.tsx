@@ -330,30 +330,30 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-200">
       {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 border border-purple-500/30 p-6 text-white shadow-lg">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1.5 max-w-2xl">
-            <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-              <Crown className="w-4 h-4" />
-              <span>Phân quyền theo cấp độ · HT → QL Cụm → Ts, Nq → Gru → Uni → TĐ</span>
+      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 border border-purple-500/30 p-3.5 sm:p-5 text-white shadow-lg">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-4">
+          <div className="space-y-1 max-w-2xl">
+            <div className="text-[11px] sm:text-xs font-bold text-amber-300 flex items-center gap-1.5">
+              <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="truncate">Phân quyền theo cấp độ · HT → QL Cụm → Ts, Nq → Gru → Uni → TĐ</span>
             </div>
-            <h3 className="text-xl font-black text-white">
+            <h3 className="text-base sm:text-xl font-black text-white">
               Quản Lý Vai Trò &amp; Phạm Vi Quyền Xem
             </h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="hidden sm:block text-xs text-slate-300 leading-relaxed">
               Quy tắc chung: Mọi cấp đều xem được BXH 15 người đầu tiên. Phạm vi chi tiết và dữ liệu được phân tách chặt chẽ theo Sion, Khu vực và Đội/Uni.
             </p>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-3.5 shrink-0 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950">
-              {isSuperAdmin ? <Crown className="w-5 h-5" /> : <Shield className="w-5 h-5 text-white" />}
+          <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 shrink-0 flex items-center gap-2.5">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950">
+              {isSuperAdmin ? <Crown className="w-4 h-4 sm:w-5 sm:h-5" /> : <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-white" />}
             </div>
             <div>
               <div className="text-[10px] text-purple-200 uppercase font-bold">Vai trò hiện tại</div>
-              <div className="font-extrabold text-sm text-white">
+              <div className="font-extrabold text-xs sm:text-sm text-white">
                 {currentUser ? ROLE_LABELS[currentUser.role] : 'Khách'}
               </div>
               <div className="text-[11px] text-slate-300 truncate max-w-[190px]">
@@ -365,47 +365,47 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       </div>
 
       {/* KPI Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-slate-500">Tổng tài khoản</span>
-            <User className="w-4 h-4 text-blue-600" />
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+        <div className="bg-white dark:bg-slate-800/80 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[10px] sm:text-xs font-bold text-slate-500 truncate">Tổng TK</span>
+            <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 shrink-0 hidden sm:inline" />
           </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">
+          <div className="text-base sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">
             {stats.totalUsers}
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800/80 p-4 rounded-2xl border border-purple-200 dark:border-purple-800/60">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-purple-700 dark:text-purple-300">
-              Tổng &amp; Admin
+        <div className="bg-white dark:bg-slate-800/80 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border border-purple-200 dark:border-purple-800/60">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[10px] sm:text-xs font-bold text-purple-700 dark:text-purple-300 truncate">
+              Tổng/Admin
             </span>
-            <Crown className="w-4 h-4 text-amber-500" />
+            <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 shrink-0 hidden sm:inline" />
           </div>
-          <div className="text-2xl font-black text-purple-900 dark:text-purple-100 tabular-nums">
+          <div className="text-base sm:text-2xl font-black text-purple-900 dark:text-purple-100 tabular-nums">
             {stats.superAdminsCount + stats.adminsCount}
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800/80 p-4 rounded-2xl border border-teal-200 dark:border-teal-800/60">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-teal-700 dark:text-teal-300">
-              Quản lý &amp; KV Trưởng
+        <div className="bg-white dark:bg-slate-800/80 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border border-teal-200 dark:border-teal-800/60">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[10px] sm:text-xs font-bold text-teal-700 dark:text-teal-300 truncate">
+              QL &amp; KV
             </span>
-            <MapPin className="w-4 h-4 text-teal-600" />
+            <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-600 shrink-0 hidden sm:inline" />
           </div>
-          <div className="text-2xl font-black text-teal-900 dark:text-teal-100 tabular-nums">
+          <div className="text-base sm:text-2xl font-black text-teal-900 dark:text-teal-100 tabular-nums">
             {stats.leadersAndManagersCount}
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-slate-500">Thành viên</span>
-            <UserCheck className="w-4 h-4 text-emerald-600" />
+        <div className="bg-white dark:bg-slate-800/80 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[10px] sm:text-xs font-bold text-slate-500 truncate">Thành viên</span>
+            <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0 hidden sm:inline" />
           </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">
+          <div className="text-base sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">
             {stats.membersCount}
           </div>
         </div>
@@ -413,13 +413,13 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
 
       {/* Quick Pre-Grant Form */}
       {isSuperAdmin && (
-        <div className="bg-white dark:bg-slate-800/90 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-700 space-y-4">
+        <div className="bg-white dark:bg-slate-800/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-slate-200 dark:border-slate-700 space-y-3">
           <div>
             <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
               <Mail className="w-4 h-4 text-purple-600" />
               <span>Cấp Quyền Nhanh Bằng Email</span>
             </h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Áp dụng ngay cho tài khoản đã đăng ký hoặc tự động kích hoạt khi email này đăng nhập lần đầu.
             </p>
           </div>
@@ -592,13 +592,13 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       )}
 
       {/* User List Table */}
-      <div className="bg-white dark:bg-slate-800/90 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-700 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-700">
+      <div className="bg-white dark:bg-slate-800/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-slate-200 dark:border-slate-700 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-700">
           <div>
-            <h4 className="font-extrabold text-base text-slate-900 dark:text-white">
+            <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
               Danh sách Tài khoản &amp; Phân quyền ({filteredUsers.length})
             </h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Thay đổi vai trò và phạm vi khu vực có hiệu lực ngay trên toàn hệ thống.
             </p>
           </div>

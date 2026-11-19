@@ -614,13 +614,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const coverImage = currentUser.coverUrl || SPOTLIGHT_COVERS[0].url;
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 animate-in fade-in space-y-5">
+    <div className="max-w-5xl mx-auto animate-in fade-in space-y-3 sm:space-y-4">
       {/* ========================================================
           1. PROFILE HEADER CARD
           ======================================================== */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
-        {/* Cover Photo Container */}
-        <div className="relative w-full h-44 sm:h-60 md:h-72 bg-slate-950 overflow-hidden group">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
+        {/* Cover Photo Container (Compact on mobile) */}
+        <div className="relative w-full h-24 sm:h-44 md:h-52 bg-slate-950 overflow-hidden group">
           <img
             src={coverImage}
             alt="Ảnh bìa trang cá nhân"
@@ -635,7 +635,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               setEditCoverUrl(currentUser.coverUrl || SPOTLIGHT_COVERS[0].url);
               setIsCoverModalOpen(true);
             }}
-            className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-20 px-2.5 py-1.5 sm:px-3.5 sm:py-2 bg-black/70 hover:bg-black/90 text-white rounded-xl text-xs font-semibold backdrop-blur-md transition flex items-center gap-1.5 border border-white/20 cursor-pointer shadow-lg shrink-0"
+            className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-20 px-2.5 py-1 sm:px-3 sm:py-1.5 bg-black/70 hover:bg-black/90 text-white rounded-xl text-xs font-semibold backdrop-blur-md transition flex items-center gap-1.5 border border-white/20 cursor-pointer shadow-lg shrink-0"
             title="Đổi ảnh bìa"
           >
             <Camera className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -644,12 +644,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
 
         {/* Profile Info Section */}
-        <div className="px-4 sm:px-8 pb-3 pt-0 relative">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 -mt-16 sm:-mt-20 md:-mt-24 pb-5 border-b border-slate-100 dark:border-slate-800">
+        <div className="px-3 sm:px-6 pb-2.5 pt-0 relative">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-2.5 sm:gap-4 -mt-10 sm:-mt-16 md:-mt-20 pb-3 sm:pb-4 border-b border-slate-100 dark:border-slate-800">
             {/* Avatar & User Details */}
-            <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 sm:gap-6 text-center sm:text-left">
+            <div className="flex flex-col sm:flex-row items-center sm:items-end gap-2.5 sm:gap-5 text-center sm:text-left">
               <div className="relative group shrink-0 z-10">
-                <div className="w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-full bg-white dark:bg-slate-900 p-1.5 shadow-2xl ring-4 ring-amber-400/70 dark:ring-amber-500/50 relative overflow-hidden">
+                <div className="w-20 h-20 sm:w-32 sm:h-32 md:w-36 md:h-36 rounded-full bg-white dark:bg-slate-900 p-1 shadow-xl ring-3 sm:ring-4 ring-amber-400/70 dark:ring-amber-500/50 relative overflow-hidden">
                   {currentUser.avatarUrl ? (
                     <img
                       src={currentUser.avatarUrl}
@@ -658,9 +658,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="w-full h-full rounded-full bg-gradient-to-tr from-blue-700 via-indigo-700 to-amber-600 flex items-center justify-center text-white text-4xl sm:text-5xl font-black">
+                    <div className="w-full h-full rounded-full bg-gradient-to-tr from-blue-700 via-indigo-700 to-amber-600 flex items-center justify-center text-white text-2xl sm:text-4xl font-black">
                       {currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN' ? (
-                        <Shield className="w-12 h-12 sm:w-16 sm:h-16 text-white" />
+                        <Shield className="w-8 h-8 sm:w-14 sm:h-14 text-white" />
                       ) : (
                         currentUser.fullName.charAt(0)
                       )}
@@ -674,22 +674,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     setEditAvatarUrl(currentUser.avatarUrl || '');
                     setIsAvatarModalOpen(true);
                   }}
-                  className="absolute bottom-1 right-1 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-900/90 hover:bg-slate-800 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-md transition cursor-pointer hover:scale-105"
+                  className="absolute bottom-0 right-0 sm:bottom-1 sm:right-1 w-7 h-7 sm:w-9 sm:h-9 rounded-full bg-slate-900/90 hover:bg-slate-800 text-white flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-md transition cursor-pointer hover:scale-105"
                   title="Cập nhật ảnh đại diện"
                 >
-                  <Camera className="w-4 h-4 text-amber-400" />
+                  <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
                 </button>
               </div>
 
               {/* User Identity Stack */}
-              <div className="pt-1 sm:pt-0 sm:pb-2 space-y-1.5">
+              <div className="pt-0.5 sm:pb-1 space-y-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-                  <h1 className="text-2xl sm:text-3xl font-black leading-tight tracking-tight text-slate-900 dark:text-amber-300">
+                  <h1 className="text-lg sm:text-2xl font-black leading-tight tracking-tight text-slate-900 dark:text-amber-300">
                     {currentUser.fullName}
                   </h1>
 
                   <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
                       ROLE_DISPLAY_META[currentUser.role]?.badgeClass ||
                       'bg-blue-100 text-blue-800 border-blue-200'
                     }`}
@@ -699,34 +699,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
 
                 {/* Quick stats subtitle synced with DailyReports & Disciples */}
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-0.5">
                   <span className="font-mono text-slate-400">@{currentUser.username}</span>
                   <span>•</span>
-                  <span className="font-bold text-amber-600 dark:text-amber-400">
+                  <span className="font-bold text-amber-600 dark:text-amber-400 tabular-nums">
                     {formatNumber(memberScore)} điểm
                   </span>
                   <span>•</span>
-                  <span>Hạng #{memberRank}</span>
+                  <span className="tabular-nums">Hạng #{memberRank}</span>
                   <span>•</span>
-                  <span className="font-semibold text-blue-700 dark:text-blue-400">
-                    {myDisciples.length} MĐ đang theo dõi
+                  <span className="font-semibold text-blue-700 dark:text-blue-400 tabular-nums">
+                    {myDisciples.length} MĐ
                   </span>
-                  <span>•</span>
-                  <span>{daysReportedThisMonth} ngày báo cáo tháng</span>
+                  <span className="hidden sm:inline">•</span>
+                  <span className="hidden sm:inline tabular-nums">{daysReportedThisMonth} ngày báo cáo tháng</span>
                 </div>
 
                 {/* Units Pills */}
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 pt-1 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
-                    <Building2 className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1 pt-0.5 text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 font-medium">
+                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 sm:py-1 rounded-lg">
+                    <Building2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-700 dark:text-blue-400" />
                     Sion: <strong>{currentUser.companyCode}</strong>
                   </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
-                    <MapPin className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
+                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 sm:py-1 rounded-lg">
+                    <MapPin className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-700 dark:text-blue-400" />
                     KV: <strong>{currentUser.areaCode}</strong>
                   </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
-                    <Users2 className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
+                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 sm:py-1 rounded-lg">
+                    <Users2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-700 dark:text-blue-400" />
                     <strong>
                       {currentUser.unitCode
                         ? `${currentUser.unitCode} (${currentUser.departmentCode})`
@@ -735,27 +735,27 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </span>
                 </div>
 
-                <p className="text-xs text-slate-500 dark:text-slate-400 italic max-w-lg pt-0.5 leading-relaxed">
+                <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 italic max-w-lg pt-0.5 leading-relaxed">
                   “{currentUser.bio || 'Nguyện làm muối của đất và ánh sáng cho trần gian.'}”
                 </p>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center justify-center md:justify-end gap-2 flex-wrap pt-2 md:pt-0">
+            <div className="flex items-center justify-center md:justify-end gap-1.5 sm:gap-2 flex-wrap pt-1 md:pt-0">
               <button
                 type="button"
                 onClick={() => setIsAddHuongKhiModalOpen(true)}
-                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                className="h-9 px-3 sm:px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 <span>Đăng Hương Khí</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsEditProfileModalOpen(true)}
-                className="px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs"
+                className="h-9 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs"
               >
                 <Pencil className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 <span>Sửa hồ sơ</span>
@@ -764,7 +764,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <button
                 type="button"
                 onClick={() => setIsPasswordModalOpen(true)}
-                className="px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs"
+                className="h-9 px-2.5 sm:px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs"
                 title="Đổi mật khẩu"
               >
                 <KeyRound className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
@@ -774,7 +774,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <button
                 type="button"
                 onClick={onLogout}
-                className="px-3 py-2.5 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl text-xs font-bold transition border border-rose-200 dark:border-rose-900 cursor-pointer flex items-center gap-1"
+                className="h-9 px-2.5 sm:px-3 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl text-xs font-bold transition border border-rose-200 dark:border-rose-900 cursor-pointer flex items-center gap-1"
                 title="Đăng xuất"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -783,20 +783,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
           </div>
 
-          {/* Profile Navigation Tabs (2x2 mobile, 4 cols sm+ - không scroll ngang) */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-3 text-xs font-bold text-slate-600 dark:text-slate-300">
+          {/* Profile Navigation Tabs: Always 1 single horizontal row (4 cols) */}
+          <div className="grid grid-cols-4 gap-1 sm:gap-1.5 pt-2 sm:pt-3 text-[11px] sm:text-xs font-bold text-slate-600 dark:text-slate-300">
             <button
               type="button"
               onClick={() => setActiveProfileTab('POSTS')}
-              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
+              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'POSTS'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <Sparkles className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate">Bài viết</span>
-              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
+              <span className="px-1 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
                 {myHuongKhiList.length}
               </span>
             </button>
@@ -804,15 +804,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               type="button"
               onClick={() => setActiveProfileTab('DISCIPLES')}
-              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
+              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'DISCIPLES'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <BookOpen className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">MĐ của tôi</span>
-              <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
+              <BookOpen className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+              <span className="truncate sm:hidden">MĐ</span>
+              <span className="truncate hidden sm:inline">MĐ của tôi</span>
+              <span className="px-1 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
                 {myDisciples.length}
               </span>
             </button>
@@ -820,26 +821,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               type="button"
               onClick={() => setActiveProfileTab('REPORTS')}
-              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
+              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'REPORTS'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+              <BarChart3 className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate">Báo cáo</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveProfileTab('ABOUT')}
-              className={`px-2.5 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 border ${
+              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'ABOUT'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <Shield className="w-3.5 h-3.5 shrink-0" />
+              <Shield className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate">Thông tin</span>
             </button>
           </div>
@@ -849,12 +850,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       {/* ========================================================
           2. 2-COLUMN PROFILE CONTENT
           ======================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 items-start">
         {/* LEFT COLUMN */}
-        <div className="lg:col-span-4 space-y-5">
+        <div className="lg:col-span-4 space-y-3 sm:space-y-4">
           {/* Card: Giới thiệu */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-100 dark:border-slate-800 space-y-4">
-            <h3 className="font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-2">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xs border border-slate-100 dark:border-slate-800 space-y-2.5 sm:space-y-3">
+            <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
               <span>Giới thiệu</span>
             </h3>
 
@@ -936,34 +937,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           {/* Card: Thao Tác Nhanh */}
-          <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-3xl p-5 text-white shadow-md border border-slate-800 space-y-3">
+          <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 text-white shadow-md border border-slate-800 space-y-2.5">
             <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
               <span>⚡ Hoạt động thi đua</span>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="hidden sm:block text-xs text-slate-300 leading-relaxed">
               Cập nhật Báo cáo hằng ngày và quản lý sổ tay MĐ cá nhân để theo sát hành trình chăm sóc.
             </p>
-            <div className="space-y-2 pt-1">
+            <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 pt-0.5">
               <button
                 type="button"
                 onClick={onNavigateToEntry}
-                className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                className="w-full h-9 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
               >
-                <PenTool className="w-3.5 h-3.5" />
-                <span>Nhập Báo cáo hằng ngày</span>
+                <PenTool className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Báo cáo ngày</span>
               </button>
               <button
                 type="button"
                 onClick={onNavigateToDisciples}
-                className="w-full py-2.5 px-3 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                className="w-full h-9 px-3 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
               >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Mở Trang thông tin MĐ</span>
+                <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Thông tin MĐ</span>
               </button>
               <button
                 type="button"
                 onClick={onOpenRules}
-                className="w-full py-2.5 px-3 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer border border-white/10"
+                className="col-span-2 lg:col-span-1 w-full h-9 px-3 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer border border-white/10"
               >
                 <span>Xem thể lệ quy đổi điểm</span>
               </button>
@@ -972,12 +973,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
 
         {/* RIGHT COLUMN */}
-        <div className="lg:col-span-8 space-y-5 min-w-0">
+        <div className="lg:col-span-8 space-y-3 sm:space-y-4 min-w-0">
           {/* TAB 1: BÀI VIẾT & HƯƠNG KHÍ */}
           {activeProfileTab === 'POSTS' && (
-            <div className="space-y-5 animate-in fade-in">
+            <div className="space-y-3 sm:space-y-4 animate-in fade-in">
               {/* Post Composer */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-100 dark:border-slate-800 space-y-4">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xs border border-slate-100 dark:border-slate-800 space-y-3">
                 <div className="flex items-center gap-3">
                   {currentUser.avatarUrl ? (
                     <img
@@ -1229,14 +1230,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           {/* TAB 2: DANH MỤC MĐ CỦA TÔI (ĐỒNG BỘ COLLECTION disciples) */}
           {activeProfileTab === 'DISCIPLES' && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-100 dark:border-slate-800 space-y-4 animate-in fade-in">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xs border border-slate-100 dark:border-slate-800 space-y-3 animate-in fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
                 <div>
-                  <h3 className="font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" />
                     <span>Danh Mục MĐ Cá Nhân ({myDisciples.length})</span>
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     Đồng bộ trực tiếp từ Trang thông tin MĐ (sổ tay theo dõi độc lập của bạn).
                   </p>
                 </div>
@@ -1244,42 +1245,42 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <button
                   type="button"
                   onClick={onNavigateToDisciples}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
+                  className="px-3 h-9 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
                 >
                   <span>Quản lý MĐ chi tiết</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Quick KPI Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-                  <div className="text-[10px] font-bold uppercase text-slate-400">Tổng MĐ</div>
-                  <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
+              {/* Quick KPI Strip (1 row) */}
+              <div className="grid grid-cols-4 gap-1.5 sm:gap-2.5">
+                <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                  <div className="text-[10px] font-bold uppercase text-slate-400 truncate">Tổng MĐ</div>
+                  <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white tabular-nums mt-0.5">
                     {discipleStats.total}
                   </div>
                 </div>
-                <div className="p-3 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60">
-                  <div className="text-[10px] font-bold uppercase text-blue-600 dark:text-blue-300">
-                    Đang theo dõi
+                <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60">
+                  <div className="text-[10px] font-bold uppercase text-blue-600 dark:text-blue-300 truncate">
+                    Đang theo
                   </div>
-                  <div className="text-lg font-black text-blue-700 dark:text-blue-300 mt-0.5">
+                  <div className="text-base sm:text-lg font-black text-blue-700 dark:text-blue-300 tabular-nums mt-0.5">
                     {discipleStats.active}
                   </div>
                 </div>
-                <div className="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60">
-                  <div className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-300">
-                    Tới GM / KT / WS
+                <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60">
+                  <div className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-300 truncate">
+                    GM/KT/WS
                   </div>
-                  <div className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                  <div className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-300 tabular-nums mt-0.5">
                     {discipleStats.advanced}
                   </div>
                 </div>
-                <div className="p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/60">
-                  <div className="text-[10px] font-bold uppercase text-rose-600 dark:text-rose-300">
+                <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/60">
+                  <div className="text-[10px] font-bold uppercase text-rose-600 dark:text-rose-300 truncate">
                     Đã Dừng
                   </div>
-                  <div className="text-lg font-black text-rose-700 dark:text-rose-300 mt-0.5">
+                  <div className="text-base sm:text-lg font-black text-rose-700 dark:text-rose-300 tabular-nums mt-0.5">
                     {discipleStats.stopped}
                   </div>
                 </div>

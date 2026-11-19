@@ -467,17 +467,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         className="hidden"
       />
 
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-7 shadow-sm border border-slate-200 dark:border-slate-800">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3 sm:p-5 shadow-sm border border-slate-200 dark:border-slate-800">
         
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 sm:pb-3.5 border-b border-slate-100 dark:border-slate-800 gap-2">
           <div>
-            <div className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-3 py-1 rounded-lg mb-1.5">
+            <div className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2.5 py-0.5 rounded-lg mb-1">
               <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               <span>Quản trị Hệ thống</span>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-              Bảng Điều Khiển Quản Trị
+            <h2 className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <Shield className="w-4 h-4 text-purple-600 sm:hidden" />
+              <span>Bảng Điều Khiển Quản Trị</span>
             </h2>
           </div>
         </div>
@@ -552,8 +553,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           return (
             <>
-              {/* Mobile / Tablet Menu 2 tầng hiển thị trực tiếp (Phương án A - Không ẩn dropdown) */}
-              <div className="lg:hidden mt-4 space-y-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-3">
+              {/* Mobile / Tablet Menu 2 tầng hiển thị trực tiếp */}
+              <div className="lg:hidden mt-2.5 space-y-2 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-2">
                 {/* Tầng 1: 4 Nhóm chính (2x2 mobile, 4 cột sm/md) */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                   {adminNavGroups.map((grp, idx) => {
@@ -568,7 +569,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             setActiveTab(grp.items[0].id);
                           }
                         }}
-                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-left text-xs font-extrabold transition cursor-pointer border ${
+                        className={`flex items-center gap-1.5 px-2.5 h-9 rounded-xl text-left text-xs font-extrabold transition cursor-pointer border ${
                           isGroupActive
                             ? 'bg-purple-700 text-white border-purple-700 shadow-xs'
                             : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-300'
@@ -588,10 +589,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 {/* Tầng 2: Các tính năng con của nhóm đang chọn */}
-                <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 px-0.5">
-                    {activeGroup.groupTitle}
-                  </div>
+                <div className="pt-1.5 border-t border-slate-200/80 dark:border-slate-700/80">
                   <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5">
                     {activeGroup.items.map((item) => {
                       const Icon = item.icon;
@@ -601,7 +599,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           key={item.id}
                           type="button"
                           onClick={() => setActiveTab(item.id)}
-                          className={`flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                          className={`flex items-center justify-between gap-1.5 px-2.5 h-9 rounded-xl text-xs font-bold transition cursor-pointer border ${
                             isItemActive
                               ? 'bg-blue-700 text-white border-blue-700 shadow-xs'
                               : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -634,7 +632,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* SaaS Admin Workspace: Grouped Sidebar (Left) + Active Panel (Right) */}
-              <div className="mt-5 grid grid-cols-1 lg:grid-cols-[248px_1fr] gap-6 items-start">
+              <div className="mt-3 sm:mt-4 grid grid-cols-1 lg:grid-cols-[248px_1fr] gap-3.5 sm:gap-5 items-start">
                 {/* Desktop Grouped Admin Sidebar */}
                 <aside className="hidden lg:block sticky top-20 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-3 space-y-4">
                   {adminNavGroups.map((grp) => (
@@ -1512,21 +1510,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <h3 className="font-extrabold text-base text-emerald-950 dark:text-white">
                     Trung Tâm Nhập &amp; Xuất Dữ Liệu Excel
                   </h3>
-                  <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
+                  <p className="hidden sm:block text-xs text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
                     Đồng bộ danh mục hệ thống, hồ sơ nhân sự mới, danh sách MĐ, báo cáo hằng ngày và dữ liệu Edu.
                   </p>
                 </div>
               </div>
 
-              <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200 bg-white/80 dark:bg-slate-900/80 px-3 py-1.5 rounded-xl border border-emerald-200/60 dark:border-emerald-700/60 shrink-0">
+              <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200 bg-white/80 dark:bg-slate-900/80 px-2.5 py-1 rounded-xl border border-emerald-200/60 dark:border-emerald-700/60 shrink-0">
                 Hỗ trợ: <strong>.xlsx, .xls</strong>
               </div>
             </div>
 
             {/* Grid Cards */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
               {/* BLOCK 1: CẤU HÌNH DANH MỤC HỆ THỐNG */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+              <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0">
@@ -1611,7 +1609,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* BLOCK 2: HỒ SƠ CÁ NHÂN & NHÂN SỰ THI ĐUA (CẤU TRÚC MỚI) */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+              <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
@@ -1702,7 +1700,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* BLOCK 3: XUẤT DANH SÁCH MĐ */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+              <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
@@ -1797,7 +1795,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* BLOCK 4: XUẤT BÁO CÁO HẰNG NGÀY TOÀN HỆ THỐNG */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+              <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 flex items-center justify-center shrink-0">
@@ -1922,7 +1920,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* BLOCK 5: XUẤT DỮ LIỆU EDU (LMS & CMS) */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+              <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
@@ -1995,7 +1993,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* BLOCK 6: XUẤT LỊCH LÀM VIỆC TUẦN (3 BUỔI & WS) */}
-              <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-4">
+              <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-teal-100 dark:bg-teal-950/70 text-teal-700 dark:text-teal-300 flex items-center justify-center shrink-0">

@@ -357,16 +357,16 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
   }
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-2.5 sm:space-y-4">
       {/* Header & Scope Summary */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-6 border border-slate-200 dark:border-slate-800">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-slate-200 dark:border-slate-800">
+        <div className="flex items-center justify-between gap-2.5">
           <div className="min-w-0">
-            <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <Users className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0" />
-              <span>Trang thông tin MĐ</span>
+            <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-1.5 sm:gap-2">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 dark:text-teal-400 shrink-0" />
+              <span className="truncate">Trang thông tin MĐ</span>
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5">
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="truncate">{scopeLabel}</span>
             </p>
@@ -375,55 +375,55 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
           <button
             type="button"
             onClick={openCreateModal}
-            className="px-4 py-2.5 min-h-[44px] bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer shrink-0 whitespace-nowrap"
+            className="px-3 sm:px-4 h-9 sm:h-10 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
-            <span>Thêm MĐ mới</span>
+            <span>Thêm MĐ</span>
           </button>
         </div>
 
-        {/* 4 Compact KPI Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              Tổng số MĐ
+        {/* 4 Compact KPI Metrics in 1 Horizontal Row */}
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2.5 mt-2.5 sm:mt-4 pt-2.5 sm:pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-slate-50 dark:bg-slate-800/70">
+            <div className="text-[10px] sm:text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+              Tổng MĐ
             </div>
-            <div className="text-xl font-black text-slate-900 dark:text-white tabular-nums mt-0.5">
+            <div className="text-base sm:text-xl font-black text-slate-900 dark:text-white tabular-nums mt-0.5">
               {stats.total}
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30">
-            <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-              Đang đồng hành
+          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30">
+            <div className="text-[10px] sm:text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 truncate">
+              Đang theo
             </div>
-            <div className="text-xl font-black text-emerald-800 dark:text-emerald-200 tabular-nums mt-0.5">
+            <div className="text-base sm:text-xl font-black text-emerald-800 dark:text-emerald-200 tabular-nums mt-0.5">
               {stats.active}
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30">
-            <div className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
-              HH / KT / WS
+          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30">
+            <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 truncate">
+              HH/KT/WS
             </div>
-            <div className="text-xl font-black text-indigo-800 dark:text-indigo-200 tabular-nums mt-0.5">
+            <div className="text-base sm:text-xl font-black text-indigo-800 dark:text-indigo-200 tabular-nums mt-0.5">
               {stats.advanced}
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/30">
-            <div className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-rose-50/70 dark:bg-rose-950/30">
+            <div className="text-[10px] sm:text-[11px] font-semibold text-rose-700 dark:text-rose-300 truncate">
               Tạm dừng
             </div>
-            <div className="text-xl font-black text-rose-800 dark:text-rose-200 tabular-nums mt-0.5">
+            <div className="text-base sm:text-xl font-black text-rose-800 dark:text-rose-200 tabular-nums mt-0.5">
               {stats.stopped}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Search + Filter Dropdown Toolbar */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+      {/* Search + Filter Dropdown Toolbar (2 compact rows on mobile) */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-2.5 sm:p-3.5 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -431,13 +431,18 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Tìm biệt danh MĐ, công việc, đặc điểm, ghi chú..."
-            className="w-full pl-9 pr-3 py-2.5 min-h-[42px] rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="w-full pl-9 pr-3 h-9 sm:h-10 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
           />
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          <div className="w-full sm:w-56">
+        <div
+          className={`grid gap-2 sm:flex sm:items-center ${
+            isSupervisor && availableAreas.length > 1 ? 'grid-cols-2' : 'grid-cols-1'
+          }`}
+        >
+          <div className="w-full sm:w-52">
             <CustomSelect
+              size="sm"
               ariaLabel="Lọc theo tiến độ MĐ"
               value={progressFilter}
               onChange={(val) => setProgressFilter(val as ProgressFilter)}
@@ -455,8 +460,9 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
           </div>
 
           {isSupervisor && availableAreas.length > 1 && (
-            <div className="w-full sm:w-52">
+            <div className="w-full sm:w-48">
               <CustomSelect
+                size="sm"
                 ariaLabel="Lọc theo khu vực"
                 value={areaFilter}
                 onChange={setAreaFilter}
@@ -509,7 +515,7 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 sm:gap-3.5">
           {filteredDisciples.map((d) => {
             const isOwner = d.ownerUid === currentUser.id;
             const canFullEdit = isOwner || isAdmin;
@@ -523,13 +529,13 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
             return (
               <article
                 key={d.id}
-                className={`bg-white dark:bg-slate-900 rounded-2xl p-4 border transition flex flex-col justify-between gap-3 ${
+                className={`bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 border transition flex flex-col justify-between gap-2.5 ${
                   d.isStopped
                     ? 'border-rose-200/80 dark:border-rose-900/60 bg-rose-50/20 dark:bg-rose-950/10'
                     : 'border-slate-200 dark:border-slate-800'
                 }`}
               >
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {/* Card Title & Unboxed Metadata */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">

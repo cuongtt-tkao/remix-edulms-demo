@@ -327,16 +327,16 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
   const areaOptions = areas.filter((a) => a.companyCode === pCompanyCode);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-2.5 sm:space-y-4">
       {/* Header & Sub-tab Switcher */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <BookMarked className="w-5 h-5 text-amber-500 shrink-0" />
-              <span>Edu CMS — Lộ trình Đào tạo &amp; Soạn Giáo trình</span>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-slate-200 dark:border-slate-800 space-y-2.5 sm:space-y-3.5">
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-1.5 sm:gap-2">
+              <BookMarked className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
+              <span className="truncate">Edu CMS — Lộ trình &amp; Giáo trình</span>
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Theo dõi chuyển cấp <strong>TĐ Mới → TĐ-II</strong>, phân công <strong>NGV</strong> và biên soạn nội dung giáo trình cho các chủ đề LMS.
             </p>
           </div>
@@ -345,78 +345,80 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
             <button
               type="button"
               onClick={() => openCreateModal(subTab === 'NGV' ? 'NGV' : 'TD_MOI')}
-              className="px-4 py-2.5 min-h-[42px] bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition shrink-0 cursor-pointer"
+              className="px-3 sm:px-4 h-9 sm:h-10 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition shrink-0 cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
-              <span>{subTab === 'NGV' ? 'Thêm NGV' : 'Thêm Học viên (TĐ Mới→TĐ-II)'}</span>
+              <span>{subTab === 'NGV' ? 'Thêm NGV' : 'Thêm TĐ'}</span>
             </button>
           )}
         </div>
 
-        {/* 3 Sub-tabs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80">
+        {/* 3 Sub-tabs always 1 horizontal row */}
+        <div className="grid grid-cols-3 gap-1 sm:gap-2 p-1 rounded-xl sm:rounded-2xl bg-slate-100 dark:bg-slate-800/80">
           <button
             type="button"
             onClick={() => setSubTab('PROGRESSION')}
-            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition cursor-pointer ${
+            className={`h-9 px-1.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-2 transition cursor-pointer ${
               subTab === 'PROGRESSION'
                 ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-xs'
                 : 'text-slate-600 dark:text-slate-300'
             }`}
           >
-            <Users className="w-4 h-4" />
-            <span>TĐ Mới → TĐ-II ({learnersList.length})</span>
+            <Users className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+            <span className="truncate sm:hidden">Lộ trình ({learnersList.length})</span>
+            <span className="truncate hidden sm:inline">TĐ Mới → TĐ-II ({learnersList.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setSubTab('NGV')}
-            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition cursor-pointer ${
+            className={`h-9 px-1.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-2 transition cursor-pointer ${
               subTab === 'NGV'
                 ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
                 : 'text-slate-600 dark:text-slate-300'
             }`}
           >
-            <Award className="w-4 h-4" />
-            <span>NGV ({ngvList.length})</span>
+            <Award className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+            <span className="truncate">NGV ({ngvList.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setSubTab('CURRICULUM')}
-            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition cursor-pointer ${
+            className={`h-9 px-1.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-2 transition cursor-pointer ${
               subTab === 'CURRICULUM'
                 ? 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 shadow-xs'
                 : 'text-slate-600 dark:text-slate-300'
             }`}
           >
-            <FileText className="w-4 h-4" />
-            <span>Soạn Giáo trình LMS ({topics.length})</span>
+            <FileText className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+            <span className="truncate sm:hidden">Giáo trình ({topics.length})</span>
+            <span className="truncate hidden sm:inline">Soạn Giáo trình LMS ({topics.length})</span>
           </button>
         </div>
 
-        {/* Filters for Progression & NGV */}
+        {/* Filters for Progression & NGV (2 rows max on mobile) */}
         {subTab !== 'CURRICULUM' && (
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 text-xs">
-            <div className="sm:col-span-5 relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+          <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 text-xs">
+            <div className="col-span-2 sm:col-span-5 relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Tìm họ tên, NGV phụ trách, khu vực..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                className="w-full pl-9 pr-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
               />
             </div>
 
             {subTab === 'PROGRESSION' && (
-              <div className="sm:col-span-4">
+              <div className="col-span-1 sm:col-span-4">
                 <CustomSelect
                   size="sm"
                   value={stageFilter}
                   onChange={(val) => setStageFilter(val as any)}
                   options={[
-                    { value: 'ALL', label: 'Tất cả giai đoạn (TĐ Mới → TĐ-II)' },
+                    { value: 'ALL', label: 'Tất cả giai đoạn' },
                     { value: 'TD_MOI', label: 'TĐ Mới' },
                     { value: 'TD_I', label: 'TĐ-I' },
                     { value: 'TD_II', label: 'TĐ-II' },
@@ -426,13 +428,13 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               </div>
             )}
 
-            <div className={subTab === 'PROGRESSION' ? 'sm:col-span-3' : 'sm:col-span-7'}>
+            <div className={subTab === 'PROGRESSION' ? 'col-span-1 sm:col-span-3' : 'col-span-2 sm:col-span-7'}>
               <CustomSelect
                 size="sm"
                 value={companyFilter}
                 onChange={setCompanyFilter}
                 options={[
-                  { value: 'ALL', label: 'Tất cả Sion / Công ty' },
+                  { value: 'ALL', label: 'Tất cả Sion' },
                   ...companies.map((c) => ({
                     value: c.code,
                     label: c.name,
@@ -448,9 +450,9 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
 
       {/* SUB-TAB 1: TĐ MỚI -> TĐ-II PROGRESSION */}
       {subTab === 'PROGRESSION' && (
-        <div className="space-y-4">
+        <div className="space-y-2.5 sm:space-y-4">
           {/* Pipeline KPI Row */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
             {(
               [
                 { key: 'TD_MOI', label: 'TĐ Mới', color: 'text-sky-600 dark:text-sky-400' },
@@ -460,19 +462,19 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
             ).map((st) => (
               <div
                 key={st.key}
-                className="bg-white dark:bg-slate-900 rounded-2xl p-2.5 sm:p-4 border border-slate-200 dark:border-slate-800 text-center"
+                className="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl p-2 sm:p-3.5 border border-slate-200 dark:border-slate-800 text-center"
               >
-                <div className="text-[11px] sm:text-xs font-bold text-slate-500 dark:text-slate-400">
+                <div className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400">
                   {st.label}
                 </div>
-                <div className={`text-xl sm:text-2xl font-black tabular-nums mt-0.5 sm:mt-1 ${st.color}`}>
+                <div className={`text-lg sm:text-2xl font-black tabular-nums mt-0.5 ${st.color}`}>
                   {learnersList.filter((l) => l.stage === st.key).length}
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             {filteredLearners.length === 0 ? (
               <div className="p-10 text-center text-xs text-slate-500">
                 Chưa có học viên nào trong danh sách lộ trình TĐ Mới → TĐ-II.

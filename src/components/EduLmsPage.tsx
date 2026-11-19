@@ -398,16 +398,16 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-2.5 sm:space-y-4">
       {/* Header & Track Switcher */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <GraduationCap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Edu LMS — Chủ đề theo Tuần &amp; Thực hành</span>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-slate-200 dark:border-slate-800 space-y-2.5 sm:space-y-3.5">
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-1.5 sm:gap-2">
+              <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="truncate">Edu LMS — Chủ đề Tuần</span>
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Phân theo 3 đối tượng <strong>TĐ-I</strong>, <strong>TĐ-II</strong>, <strong>NGV</strong> • Chọn chủ đề tuần để xem giáo trình và gán <strong>Tên KV + Tên TĐ</strong>.
             </p>
           </div>
@@ -416,16 +416,16 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
             <button
               type="button"
               onClick={openCreateTopic}
-              className="px-4 py-2.5 min-h-[42px] bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition shrink-0 cursor-pointer"
+              className="px-3 sm:px-4 h-9 sm:h-10 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition shrink-0 cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
-              <span>Tạo Chủ đề Tuần</span>
+              <span>Tạo Chủ đề</span>
             </button>
           )}
         </div>
 
         {/* 3 User Track Tabs */}
-        <div className="grid grid-cols-3 gap-2 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80">
+        <div className="grid grid-cols-3 gap-1 sm:gap-2 p-1 rounded-xl sm:rounded-2xl bg-slate-100 dark:bg-slate-800/80">
           {(['TD_I', 'TD_II', 'NGV'] as EduTrack[]).map((tr) => {
             const active = activeTrack === tr;
             return (
@@ -436,14 +436,14 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                   setActiveTrack(tr);
                   setWeekFilter('ALL');
                 }}
-                className={`py-2.5 px-3 rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer ${
+                className={`h-9 px-2 sm:px-3 rounded-lg sm:rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                   active
                     ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs ring-1 ring-slate-200 dark:ring-slate-700'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <span>{EDU_TRACK_LABELS[tr]}</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 tabular-nums">
+                <span className="truncate">{EDU_TRACK_LABELS[tr]}</span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 tabular-nums shrink-0">
                   {trackCounts[tr]}
                 </span>
               </button>
@@ -451,39 +451,39 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
           })}
         </div>
 
-        {/* Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 text-xs">
-          <div className="sm:col-span-5 relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+        {/* Filters (2 rows max on mobile) */}
+        <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 text-xs">
+          <div className="col-span-2 sm:col-span-5 relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Tìm Tên Chủ đề, Tên KV, Tên TĐ..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+              className="w-full pl-9 pr-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>
 
-          <div className="sm:col-span-4">
+          <div className="col-span-1 sm:col-span-4">
             <CustomSelect
               size="sm"
               value={weekFilter}
               onChange={setWeekFilter}
               options={[
-                { value: 'ALL', label: 'Tất cả các Tuần' },
+                { value: 'ALL', label: 'Tất cả Tuần' },
                 ...weekOptions.map((w) => ({ value: w, label: w })),
               ]}
               ariaLabel="Lọc theo Tuần"
             />
           </div>
 
-          <div className="sm:col-span-3">
+          <div className="col-span-1 sm:col-span-3">
             <CustomSelect
               size="sm"
               value={companyFilter}
               onChange={setCompanyFilter}
               options={[
-                { value: 'ALL', label: 'Tất cả Sion / Công ty' },
+                { value: 'ALL', label: 'Tất cả Sion' },
                 ...companies.map((c) => ({
                   value: c.code,
                   label: c.name,
@@ -530,7 +530,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
           )}
         </div>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-3 sm:space-y-4">
           {filteredTopics.map((topic) => {
             const topicAssigns = assignments.filter((a) => a.topicId === topic.id);
             const isLessonOpen = !!expandedLessonIds[topic.id];
@@ -539,10 +539,10 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
             return (
               <div
                 key={topic.id}
-                className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs"
+                className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs"
               >
                 {/* Topic Header */}
-                <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="p-3.5 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 sm:gap-4">
                   <div className="space-y-1.5 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-[11px]">
                       <span className="px-2.5 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-black border border-emerald-200/70 dark:border-emerald-800/60">

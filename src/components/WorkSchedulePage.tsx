@@ -250,6 +250,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
   );
 
   const [viewMode, setViewMode] = useState<ScheduleViewMode>('MY_SCHEDULE');
+  const [mobileSectionTab, setMobileSectionTab] = useState<'SESSIONS' | 'WS'>('SESSIONS');
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(currentWeekStart);
 
   // Draft states for My Schedule
@@ -724,35 +725,35 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
     : 'Chưa lưu tuần này';
 
   return (
-    <div className="space-y-4 pb-16 md:pb-6">
+    <div className="space-y-2.5 sm:space-y-3.5 pb-16 md:pb-5">
       {/* Compact Header & Navigation Bar */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-3.5 sm:p-4 shadow-2xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-2.5 sm:p-3.5 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0">
               <CalendarDays className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <h1 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white tracking-tight">
+              <div className="flex flex-wrap items-baseline gap-x-1.5">
+                <h1 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
                   Lịch làm việc tuần
                 </h1>
-                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500">
                   · CN → T7
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+              <p className="hidden sm:block text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 Nhập 1 số đại diện mỗi buổi · Tách riêng 3 buổi và WS
               </p>
             </div>
           </div>
 
           {canViewTeamSchedules && (
-            <div className="grid grid-cols-2 sm:inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 gap-1 shrink-0">
+            <div className="grid grid-cols-2 sm:inline-flex p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('MY_SCHEDULE')}
-                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition cursor-pointer ${
                   viewMode === 'MY_SCHEDULE'
                     ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -764,15 +765,15 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('TEAM_SCHEDULES')}
-                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition cursor-pointer ${
                   viewMode === 'TEAM_SCHEDULES'
                     ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
-                <span>Xem lịch Thành viên</span>
-                <span className="text-[11px] font-extrabold text-blue-600 dark:text-blue-300 tabular-nums">
+                <span>Lịch Thành viên</span>
+                <span className="text-[10px] sm:text-[11px] font-extrabold text-blue-600 dark:text-blue-300 tabular-nums">
                   {teamStats.updatedCount}/{teamStats.total}
                 </span>
               </button>
@@ -780,8 +781,8 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
           )}
         </div>
 
-        {/* Week Selector + Secondary Utilities (No Save button here) */}
-        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+        {/* Week Selector + Secondary Utilities */}
+        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
           {/* Free Week Picker */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <div className="inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 p-0.5">
@@ -924,10 +925,10 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
 
       {/* ================== VIEW 1: MY SCHEDULE ================== */}
       {viewMode === 'MY_SCHEDULE' && (
-        <div className="space-y-4">
+        <div className="space-y-2.5 sm:space-y-3.5">
           {saveError && (
-            <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/80 p-3.5 sm:p-4 flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200 leading-relaxed">
+            <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/80 p-3 flex items-start justify-between gap-2.5">
+              <div className="flex items-start gap-2 text-xs text-rose-800 dark:text-rose-200 leading-relaxed">
                 <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
                 <div>
                   <div className="font-extrabold">Không thể lưu lịch làm việc</div>
@@ -945,37 +946,74 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
             </div>
           )}
 
+          {/* Mobile Tab Switcher: Tách 3 Buổi | WS Tuần trên màn hình điện thoại để vừa 1 màn hình */}
+          <div className="md:hidden grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={() => setMobileSectionTab('SESSIONS')}
+              className={`py-1.5 px-2.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                mobileSectionTab === 'SESSIONS'
+                  ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              <span>1. 3 Buổi</span>
+              <span className="text-[11px] font-black tabular-nums text-sky-600 dark:text-sky-400">
+                {myFilledSessionsCount}/21
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileSectionTab('WS')}
+              className={`py-1.5 px-2.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                mobileSectionTab === 'WS'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              <span>2. WS Tuần</span>
+              <span className="text-[11px] font-black tabular-nums text-indigo-600 dark:text-indigo-400">
+                {myFilledWsCount}
+              </span>
+            </button>
+          </div>
+
           {/* KHỐI 1: LỊCH HOẠT ĐỘNG 3 BUỔI (CN -> T7) */}
-          <section className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-200/80 dark:border-slate-800 p-3.5 sm:p-5 shadow-2xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3.5">
-              <div>
-                <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex flex-wrap items-baseline gap-x-2">
-                  <span>1. Lịch hoạt động 3 buổi</span>
-                  <span className="text-xs font-bold text-sky-700 dark:text-sky-300 tabular-nums">
-                    · {myFilledSessionsCount}/21 buổi
+          <section
+            className={`${
+              mobileSectionTab === 'SESSIONS' ? 'block' : 'hidden md:block'
+            } bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-2.5 sm:p-4 shadow-2xs`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 sm:mb-3">
+              <div className="min-w-0">
+                <h2 className="text-xs sm:text-base font-extrabold text-slate-900 dark:text-white flex flex-wrap items-baseline gap-x-1.5">
+                  <span>1. Lịch 3 buổi</span>
+                  <span className="text-[11px] sm:text-xs font-bold text-sky-700 dark:text-sky-300 tabular-nums">
+                    · {myFilledSessionsCount}/21
                   </span>
                 </h2>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="hidden sm:block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   Nhập trực tiếp 1 số đại diện vào ô tương ứng (để trống nếu chưa có lịch).
                 </p>
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">
-                <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] sm:text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
                   {updatedTimeLabel}
                 </span>
                 <button
                   type="button"
                   onClick={handleSave}
                   disabled={isSaving}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-60 ${
+                  className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-60 ${
                     isDirty
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/50'
                       : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                   }`}
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>{isSaving ? 'Đang lưu...' : isDirty ? 'Lưu thay đổi' : 'Lưu lịch'}</span>
+                  <span>{isSaving ? 'Lưu...' : isDirty ? 'Lưu thay đổi' : 'Lưu lịch'}</span>
                 </button>
               </div>
             </div>
@@ -1084,129 +1122,120 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
               </table>
             </div>
 
-            {/* Mobile Vertical Stack (7 Day Cards × 3 Horizontal Sessions, zero horizontal scroll) */}
-            <div className="md:hidden space-y-2.5">
-              {weekDays.map((day) => {
-                const dSessions = draftSessions[day.key];
-                const dayFilled =
-                  (dSessions.morning.trim() ? 1 : 0) +
-                  (dSessions.afternoon.trim() ? 1 : 0) +
-                  (dSessions.evening.trim() ? 1 : 0);
-
-                return (
-                  <div
-                    key={day.key}
-                    className={`rounded-2xl border p-3 transition ${
-                      day.isToday
-                        ? 'bg-sky-50/70 dark:bg-sky-950/30 border-sky-300 dark:border-sky-700'
-                        : day.key === 'sun'
-                        ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-800/60'
-                        : 'bg-slate-50/60 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-700/80'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-extrabold text-slate-900 dark:text-white">
-                          {day.fullLabel}
-                        </span>
-                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+            {/* Mobile Compact Matrix (7 rows x 3 cols, fits 1 screen without scrolling) */}
+            <div className="md:hidden rounded-xl border border-slate-200/90 dark:border-slate-800 overflow-hidden">
+              <div className="grid grid-cols-[64px_1fr_1fr_1fr] gap-1.5 px-2 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-extrabold text-slate-600 dark:text-slate-300 text-center">
+                <div className="text-left pl-0.5">Ngày</div>
+                {SESSION_ROWS.map((sr) => (
+                  <div key={sr.key}>{sr.label}</div>
+                ))}
+              </div>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {weekDays.map((day) => {
+                  const dSessions = draftSessions[day.key];
+                  return (
+                    <div
+                      key={day.key}
+                      className={`grid grid-cols-[64px_1fr_1fr_1fr] gap-1.5 px-2 py-1 items-center ${
+                        day.isToday
+                          ? 'bg-sky-50/80 dark:bg-sky-950/35'
+                          : day.key === 'sun'
+                          ? 'bg-amber-50/40 dark:bg-amber-950/15'
+                          : ''
+                      }`}
+                    >
+                      <div className="leading-tight min-w-0">
+                        <div
+                          className={`text-[11px] font-extrabold truncate ${
+                            day.isToday
+                              ? 'text-sky-700 dark:text-sky-300'
+                              : day.key === 'sun'
+                              ? 'text-amber-700 dark:text-amber-300'
+                              : 'text-slate-800 dark:text-slate-100'
+                          }`}
+                        >
+                          {day.shortLabel}
+                          {day.isToday ? ' · Nay' : ''}
+                        </div>
+                        <div className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 tabular-nums">
                           {day.displayDate}
-                        </span>
-                        {day.isToday && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-sky-600 text-white text-[10px] font-bold">
-                            Hôm nay
-                          </span>
-                        )}
+                        </div>
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          dayFilled > 0
-                            ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300'
-                            : 'bg-slate-200/70 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        {dayFilled}/3 buổi
-                      </span>
-                    </div>
 
-                    <div className="grid grid-cols-3 gap-2">
                       {SESSION_ROWS.map((sessionRow) => {
                         const val = dSessions[sessionRow.key] ?? '';
                         return (
-                          <div key={sessionRow.key} className="space-y-1">
-                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 text-center">
-                              {sessionRow.label}
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              maxLength={12}
-                              value={val}
-                              placeholder="—"
-                              onFocus={(e) => e.currentTarget.select()}
-                              onChange={(e) =>
-                                handleSessionChange(day.key, sessionRow.key, e.target.value)
-                              }
-                              aria-label={`${sessionRow.label} ${day.fullLabel}`}
-                              className={`w-full h-10 text-center rounded-xl border text-sm font-extrabold outline-none transition ${
-                                val
-                                  ? 'bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-400 dark:border-emerald-700 text-slate-900 dark:text-white'
-                                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600'
-                              } focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20`}
-                            />
-                          </div>
+                          <input
+                            key={sessionRow.key}
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={12}
+                            value={val}
+                            placeholder="—"
+                            onFocus={(e) => e.currentTarget.select()}
+                            onChange={(e) =>
+                              handleSessionChange(day.key, sessionRow.key, e.target.value)
+                            }
+                            aria-label={`${sessionRow.label} ${day.fullLabel}`}
+                            className={`w-full h-9 text-center rounded-lg border text-xs font-extrabold outline-none transition tabular-nums ${
+                              val
+                                ? 'bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-400 dark:border-emerald-700 text-slate-900 dark:text-white'
+                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600'
+                            } focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20`}
+                          />
                         );
                       })}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </section>
 
           {/* KHỐI 2: LỊCH WS TUẦN (TÁCH RIÊNG + THANH TÍCH CHỌN NGÀY) */}
-          <section className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-indigo-200/80 dark:border-indigo-900/70 p-3.5 sm:p-5 shadow-2xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3">
-              <div>
-                <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex flex-wrap items-baseline gap-x-2">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
+          <section
+            className={`${
+              mobileSectionTab === 'WS' ? 'block' : 'hidden md:block'
+            } bg-white dark:bg-slate-900 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/70 p-2.5 sm:p-4 shadow-2xs`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+              <div className="min-w-0">
+                <h2 className="text-xs sm:text-base font-extrabold text-slate-900 dark:text-white flex flex-wrap items-baseline gap-x-1.5">
+                  <span className="inline-flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500 shrink-0" />
                     <span>2. Lịch WS Tuần</span>
                   </span>
-                  <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 tabular-nums">
-                    · {myFilledWsCount} buổi WS
+                  <span className="text-[11px] sm:text-xs font-bold text-indigo-700 dark:text-indigo-300 tabular-nums">
+                    · {myFilledWsCount} buổi
                   </span>
                 </h2>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="hidden sm:block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   Mặc định T3 &amp; T7 · Bật thêm ngày WS khác khi có lịch đặc biệt.
                 </p>
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">
-                <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] sm:text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
                   {updatedTimeLabel}
                 </span>
                 <button
                   type="button"
                   onClick={handleSave}
                   disabled={isSaving}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-60 ${
+                  className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-60 ${
                     isDirty
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/50'
                       : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                   }`}
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>{isSaving ? 'Đang lưu...' : isDirty ? 'Lưu thay đổi' : 'Lưu lịch'}</span>
+                  <span>{isSaving ? 'Lưu...' : isDirty ? 'Lưu thay đổi' : 'Lưu lịch'}</span>
                 </button>
               </div>
             </div>
 
-            {/* Thanh tích chọn ngày WS (CN -> T7) */}
-            <div className="mb-3.5 pb-3 border-b border-indigo-100/80 dark:border-indigo-900/50 flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mr-1">
-                Ngày bật WS:
-              </span>
+            {/* Thanh tích chọn ngày WS (1 hàng 7 cột gọn trên mobile) */}
+            <div className="mb-2.5 pb-2.5 border-b border-indigo-100/80 dark:border-indigo-900/50 grid grid-cols-7 sm:flex sm:flex-wrap gap-1 sm:gap-1.5">
               {weekDays.map((day) => {
                 const isActive = draftWsActiveDays.includes(day.key);
                 const hasWsData =
@@ -1218,14 +1247,14 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                     key={day.key}
                     type="button"
                     onClick={() => handleToggleWsDay(day.key)}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-extrabold border flex items-center gap-1 transition cursor-pointer ${
+                    className={`py-1.5 sm:px-2.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-extrabold border flex items-center justify-center gap-0.5 transition cursor-pointer ${
                       isActive
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
                         : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'
                     }`}
                     title={`Bật/tắt WS ${day.fullLabel} (${day.displayDate})`}
                   >
-                    {isActive && <Check className="w-3 h-3 shrink-0" />}
+                    {isActive && <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 hidden sm:inline" />}
                     <span>{day.shortLabel}</span>
                     {!isActive && hasWsData && (
                       <span
@@ -1239,112 +1268,101 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
             </div>
 
             {draftWsActiveDays.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center text-xs text-slate-500 dark:text-slate-400">
-                Chưa chọn ngày nào cho lịch WS tuần này. Bấm tích chọn ngày ở thanh phía trên (ví dụ <strong>T3</strong> hoặc <strong>T7</strong>) để nhập lịch WS.
+              <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-4 text-center text-xs text-slate-500 dark:text-slate-400">
+                Chưa chọn ngày nào cho lịch WS tuần này. Bấm chọn ngày phía trên (ví dụ <strong>T3</strong> hoặc <strong>T7</strong>).
               </div>
             ) : (
-              <div className="space-y-2.5">
-                {weekDays
-                  .filter((day) => draftWsActiveDays.includes(day.key))
-                  .map((day) => {
-                    const wsEntry = draftWs[day.key];
-                    return (
-                      <div
-                        key={day.key}
-                        className="rounded-2xl border border-indigo-100 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center gap-3"
-                      >
-                        <div className="sm:w-44 shrink-0 flex items-center justify-between sm:justify-start gap-2">
-                          <div>
-                            <div className="text-xs sm:text-sm font-extrabold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
-                              <span>WS {day.fullLabel}</span>
-                              {day.isToday && (
-                                <span className="px-1.5 py-0.5 rounded bg-sky-600 text-white text-[9px] font-bold">
-                                  Nay
-                                </span>
-                              )}
+              <div className="rounded-xl border border-indigo-100 dark:border-indigo-900/60 overflow-hidden">
+                <div className="grid grid-cols-[64px_1fr_1fr_1fr] sm:grid-cols-[120px_1fr_1fr_1fr_32px] gap-1.5 px-2 py-1.5 bg-indigo-50/80 dark:bg-indigo-950/50 border-b border-indigo-100 dark:border-indigo-900/60 text-[11px] font-extrabold text-indigo-800 dark:text-indigo-200 text-center">
+                  <div className="text-left pl-0.5">WS Ngày</div>
+                  {SESSION_ROWS.map((sr) => (
+                    <div key={sr.key}>{sr.label}</div>
+                  ))}
+                  <div className="hidden sm:block" />
+                </div>
+                <div className="divide-y divide-indigo-100/70 dark:divide-indigo-900/50 bg-indigo-50/25 dark:bg-indigo-950/15">
+                  {weekDays
+                    .filter((day) => draftWsActiveDays.includes(day.key))
+                    .map((day) => {
+                      const wsEntry = draftWs[day.key];
+                      return (
+                        <div
+                          key={day.key}
+                          className="grid grid-cols-[64px_1fr_1fr_1fr] sm:grid-cols-[120px_1fr_1fr_1fr_32px] gap-1.5 px-2 py-1.5 items-center"
+                        >
+                          <div className="leading-tight min-w-0">
+                            <div className="text-[11px] sm:text-xs font-extrabold text-indigo-950 dark:text-indigo-200 truncate">
+                              {day.shortLabel}
+                              {day.isToday ? ' · Nay' : ''}
                             </div>
-                            <div className="text-[11px] font-semibold text-indigo-600/80 dark:text-indigo-400">
-                              Ngày {day.displayDate}
+                            <div className="text-[10px] font-semibold text-indigo-600/80 dark:text-indigo-400 tabular-nums">
+                              {day.displayDate}
                             </div>
                           </div>
+
+                          {SESSION_ROWS.map((sessionRow) => {
+                            const val = wsEntry?.[sessionRow.key] ?? '';
+                            return (
+                              <input
+                                key={sessionRow.key}
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={12}
+                                value={val}
+                                placeholder="—"
+                                onFocus={(e) => e.currentTarget.select()}
+                                onChange={(e) =>
+                                  handleWsValueChange(day.key, sessionRow.key, e.target.value)
+                                }
+                                aria-label={`WS ${sessionRow.label} ${day.fullLabel}`}
+                                className={`w-full h-9 text-center rounded-lg border text-xs sm:text-sm font-extrabold outline-none transition tabular-nums ${
+                                  val
+                                    ? 'bg-indigo-100/70 dark:bg-indigo-900/50 border-indigo-400 dark:border-indigo-500 text-indigo-950 dark:text-white'
+                                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600'
+                                } focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20`}
+                              />
+                            );
+                          })}
 
                           <button
                             type="button"
                             onClick={() => handleToggleWsDay(day.key)}
-                            className="sm:hidden px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                            className="hidden sm:inline-flex p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer justify-center"
+                            title={`Ẩn ngày WS ${day.fullLabel}`}
+                            aria-label={`Ẩn ngày WS ${day.fullLabel}`}
                           >
-                            Bỏ chọn
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
-
-                        <div className="grid grid-cols-3 gap-2 sm:gap-3 flex-1">
-                          {SESSION_ROWS.map((sessionRow) => {
-                            const val = wsEntry?.[sessionRow.key] ?? '';
-                            return (
-                              <div key={sessionRow.key} className="space-y-1">
-                                <label className="block text-[10px] sm:text-[11px] font-bold text-slate-600 dark:text-slate-300 text-center">
-                                  {sessionRow.label}
-                                </label>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  maxLength={12}
-                                  value={val}
-                                  placeholder="—"
-                                  onFocus={(e) => e.currentTarget.select()}
-                                  onChange={(e) =>
-                                    handleWsValueChange(day.key, sessionRow.key, e.target.value)
-                                  }
-                                  aria-label={`WS ${sessionRow.label} ${day.fullLabel}`}
-                                  className={`w-full h-10 text-center rounded-xl border text-sm font-extrabold outline-none transition ${
-                                    val
-                                      ? 'bg-indigo-100/70 dark:bg-indigo-900/50 border-indigo-400 dark:border-indigo-500 text-indigo-950 dark:text-white'
-                                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600'
-                                  } focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20`}
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleToggleWsDay(day.key)}
-                          className="hidden sm:inline-flex p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
-                          title={`Ẩn ngày WS ${day.fullLabel}`}
-                          aria-label={`Ẩn ngày WS ${day.fullLabel}`}
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                </div>
               </div>
             )}
           </section>
 
           {/* GHI CHÚ CÁ NHÂN (TÙY CHỌN, GỌN NHẸ) */}
-          <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs">
+          <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 px-3 py-2.5 sm:px-4 sm:py-3 shadow-2xs">
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={() => setShowLegendBox((p) => !p)}
                 className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300 transition cursor-pointer"
               >
-                <FileText className="w-4 h-4 text-slate-400" />
-                <span>Ghi chú quy ước số cá nhân (tùy chọn)</span>
+                <FileText className="w-3.5 h-3.5 text-slate-400" />
+                <span>Ghi chú quy ước số cá nhân</span>
               </button>
               <button
                 type="button"
                 onClick={() => setShowLegendBox((p) => !p)}
                 className="text-[11px] font-bold text-blue-600 dark:text-blue-400 cursor-pointer"
               >
-                {showLegendBox ? 'Thu gọn' : 'Mở ghi chú'}
+                {showLegendBox ? 'Thu gọn' : 'Mở'}
               </button>
             </div>
 
             {showLegendBox && (
-              <div className="mt-3">
+              <div className="mt-2">
                 <textarea
                   rows={2}
                   maxLength={600}
@@ -1354,7 +1372,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                     setIsDirty(true);
                   }}
                   placeholder="Ví dụ cá nhân: 127 = Thăm KV | 203 = Cà phê KN | 201 = Họp Uni..."
-                  className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-3.5 py-2.5 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-3 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
             )}
@@ -1364,39 +1382,39 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
 
       {/* ================== VIEW 2: TEAM SCHEDULES (SUPERVISORS) ================== */}
       {viewMode === 'TEAM_SCHEDULES' && canViewTeamSchedules && (
-        <div className="space-y-4">
+        <div className="space-y-2.5 sm:space-y-3.5">
           {/* Summary Strip + Filters */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-2xs space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 p-3">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-                  Phạm vi quản lý
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-3 sm:p-4 shadow-2xs space-y-2.5">
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2.5">
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 p-2 sm:p-2.5">
+                <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-semibold truncate">
+                  Phạm vi
                 </div>
-                <div className="text-lg font-extrabold text-slate-900 dark:text-white mt-0.5">
+                <div className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white mt-0.5 tabular-nums">
                   {teamStats.total} TV
                 </div>
               </div>
-              <div className="rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 p-3">
-                <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">
-                  Đã lên lịch tuần
+              <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 p-2 sm:p-2.5">
+                <div className="text-[10px] sm:text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold truncate">
+                  Đã nhập
                 </div>
-                <div className="text-lg font-extrabold text-emerald-800 dark:text-emerald-200 mt-0.5">
+                <div className="text-sm sm:text-base font-extrabold text-emerald-800 dark:text-emerald-200 mt-0.5 tabular-nums">
                   {teamStats.updatedCount}/{teamStats.total}
                 </div>
               </div>
-              <div className="rounded-2xl bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200/70 dark:border-sky-800/60 p-3">
-                <div className="text-[11px] text-sky-700 dark:text-sky-300 font-semibold">
-                  Tổng buổi thường
+              <div className="rounded-xl bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200/70 dark:border-sky-800/60 p-2 sm:p-2.5">
+                <div className="text-[10px] sm:text-[11px] text-sky-700 dark:text-sky-300 font-semibold truncate">
+                  Buổi thường
                 </div>
-                <div className="text-lg font-extrabold text-sky-800 dark:text-sky-200 mt-0.5">
+                <div className="text-sm sm:text-base font-extrabold text-sky-800 dark:text-sky-200 mt-0.5 tabular-nums">
                   {teamStats.totalSessions}
                 </div>
               </div>
-              <div className="rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/60 p-3">
-                <div className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold">
-                  Tổng buổi WS
+              <div className="rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/60 p-2 sm:p-2.5">
+                <div className="text-[10px] sm:text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold truncate">
+                  Buổi WS
                 </div>
-                <div className="text-lg font-extrabold text-indigo-800 dark:text-indigo-200 mt-0.5">
+                <div className="text-sm sm:text-base font-extrabold text-indigo-800 dark:text-indigo-200 mt-0.5 tabular-nums">
                   {teamStats.totalWs}
                 </div>
               </div>
