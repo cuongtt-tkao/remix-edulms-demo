@@ -1011,17 +1011,26 @@ export default function App() {
     const ownMemberId = effectiveCurrentUser?.memberId || (firebaseUser?.uid ? `m-${firebaseUser.uid}` : '');
 
     return members.map((m) => {
+      const safeBase = {
+        ...m,
+        fullName: m.fullName || '',
+        companyCode: m.companyCode || '',
+        areaCode: m.areaCode || '',
+        departmentCode: m.departmentCode || '',
+        targets: Array.isArray(m.targets) ? m.targets : [],
+        score: typeof m.score === 'number' && Number.isFinite(m.score) ? m.score : 0,
+      };
       const mReports = reportsByMember.get(m.id) || [];
       if (hasFullDailyReports || mReports.length > 0 || m.id === ownMemberId) {
         const aggregated = sumDailyReportMetrics(mReports);
         const dailyScore = computeDailyMetricsScore(aggregated, weights);
         return {
-          ...m,
+          ...safeBase,
           dailyResults: aggregated,
-          score: dailyScore,
+          score: Number.isFinite(dailyScore) ? dailyScore : 0,
         };
       }
-      return m;
+      return safeBase;
     });
   }, [
     members,

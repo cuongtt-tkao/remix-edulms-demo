@@ -314,8 +314,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const n = normalizeOrgCode(u);
       if (n) set.add(n);
     });
-    if (set.size === 0 && (currentUser?.unitCode || currentUser?.departmentCode)) {
-      const n = normalizeOrgCode(currentUser.unitCode || currentUser.departmentCode);
+    if (currentUser?.unitCode) {
+      const n = normalizeOrgCode(currentUser.unitCode);
+      if (n) set.add(n);
+    }
+    if (set.size === 0 && currentUser?.departmentCode) {
+      const n = normalizeOrgCode(currentUser.departmentCode);
       if (n) set.add(n);
     }
     return set;
@@ -476,7 +480,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setNewMemberArea(scopedAreas[0].code);
       }
       if (currentUser?.role === 'UNI_LEADER') {
-        const ownU = currentUser.unitCode || currentUser.managedUnitCodes?.[0] || '';
+        const ownU = currentUser.managedUnitCodes?.[0] || currentUser.unitCode || '';
         if (ownU && !viewerUnitScope.has(normalizeOrgCode(newMemberUnit))) {
           setNewMemberUnit(ownU);
         }
@@ -1637,23 +1641,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       if (!searchQuery.trim()) return true;
                       const q = searchQuery.toLowerCase();
                       return (
-                        m.fullName.toLowerCase().includes(q) ||
-                        m.companyCode.toLowerCase().includes(q) ||
-                        m.areaCode.toLowerCase().includes(q) ||
-                        m.departmentCode.toLowerCase().includes(q)
+                        (m.fullName || '').toLowerCase().includes(q) ||
+                        (m.companyCode || '').toLowerCase().includes(q) ||
+                        (m.areaCode || '').toLowerCase().includes(q) ||
+                        (m.departmentCode || '').toLowerCase().includes(q)
                       );
                     })
                     .map((mem) => {
                       const canEditThisMem = canModifyMember(mem);
+                      const safeScore =
+                        typeof mem.score === 'number' && Number.isFinite(mem.score) ? mem.score : 0;
                       return (
                       <tr key={mem.id} className="hover:bg-slate-50/80 transition">
                         <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900 text-sm">{mem.fullName}</div>
-                          <div className="text-[10px] text-slate-400">{mem.code}</div>
+                          <div className="font-bold text-slate-900 text-sm">{mem.fullName || 'Chưa đặt tên'}</div>
+                          <div className="text-[10px] text-slate-400">{mem.code || ''}</div>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-slate-700">{mem.companyCode}</td>
-                        <td className="py-3 px-4 font-semibold text-slate-700">{mem.areaCode}</td>
-                        <td className="py-3 px-4 text-slate-600">{mem.departmentCode}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-700">{mem.companyCode || '-'}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-700">{mem.areaCode || '-'}</td>
+                        <td className="py-3 px-4 text-slate-600">{mem.departmentCode || '-'}</td>
                         <td className="py-3 px-4 text-center">
                           <button
                             type="button"
@@ -1662,8 +1668,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               onUpdateMember({ ...mem, active: !mem.active });
                               onShowNotification(
                                 mem.active
-                                  ? `Đã tạm dừng tính điểm cho ${mem.fullName}.`
-                                  : `Đã kích hoạt hoạt động cho ${mem.fullName}.`
+                                  ? `Đã tạm dừng tính điểm cho ${mem.fullName || 'thành viên'}.`
+                                  : `Đã kích hoạt hoạt động cho ${mem.fullName || 'thành viên'}.`
                               );
                             }}
                             className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] inline-flex items-center gap-1 transition cursor-pointer disabled:opacity-60 ${
@@ -1675,7 +1681,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </button>
                         </td>
                         <td className="py-3 px-4 text-right font-black text-slate-900 text-sm">
-                          {mem.score.toLocaleString('vi-VN')}
+                          {safeScore.toLocaleString('vi-VN')}
                         </td>
                         <td className="py-3 px-4 text-center font-semibold text-slate-600">
                           {mem.targets?.length || 0}

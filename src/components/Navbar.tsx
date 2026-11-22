@@ -22,6 +22,7 @@ import {
   Bell,
   Clock,
   CheckCircle2,
+  ChevronDown,
 } from 'lucide-react';
 import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel } from '../types/edulms';
 
@@ -77,18 +78,37 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 }) => {
   const [isSpinning, setIsSpinning] = React.useState(false);
   const [isBellOpen, setIsBellOpen] = React.useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = React.useState(false);
   const bellWrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
-    if (!isBellOpen) return;
+    if (!isBellOpen && !isAccountMenuOpen) return;
     const handleOutside = (e: MouseEvent) => {
-      if (bellWrapperRef.current && !bellWrapperRef.current.contains(e.target as Node)) {
+      if (isBellOpen && bellWrapperRef.current && !bellWrapperRef.current.contains(e.target as Node)) {
         setIsBellOpen(false);
+      }
+      if (
+        isAccountMenuOpen &&
+        accountMenuRef.current &&
+        !accountMenuRef.current.contains(e.target as Node)
+      ) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsBellOpen(false);
+        setIsAccountMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, [isBellOpen]);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isBellOpen, isAccountMenuOpen]);
 
   const isAdminViewer =
     currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
@@ -105,9 +125,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     : null;
 
   return (
-    <header className="bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/90 dark:border-slate-800 sticky top-0 z-40 h-16 px-3 sm:px-5 flex items-center justify-between gap-2 backdrop-blur-md shadow-2xs transition-colors">
+    <header className="bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/90 dark:border-slate-800 sticky top-0 z-40 h-16 px-2.5 sm:px-5 flex items-center justify-between gap-2 backdrop-blur-md shadow-2xs transition-colors">
       {/* Left: Sidebar Toggle + Brand Name */}
-      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         <button
           type="button"
           onClick={onToggleSidebar}
@@ -153,15 +173,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </button>
       </div>
 
-      {/* Right: Utility buttons + Profile / Logout */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      {/* Right: Utility buttons + Unified Account Mini Menu */}
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         <button
           type="button"
           onClick={onOpenRulesModal}
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[38px] rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-700/60 text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0"
+          className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 min-h-[38px] rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-700/60 text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0"
           title="Xem thể lệ & quy đổi điểm"
+          aria-label="Xem thể lệ & quy đổi điểm"
         >
-          <BookOpen className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+          <BookOpen className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-amber-600 dark:text-amber-400" />
           <span className="hidden md:inline">Thể lệ</span>
         </button>
 
@@ -189,25 +210,14 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           )}
         </button>
 
-        {canAccessAdmin && onNavigateAdmin && (
-          <button
-            type="button"
-            onClick={onNavigateAdmin}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[38px] rounded-xl bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-700/60 text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
-            title={isAdminViewer ? 'Mở Trang Quản trị Tổng' : 'Mở Trang Quản trị Đơn vị'}
-          >
-            <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-            <span className="hidden sm:inline">
-              {isAdminViewer ? 'Quản trị' : 'Quản trị ĐV'}
-            </span>
-          </button>
-        )}
-
         {isAdminViewer && (
           <div className="relative" ref={bellWrapperRef}>
             <button
               type="button"
-              onClick={() => setIsBellOpen((v) => !v)}
+              onClick={() => {
+                setIsAccountMenuOpen(false);
+                setIsBellOpen((v) => !v);
+              }}
               aria-label="Thông báo phê duyệt đăng ký mới"
               title={
                 pendingApprovals.length > 0
@@ -293,18 +303,28 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         )}
 
         {currentUser ? (
-          <div className="flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-slate-700">
+          <div className="relative pl-1 sm:pl-1.5 border-l border-slate-200 dark:border-slate-700" ref={accountMenuRef}>
             <button
               type="button"
-              onClick={onNavigateProfile}
-              title={`Hồ sơ cá nhân · ${currentUser.fullName} (Sion ${currentUser.companyCode} · KV ${currentUser.areaCode})`}
-              className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 min-h-[38px] rounded-xl bg-slate-100/90 dark:bg-slate-800/90 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer max-w-[170px] sm:max-w-[230px]"
+              onClick={() => {
+                setIsBellOpen(false);
+                setIsAccountMenuOpen((v) => !v);
+              }}
+              aria-expanded={isAccountMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Mở menu tài khoản"
+              title={`${currentUser.fullName || 'Tài khoản'} (${currentUser.companyCode || ''} · KV ${currentUser.areaCode || ''})`}
+              className={`flex items-center gap-1.5 sm:gap-2 pl-1.5 pr-2 py-1 min-h-[38px] rounded-xl border transition cursor-pointer max-w-[140px] sm:max-w-[240px] ${
+                isAccountMenuOpen
+                  ? 'bg-blue-50 dark:bg-slate-800 border-blue-300 dark:border-blue-600 shadow-xs'
+                  : 'bg-slate-100/90 dark:bg-slate-800/90 hover:bg-blue-50 dark:hover:bg-slate-700 border-slate-200/80 dark:border-slate-700'
+              }`}
             >
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-[11px] flex items-center justify-center shrink-0 overflow-hidden">
                 {currentUser.avatarUrl ? (
                   <img
                     src={currentUser.avatarUrl}
-                    alt={currentUser.fullName}
+                    alt={currentUser.fullName || 'Avatar'}
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -313,39 +333,134 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               </div>
               <div className="min-w-0 text-left hidden sm:block">
                 <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate leading-tight">
-                  {currentUser.fullName}
+                  {currentUser.fullName || 'Tài khoản'}
                 </div>
                 <div className="text-[10px] font-bold text-blue-700 dark:text-amber-300 truncate leading-tight">
                   {currentUser.companyCode} · KV {currentUser.areaCode} · {roleMeta?.codeBadge || 'TĐ'}
                 </div>
               </div>
               <span className="sm:hidden text-[11px] font-extrabold text-slate-900 dark:text-white truncate">
-                {currentUser.fullName.split(' ').slice(-1)[0]}
+                {(currentUser.fullName || 'Menu').trim().split(/\s+/).slice(-1)[0]}
               </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0 transition-transform duration-150 ${
+                  isAccountMenuOpen ? 'rotate-180 text-blue-600 dark:text-amber-300' : ''
+                }`}
+              />
             </button>
 
-            {onLockPin && (
-              <button
-                type="button"
-                onClick={onLockPin}
-                title="Khóa màn hình bằng Mã cá nhân"
-                aria-label="Khóa màn hình bằng Mã cá nhân"
-                className="p-2 min-w-[36px] min-h-[38px] flex items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 transition cursor-pointer shrink-0"
+            {isAccountMenuOpen && (
+              <div
+                role="menu"
+                className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-full sm:mt-2 w-[min(92vw,272px)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 z-50 animate-in fade-in slide-in-from-top-1"
               >
-                <Lock className="w-3.5 h-3.5" />
-              </button>
-            )}
+                {/* Account Summary Card */}
+                <div className="px-3 py-2.5 mb-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70">
+                  <div className="text-xs font-black text-slate-900 dark:text-white truncate">
+                    {currentUser.fullName || 'Thành viên'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {currentUser.email}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    {roleMeta && (
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-extrabold ${roleMeta.badgeClass}`}
+                      >
+                        {roleMeta.label}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                      {currentUser.companyCode} · KV {currentUser.areaCode}
+                      {currentUser.unitCode ? ` · ${currentUser.unitCode}` : ''}
+                    </span>
+                  </div>
+                </div>
 
-            <button
-              type="button"
-              onClick={onLogout}
-              title="Đăng xuất tài khoản"
-              aria-label="Đăng xuất tài khoản"
-              className="flex items-center gap-1 px-2.5 py-1.5 min-h-[38px] rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/60 text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <LogOut className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Đăng xuất</span>
-            </button>
+                {/* Menu Actions */}
+                <div className="space-y-0.5">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsAccountMenuOpen(false);
+                      onNavigateProfile();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-800 hover:text-blue-700 dark:hover:text-blue-300 transition cursor-pointer text-left"
+                  >
+                    <User className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Hồ sơ cá nhân</span>
+                  </button>
+
+                  {canAccessAdmin && onNavigateAdmin && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsAccountMenuOpen(false);
+                        onNavigateAdmin();
+                      }}
+                      className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/50 transition cursor-pointer text-left"
+                    >
+                      <span className="flex items-center gap-2.5 min-w-0">
+                        <Shield className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                        <span className="truncate">
+                          {isAdminViewer ? 'Quản trị Hệ thống' : 'Quản trị Đơn vị'}
+                        </span>
+                      </span>
+                      {isAdminViewer && pendingApprovals.length > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black leading-none tabular-nums shrink-0">
+                          {pendingApprovals.length}
+                        </span>
+                      )}
+                    </button>
+                  )}
+
+                  {onLockPin && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsAccountMenuOpen(false);
+                        onLockPin();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer text-left"
+                    >
+                      <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>Khóa màn hình (Mã PIN)</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsAccountMenuOpen(false);
+                      handleRefreshClick();
+                    }}
+                    className="sm:hidden w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer text-left"
+                  >
+                    <RefreshCw className={`w-4 h-4 text-slate-500 shrink-0 ${isSpinning ? 'animate-spin text-blue-600' : ''}`} />
+                    <span>Làm mới giao diện</span>
+                  </button>
+
+                  <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsAccountMenuOpen(false);
+                      onLogout();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer text-left"
+                  >
+                    <LogOut className="w-4 h-4 shrink-0" />
+                    <span>Đăng xuất</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <button
@@ -673,12 +788,12 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    currentUser.fullName.charAt(0)
+                    (currentUser.fullName || 'U').charAt(0).toUpperCase()
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-extrabold text-white truncate">
-                    {currentUser.fullName}
+                    {currentUser.fullName || 'Thành viên'}
                   </div>
                   <div className="text-[10px] text-amber-300/90 truncate">
                     {getRoleSubtitle(currentUser)}
@@ -686,16 +801,16 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="flex justify-center" title={currentUser.fullName}>
+              <div className="flex justify-center" title={currentUser.fullName || 'Thành viên'}>
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-indigo-600 flex items-center justify-center text-white font-black text-xs overflow-hidden">
                   {currentUser.avatarUrl ? (
                     <img
                       src={currentUser.avatarUrl}
-                      alt={currentUser.fullName}
+                      alt={currentUser.fullName || 'Avatar'}
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    currentUser.fullName.charAt(0)
+                    (currentUser.fullName || 'U').charAt(0).toUpperCase()
                   )}
                 </div>
               </div>
