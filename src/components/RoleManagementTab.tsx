@@ -17,6 +17,8 @@ import {
   X,
   Check,
   SlidersHorizontal,
+  AlertTriangle,
+  KeyRound,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -49,6 +51,11 @@ interface RoleManagementTabProps {
     targetName: string,
     scope?: ScopeSelection
   ) => Promise<void>;
+  onDeleteUserAccount?: (
+    targetUserId: string,
+    targetName: string,
+    targetEmail?: string
+  ) => Promise<void>;
   preAssignedRoles?: RoleAssignment[];
   onPreAssignRole?: (
     email: string,
@@ -57,6 +64,7 @@ interface RoleManagementTabProps {
     scope?: ScopeSelection
   ) => Promise<void>;
   onDeletePreAssignedRole?: (email: string) => Promise<void>;
+  onResetUserPin?: (targetUserId: string, targetName: string) => Promise<void>;
   onShowNotification: (msg: string) => void;
 }
 
@@ -78,14 +86,23 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   companies,
   areas,
   onUpdateUserRole,
+  onDeleteUserAccount,
   preAssignedRoles = [],
   onPreAssignRole,
   onDeletePreAssignedRole,
+  onResetUserPin,
   onShowNotification,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<
+    | { type: 'USER'; user: UserAccount; effectiveRole: UserRole }
+    | { type: 'PRE_ASSIGN'; email: string; role: UserRole }
+    | { type: 'RESET_PIN'; user: UserAccount }
+    | null
+  >(null);
 
   // Quick Pre-Grant Form States
   const [newEmail, setNewEmail] = useState('');
@@ -327,6 +344,43 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
 
   const toggleItem = (list: string[], code: string, setter: (next: string[]) => void) => {
     setter(list.includes(code) ? list.filter((c) => c !== code) : [...list, code]);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return;
+    if (!isSuperAdmin) {
+      onShowNotification('Chỉ Quản trị viên tổng (Super Admin) mới có quyền xóa tài khoản!');
+      setConfirmDelete(null);
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      if (confirmDelete.type === 'USER') {
+        if (!onDeleteUserAccount) return;
+        const { user } = confirmDelete;
+        await onDeleteUserAccount(user.id, user.fullName, user.email);
+      } else if (confirmDelete.type === 'RESET_PIN') {
+        if (!onResetUserPin) return;
+        const { user } = confirmDelete;
+        await onResetUserPin(user.id, user.fullName);
+      } else {
+        if (!onDeletePreAssignedRole) return;
+        await onDeletePreAssignedRole(confirmDelete.email);
+      }
+      setConfirmDelete(null);
+    } catch (err: any) {
+      let msg = 'Thao tác xóa thất bại. Vui lòng kiểm tra quyền Quản trị Tổng.';
+      try {
+        const parsed = JSON.parse(err?.message || '');
+        if (parsed?.error) msg = parsed.error;
+      } catch {
+        if (err?.message) msg = err.message;
+      }
+      onShowNotification(`Lỗi xóa: ${msg}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -576,7 +630,13 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                     {onDeletePreAssignedRole && (
                       <button
                         type="button"
-                        onClick={() => onDeletePreAssignedRole(pa.email)}
+                        onClick={() =>
+                          setConfirmDelete({
+                            type: 'PRE_ASSIGN',
+                            email: pa.email,
+                            role: pa.role,
+                          })
+                        }
                         className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                         title="Thu hồi quyền"
                       >
@@ -657,6 +717,9 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                   const effectiveRole = resolveEffectiveRole(user);
                   const roleMeta = ROLE_DISPLAY_META[effectiveRole];
                   const isSelf = user.id === currentUser?.id;
+                  const isBootstrapSuperAdmin = BOOTSTRAP_SUPER_ADMIN_EMAILS.some(
+                    (e) => e.toLowerCase() === (user.email || '').toLowerCase().trim()
+                  );
                   const companyObj = companies.find((c) => c.code === user.companyCode);
                   const scopeParts = [
                     ...(user.managedCompanyCodes || []).map((c) => `Sion ${c}`),
@@ -741,6 +804,43 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                                 title="Chọn Sion / Khu vực / Uni phụ trách"
                               >
                                 <SlidersHorizontal className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {onResetUserPin && user.pinHash && (
+                              <button
+                                type="button"
+                                disabled={isUpdating === user.id}
+                                onClick={() =>
+                                  setConfirmDelete({
+                                    type: 'RESET_PIN',
+                                    user,
+                                  })
+                                }
+                                className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 cursor-pointer shrink-0 disabled:opacity-50"
+                                title="Đặt lại Mã cá nhân 6 số (khi thành viên quên PIN)"
+                                aria-label={`Đặt lại Mã PIN cho ${user.fullName}`}
+                              >
+                                <KeyRound className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {onDeleteUserAccount && !isSelf && !isBootstrapSuperAdmin && (
+                              <button
+                                type="button"
+                                disabled={isUpdating === user.id}
+                                onClick={() =>
+                                  setConfirmDelete({
+                                    type: 'USER',
+                                    user,
+                                    effectiveRole,
+                                  })
+                                }
+                                className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 cursor-pointer shrink-0 disabled:opacity-50"
+                                title="Xóa tài khoản khỏi danh sách phân quyền"
+                                aria-label={`Xóa tài khoản ${user.fullName}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>
@@ -944,6 +1044,130 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Lưu phân quyền</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal xác nhận xóa tài khoản / thu hồi quyền */}
+      {confirmDelete && (
+        <div
+          onClick={() => {
+            if (!isDeleting) setConfirmDelete(null);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-xs p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-5 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4"
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  confirmDelete.type === 'RESET_PIN'
+                    ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400'
+                    : 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400'
+                }`}
+              >
+                {confirmDelete.type === 'RESET_PIN' ? (
+                  <KeyRound className="w-5 h-5" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
+                  {confirmDelete.type === 'USER'
+                    ? 'Xác nhận xóa tài khoản khỏi phân quyền'
+                    : confirmDelete.type === 'RESET_PIN'
+                    ? 'Xác nhận đặt lại Mã cá nhân 6 số'
+                    : 'Xác nhận thu hồi cấp quyền trước'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                  {confirmDelete.type === 'USER'
+                    ? 'Tài khoản này sẽ bị xóa khỏi danh sách phân quyền và mất vai trò truy cập hiện tại. Dữ liệu báo cáo hoặc thành viên cũ (nếu có) không bị mất.'
+                    : confirmDelete.type === 'RESET_PIN'
+                    ? 'Mã cá nhân 6 số hiện tại sẽ bị xóa. Ở lần truy cập tiếp theo, người dùng này sẽ được yêu cầu thiết lập lại Mã cá nhân 6 số mới.'
+                    : 'Email này sẽ bị xóa khỏi danh sách cấp quyền trước và không còn tự động nhận vai trò khi đăng nhập.'}
+                </p>
+              </div>
+            </div>
+
+            {confirmDelete.type === 'USER' ? (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                    {confirmDelete.user.fullName}
+                  </span>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-bold shrink-0 ${
+                      ROLE_DISPLAY_META[confirmDelete.effectiveRole].badgeClass
+                    }`}
+                  >
+                    {ROLE_LABELS[confirmDelete.effectiveRole]}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  {confirmDelete.user.email}
+                </div>
+              </div>
+            ) : confirmDelete.type === 'RESET_PIN' ? (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1">
+                <div className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                  {confirmDelete.user.fullName}
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  {confirmDelete.user.email} · {confirmDelete.user.companyCode} · KV{' '}
+                  {confirmDelete.user.areaCode}
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
+                <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                  {confirmDelete.email}
+                </span>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-purple-700 text-white shrink-0">
+                  {ROLE_LABELS[confirmDelete.role] || confirmDelete.role}
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setConfirmDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className={`px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                  confirmDelete.type === 'RESET_PIN'
+                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                    : 'bg-rose-600 hover:bg-rose-700'
+                }`}
+              >
+                {confirmDelete.type === 'RESET_PIN' ? (
+                  <KeyRound className="w-3.5 h-3.5" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {isDeleting
+                    ? 'Đang xử lý...'
+                    : confirmDelete.type === 'USER'
+                    ? 'Xóa tài khoản'
+                    : confirmDelete.type === 'RESET_PIN'
+                    ? 'Đặt lại Mã PIN'
+                    : 'Thu hồi quyền'}
+                </span>
               </button>
             </div>
           </div>

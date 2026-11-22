@@ -10,12 +10,18 @@ import {
   deleteDoc,
   writeBatch,
   getDocFromServer,
+  deleteField,
 } from 'firebase/firestore';
 import {
   useCloudCollection,
   sortHuongKhiNewestFirst,
   seedStructure,
 } from './data/cloudStore';
+import {
+  INITIAL_COMPANIES,
+  INITIAL_AREAS,
+  INITIAL_DEPARTMENTS,
+} from './data/competitionStore';
 import {
   Company,
   Area,
@@ -63,7 +69,9 @@ import {
   filterLeaderboardByRbac,
   getVisibleKpiSummary,
   getMemberUnitCode,
+  isAdminRole,
 } from './utils/rbac';
+import { hashPersonalPin, verifyPersonalPin } from './utils/pinSecurity';
 import {
   OperationType,
   handleFirestoreError,
@@ -71,6 +79,11 @@ import {
 } from './utils/firestoreError';
 
 import { TopHeader, SideNavigation, MobileBottomNav, AppTab } from './components/Navbar';
+import {
+  SecurityGateScreen,
+  SecurityGateMode,
+  OnboardingSubmitData,
+} from './components/SecurityGateScreen';
 import { HeroBanner } from './components/HeroBanner';
 import { KpiCards } from './components/KpiCards';
 import { LeaderboardTable } from './components/LeaderboardTable';
@@ -105,15 +118,38 @@ import {
 } from './firebase';
 
 export default function App() {
-  // ---------- Đăng nhập (Firebase Authentication) ----------
+  // ---------- Đăng nhập (Firebase Authentication) & Khóa Mã cá nhân 6 số ----------
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [profileState, setProfileState] = useState<'UNKNOWN' | 'READY' | 'MISSING'>('UNKNOWN');
+  const [pinUnlockedUid, setPinUnlockedUid] = useState<string | null>(null);
+  const [authModalInitialMode, setAuthModalInitialMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const pendingRegistrationRef = useRef<RegistrationData | null>(null);
   const creatingProfileRef = useRef<boolean>(false);
   const welcomedUidRef = useRef<string | null>(null);
+  const prevAuthUidRef = useRef<string | null>(null);
   const signedIn = !!firebaseUser;
+
+  const securityGateMode: SecurityGateMode | null = useMemo(() => {
+    if (!authReady) return 'LOADING';
+    if (!signedIn) return 'UNAUTHENTICATED';
+    if (profileState === 'UNKNOWN') return 'LOADING';
+    if (profileState === 'MISSING') {
+      return pendingRegistrationRef.current ? 'LOADING' : 'ONBOARDING';
+    }
+    if (!currentUser) return 'LOADING';
+    if (!currentUser.pinHash) return 'PIN_SETUP';
+    if (pinUnlockedUid !== firebaseUser?.uid) return 'PIN_LOCKED';
+    return null;
+  }, [authReady, signedIn, profileState, currentUser, pinUnlockedUid, firebaseUser?.uid]);
+
+  const dataUnlocked =
+    signedIn &&
+    profileState === 'READY' &&
+    !!currentUser &&
+    !!currentUser.pinHash &&
+    pinUnlockedUid === firebaseUser?.uid;
 
   // ---------- Toast ----------
   const [notification, setNotification] = useState<string | null>(null);
@@ -124,32 +160,44 @@ export default function App() {
 
   // ---------- Dữ liệu dùng chung (Cloud Firestore) ----------
   const reportError = useCallback((msg: string) => showNotification(msg), [showNotification]);
+  // Danh mục Sion / Khu vực / Ban ngành tải trước để Form Đăng ký & Hoàn tất hồ sơ luôn có dropdown
   const [companies, setCompanies] = useCloudCollection<Company>('companies', {
-    enabled: signedIn,
+    enabled: true,
     ordered: true,
     onError: reportError,
   });
   const [areas, setAreas] = useCloudCollection<Area>('areas', {
-    enabled: signedIn,
+    enabled: true,
     ordered: true,
     onError: reportError,
   });
   const [departments, setDepartments] = useCloudCollection<Department>('departments', {
-    enabled: signedIn,
+    enabled: true,
     ordered: true,
     onError: reportError,
   });
+  const effectiveCompanies = useMemo(
+    () => (companies.length > 0 ? companies : INITIAL_COMPANIES),
+    [companies]
+  );
+  const effectiveAreas = useMemo(() => (areas.length > 0 ? areas : INITIAL_AREAS), [areas]);
+  const effectiveDepartments = useMemo(
+    () => (departments.length > 0 ? departments : INITIAL_DEPARTMENTS),
+    [departments]
+  );
+
+  // Dữ liệu nhạy cảm chỉ tải SAU KHI đã xác thực + mở khóa Mã cá nhân 6 số
   const [members, setMembers] = useCloudCollection<Member>('members', {
-    enabled: signedIn,
+    enabled: dataUnlocked,
     onError: reportError,
   });
   const [huongKhiList, setHuongKhiList] = useCloudCollection<HuongKhiItem>('huongKhi', {
-    enabled: signedIn,
+    enabled: dataUnlocked,
     sort: sortHuongKhiNewestFirst,
     onError: reportError,
   });
   const [events] = useCloudCollection<FestivalEvent>('events', {
-    enabled: true,
+    enabled: dataUnlocked,
     onError: reportError,
   });
 
@@ -228,78 +276,13 @@ export default function App() {
     topicId: string | null;
   }>({ subTab: 'PROGRESSION', topicId: null });
 
-  useEffect(() => {
-    if (!signedIn) {
-      setEduTopics([]);
-      setEduAssignments([]);
-      setEduCmsProfiles([]);
-      setEduLoading(false);
-      return;
-    }
-    setEduLoading(true);
-    const unsubTopics = onSnapshot(
-      collection(db, 'edu_topics'),
-      (snap) => {
-        setEduTopics(
-          snap.docs.map((d) => ({ ...(d.data() as Omit<EduWeeklyTopic, 'id'>), id: d.id }))
-        );
-        setEduLoading(false);
-      },
-      (err) => {
-        setEduLoading(false);
-        console.warn('[Firestore] Lỗi đọc edu_topics:', err);
-      }
-    );
-    const unsubAssigns = onSnapshot(
-      collection(db, 'edu_assignments'),
-      (snap) => {
-        setEduAssignments(
-          snap.docs.map((d) => ({ ...(d.data() as Omit<EduTopicAssignment, 'id'>), id: d.id }))
-        );
-      },
-      (err) => console.warn('[Firestore] Lỗi đọc edu_assignments:', err)
-    );
-    const unsubCms = onSnapshot(
-      collection(db, 'edu_cms_profiles'),
-      (snap) => {
-        setEduCmsProfiles(
-          snap.docs.map((d) => ({ ...(d.data() as Omit<EduCmsProfile, 'id'>), id: d.id }))
-        );
-      },
-      (err) => console.warn('[Firestore] Lỗi đọc edu_cms_profiles:', err)
-    );
-    return () => {
-      unsubTopics();
-      unsubAssigns();
-      unsubCms();
-    };
-  }, [signedIn]);
-
-  // Báo cáo hằng ngày (tất cả người dùng đã đăng nhập đọc để tính điểm thi đua trực tiếp)
+  // Báo cáo hằng ngày (chỉ tải theo đúng phạm vi RBAC sau khi mở khóa PIN)
   const [dailyReports, setDailyReports] = useState<DailyReportRecord[]>([]);
-  useEffect(() => {
-    if (!signedIn) {
-      setDailyReports([]);
-      return;
-    }
-    const unsubscribe = onSnapshot(
-      collection(db, 'dailyReports'),
-      (snap) => {
-        const list: DailyReportRecord[] = snap.docs.map((d) => ({
-          ...(d.data() as Omit<DailyReportRecord, 'id'>),
-          id: d.id,
-        }));
-        setDailyReports(list);
-      },
-      (err) => console.warn('[Firestore] Lỗi đọc dailyReports:', err)
-    );
-    return unsubscribe;
-  }, [signedIn]);
 
   // Mục tiêu Tháng / Năm của cá nhân (lọc theo uid khớp firestore.rules)
   const [periodGoals, setPeriodGoals] = useState<PeriodGoalRecord[]>([]);
   useEffect(() => {
-    if (!signedIn || !firebaseUser?.uid) {
+    if (!dataUnlocked || !firebaseUser?.uid) {
       setPeriodGoals([]);
       return;
     }
@@ -316,14 +299,47 @@ export default function App() {
       (err) => console.warn('[Firestore] Lỗi đọc periodGoals:', err)
     );
     return unsubscribe;
-  }, [signedIn, firebaseUser?.uid]);
+  }, [dataUnlocked, firebaseUser?.uid]);
 
-  // Quản lý tài khoản người dùng & Danh sách cấp quyền trước
+  // Quản lý tài khoản người dùng & Danh sách cấp quyền trước (role_claims/{emailLower} cho mọi user, system_config/roles chỉ cho Admin)
   const [usersList, setUsersList] = useState<UserAccount[]>([]);
   const [preAssignedRoles, setPreAssignedRoles] = useState<RoleAssignment[]>([]);
+  const [ownRoleClaim, setOwnRoleClaim] = useState<RoleAssignment | null>(null);
 
   useEffect(() => {
-    if (!signedIn) return;
+    const emailLower = (firebaseUser?.email || '').trim().toLowerCase();
+    if (!signedIn || !emailLower) {
+      setOwnRoleClaim(null);
+      return;
+    }
+    const unsubscribe = onSnapshot(
+      doc(db, 'role_claims', emailLower),
+      (snap) => {
+        if (snap.exists()) {
+          setOwnRoleClaim(snap.data() as RoleAssignment);
+        } else {
+          setOwnRoleClaim(null);
+        }
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc role_claims cá nhân:', err)
+    );
+    return unsubscribe;
+  }, [signedIn, firebaseUser?.email]);
+
+  const canReadAdminRolesConfig = useMemo(() => {
+    if (!signedIn) return false;
+    const emailLower = (firebaseUser?.email || currentUser?.email || '').trim().toLowerCase();
+    if (isBootstrapSuperAdminEmail(emailLower)) return true;
+    if (currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') return true;
+    if (ownRoleClaim?.role === 'ADMIN' || ownRoleClaim?.role === 'SUPER_ADMIN') return true;
+    return false;
+  }, [signedIn, firebaseUser?.email, currentUser?.email, currentUser?.role, ownRoleClaim?.role]);
+
+  useEffect(() => {
+    if (!canReadAdminRolesConfig) {
+      setPreAssignedRoles([]);
+      return;
+    }
     const unsubscribe = onSnapshot(
       doc(db, 'system_config', 'roles'),
       (snap) => {
@@ -337,10 +353,10 @@ export default function App() {
       (err) => console.warn('[Firestore] Lỗi đọc system_config/roles:', err)
     );
     return unsubscribe;
-  }, [signedIn]);
+  }, [canReadAdminRolesConfig]);
 
   useEffect(() => {
-    if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) {
+    if (!dataUnlocked || !currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) {
       setUsersList([]);
       return;
     }
@@ -356,7 +372,7 @@ export default function App() {
       (err) => console.warn('[Firestore] Lỗi đọc danh sách users:', err)
     );
     return unsubscribe;
-  }, [currentUser?.role]);
+  }, [dataUnlocked, currentUser?.role]);
 
   // Theme Dark/Light mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -442,62 +458,20 @@ export default function App() {
     [scoringConfig]
   );
 
-  const computedAllMembers = useMemo(() => {
-    const weights = activeEvent?.weights || effectiveDefaultWeights;
-    const reportsByMember = new Map<string, DailyReportRecord[]>();
-
-    dailyReports.forEach((rep) => {
-      if (activeEvent) {
-        if (rep.date < activeEvent.startDate || rep.date > activeEvent.endDate) return;
-      }
-      const key = rep.memberId || `m-${rep.uid}`;
-      const list = reportsByMember.get(key) || [];
-      list.push(rep);
-      reportsByMember.set(key, list);
-    });
-
-    return members.map((m) => {
-      const mReports = reportsByMember.get(m.id) || [];
-      const aggregated = sumDailyReportMetrics(mReports);
-      const dailyScore = computeDailyMetricsScore(aggregated, weights);
-      return {
-        ...m,
-        dailyResults: aggregated,
-        score: dailyScore,
-      };
-    });
-  }, [members, dailyReports, activeEvent, effectiveDefaultWeights]);
-
-  // Thành viên đủ điều kiện dự thi Event (lọc người tham gia nếu Event bật giới hạn)
-  const competingMembers = useMemo(() => {
-    if (activeEvent?.restrictParticipants) {
-      const allowedSet = new Set(activeEvent.participantIds || []);
-      return computedAllMembers.filter((m) => allowedSet.has(m.id));
-    }
-    return computedAllMembers;
-  }, [computedAllMembers, activeEvent]);
-
-  const rankedMembers = useMemo(() => rankMembers(competingMembers), [competingMembers]);
-  const allMembersRanked = useMemo(() => rankMembers(computedAllMembers), [computedAllMembers]);
-
-  const companyRankings = useMemo(
-    () => computeCompanyRankings(companies, rankedMembers),
-    [companies, rankedMembers]
-  );
-
-  const areaRankings = useMemo(
-    () => computeAreaRankings(areas, rankedMembers),
-    [areas, rankedMembers]
-  );
-
   // ---------- Theo dõi trạng thái đăng nhập ----------
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
+      const nextUid = u?.uid || null;
+      if (prevAuthUidRef.current !== nextUid) {
+        setPinUnlockedUid(null);
+        prevAuthUidRef.current = nextUid;
+      }
       setFirebaseUser(u);
       setAuthReady(true);
       if (!u) {
         setCurrentUser(null);
         setProfileState('UNKNOWN');
+        setOwnRoleClaim(null);
         creatingProfileRef.current = false;
       }
     });
@@ -513,7 +487,11 @@ export default function App() {
         if (snap.exists()) {
           const raw = snap.data() as Omit<UserAccount, 'id'>;
           const emailLower = (firebaseUser.email || raw.email || '').toLowerCase().trim();
-          const preMatch = preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower);
+          const preMatch =
+            preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
+            (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
+              ? ownRoleClaim
+              : undefined);
           const isSuper =
             isBootstrapSuperAdminEmail(emailLower) ||
             preMatch?.role === 'SUPER_ADMIN' ||
@@ -559,34 +537,43 @@ export default function App() {
       }
     );
     return unsubscribe;
-  }, [firebaseUser?.uid, preAssignedRoles, showNotification]);
+  }, [firebaseUser?.uid, preAssignedRoles, ownRoleClaim, showNotification]);
 
-  // Tạo hồ sơ + thành viên cho tài khoản mới
+  // Tạo hồ sơ + thành viên CHỈ KHI người dùng đăng ký qua Email (có pendingRegistrationRef với đủ Sion/KV/PIN).
+  // Người dùng Google lần đầu sẽ ở mode ONBOARDING để tự chọn Sion/Khu vực & Mã PIN 6 số.
   useEffect(() => {
-    if (!firebaseUser || profileState !== 'MISSING' || creatingProfileRef.current) return;
+    const reg = pendingRegistrationRef.current;
+    if (!firebaseUser || profileState !== 'MISSING' || creatingProfileRef.current || !reg) return;
     creatingProfileRef.current = true;
 
     const createProfile = async () => {
       const userRef = doc(db, 'users', firebaseUser.uid);
       const existing = await getDocFromServer(userRef);
-      if (existing.exists()) return;
+      if (existing.exists()) {
+        pendingRegistrationRef.current = null;
+        return;
+      }
 
-      const reg = pendingRegistrationRef.current;
-      const email = (firebaseUser.email || reg?.email || '').trim();
+      const email = (firebaseUser.email || reg.email || '').trim();
       const fullName =
-        reg?.fullName || firebaseUser.displayName || email.split('@')[0] || 'Thành viên mới';
-      const companyCode = reg?.companyCode || companies[0]?.code || 'Th1';
+        reg.fullName || firebaseUser.displayName || email.split('@')[0] || 'Thành viên mới';
+      const companyCode = reg.companyCode || effectiveCompanies[0]?.code || 'Th1';
       const areaCode =
-        reg?.areaCode ||
-        areas.find((a) => a.companyCode === companyCode)?.code ||
-        areas[0]?.code ||
+        reg.areaCode ||
+        effectiveAreas.find((a) => a.companyCode === companyCode)?.code ||
+        effectiveAreas[0]?.code ||
         '1.1';
-      const departmentCode = reg?.departmentCode || departments[0]?.code || 'Thanh Niên Nam';
-      const unitCode = reg?.unitCode?.trim() || undefined;
-      const today = new Date().toISOString().split('T')[0];
+      const departmentCode = reg.departmentCode || effectiveDepartments[0]?.code || 'Thanh Niên Nam';
+      const unitCode = reg.unitCode?.trim() || undefined;
+      const nowIso = new Date().toISOString();
+      const today = nowIso.split('T')[0];
       const memberId = `m-${firebaseUser.uid}`;
       const emailLower = email.toLowerCase();
-      const preMatch = preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower);
+      const preMatch =
+        preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
+        (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
+          ? ownRoleClaim
+          : undefined);
       const isSuperAdminEmail =
         isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
 
@@ -594,9 +581,11 @@ export default function App() {
       if (isSuperAdminEmail) initialRole = 'SUPER_ADMIN';
       else if (preMatch?.role) initialRole = preMatch.role;
 
+      const pinHash = reg.pin ? await hashPersonalPin(firebaseUser.uid, reg.pin) : undefined;
+
       const account = JSON.parse(
         JSON.stringify({
-          username: reg?.username || email.split('@')[0] || `user_${Date.now()}`,
+          username: reg.username || email.split('@')[0] || `user_${Date.now()}`,
           email,
           fullName,
           role: initialRole,
@@ -610,6 +599,9 @@ export default function App() {
           managedUnitCodes: preMatch?.managedUnitCodes || [],
           avatarUrl: firebaseUser.photoURL || undefined,
           emailVerified: firebaseUser.emailVerified,
+          pinHash,
+          pinUpdatedAt: pinHash ? nowIso : undefined,
+          onboardingCompleted: true,
           createdAt: today,
         })
       );
@@ -638,12 +630,13 @@ export default function App() {
       await batch.commit();
 
       pendingRegistrationRef.current = null;
-      setActiveTab('ENTRY');
-      if (reg) {
-        showNotification(
-          'Đăng ký thành công! Thư xác thực đã được gửi tới email của bạn (kiểm tra cả mục Spam).'
-        );
+      if (pinHash) {
+        setPinUnlockedUid(firebaseUser.uid);
       }
+      setActiveTab('ENTRY');
+      showNotification(
+        'Đăng ký thành công! Thư xác thực đã được gửi tới email của bạn (kiểm tra cả mục Spam).'
+      );
     };
 
     createProfile().catch((err) => {
@@ -651,19 +644,28 @@ export default function App() {
       showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
       creatingProfileRef.current = false;
     });
-  }, [firebaseUser, profileState, preAssignedRoles, companies, areas, departments, showNotification]);
+  }, [
+    firebaseUser,
+    profileState,
+    preAssignedRoles,
+    ownRoleClaim,
+    effectiveCompanies,
+    effectiveAreas,
+    effectiveDepartments,
+    showNotification,
+  ]);
 
-  // Khi đăng nhập thành công -> chuyển thẳng sang trang Báo cáo hằng ngày (ENTRY)
+  // Khi mở khóa thành công -> chuyển sang trang Báo cáo hằng ngày (ENTRY)
   useEffect(() => {
-    if (currentUser && welcomedUidRef.current !== currentUser.id) {
+    if (dataUnlocked && currentUser && welcomedUidRef.current !== currentUser.id) {
       welcomedUidRef.current = currentUser.id;
       setActiveTab('ENTRY');
       showNotification(`Xin chào, ${currentUser.fullName}!`);
     }
-    if (!currentUser) {
+    if (!currentUser || !dataUnlocked) {
       welcomedUidRef.current = null;
     }
-  }, [currentUser?.id, currentUser?.fullName, showNotification]);
+  }, [dataUnlocked, currentUser?.id, currentUser?.fullName, showNotification]);
 
   // Helper xác định quyền Super Admin & Admin
   const isSuperAdminUser = useMemo(() => {
@@ -671,6 +673,9 @@ export default function App() {
     const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
     if (isBootstrapSuperAdminEmail(emailLower)) return true;
     if (currentUser?.role === 'SUPER_ADMIN') return true;
+    if (ownRoleClaim?.email?.toLowerCase() === emailLower && ownRoleClaim?.role === 'SUPER_ADMIN') {
+      return true;
+    }
     if (
       preAssignedRoles.some(
         (p) => p.email.toLowerCase() === emailLower && p.role === 'SUPER_ADMIN'
@@ -679,20 +684,23 @@ export default function App() {
       return true;
     }
     return false;
-  }, [currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles]);
+  }, [currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles, ownRoleClaim]);
 
   const isAdminUser = useMemo(() => {
     if (isSuperAdminUser) return true;
     if (!currentUser && !firebaseUser) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
     if (currentUser?.role === 'ADMIN') return true;
+    if (ownRoleClaim?.email?.toLowerCase() === emailLower && ownRoleClaim?.role === 'ADMIN') {
+      return true;
+    }
     if (
       preAssignedRoles.some((p) => p.email.toLowerCase() === emailLower && p.role === 'ADMIN')
     ) {
       return true;
     }
     return false;
-  }, [isSuperAdminUser, currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles]);
+  }, [isSuperAdminUser, currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles, ownRoleClaim]);
 
   const effectiveCurrentUser = useMemo(() => {
     if (!currentUser) return null;
@@ -711,7 +719,11 @@ export default function App() {
   useEffect(() => {
     if (!currentUser || !firebaseUser || currentUser.id !== firebaseUser.uid) return;
     const emailLower = (firebaseUser.email || currentUser.email || '').toLowerCase().trim();
-    const preMatch = preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower);
+    const preMatch =
+      preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
+      (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
+        ? ownRoleClaim
+        : undefined);
     const shouldBeSuper =
       isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
 
@@ -747,7 +759,75 @@ export default function App() {
         console.warn('Lỗi đồng bộ hồ sơ lên Firestore:', err)
       );
     }
-  }, [currentUser?.role, currentUser?.emailVerified, firebaseUser?.emailVerified, preAssignedRoles]);
+  }, [
+    currentUser?.role,
+    currentUser?.emailVerified,
+    firebaseUser?.emailVerified,
+    preAssignedRoles,
+    ownRoleClaim,
+  ]);
+
+  // Tính điểm thi đua trực tiếp từ Báo cáo hằng ngày (bảo toàn score lưu sẵn trên members cho Top-15 khi TĐ chỉ tải báo cáo cá nhân)
+  const computedAllMembers = useMemo(() => {
+    const weights = activeEvent?.weights || effectiveDefaultWeights;
+    const reportsByMember = new Map<string, DailyReportRecord[]>();
+
+    dailyReports.forEach((rep) => {
+      if (activeEvent) {
+        if (rep.date < activeEvent.startDate || rep.date > activeEvent.endDate) return;
+      }
+      const key = rep.memberId || `m-${rep.uid}`;
+      const list = reportsByMember.get(key) || [];
+      list.push(rep);
+      reportsByMember.set(key, list);
+    });
+
+    const hasFullDailyReports = isAdminRole(effectiveCurrentUser?.role);
+    const ownMemberId = effectiveCurrentUser?.memberId || (firebaseUser?.uid ? `m-${firebaseUser.uid}` : '');
+
+    return members.map((m) => {
+      const mReports = reportsByMember.get(m.id) || [];
+      if (hasFullDailyReports || mReports.length > 0 || m.id === ownMemberId) {
+        const aggregated = sumDailyReportMetrics(mReports);
+        const dailyScore = computeDailyMetricsScore(aggregated, weights);
+        return {
+          ...m,
+          dailyResults: aggregated,
+          score: dailyScore,
+        };
+      }
+      return m;
+    });
+  }, [
+    members,
+    dailyReports,
+    activeEvent,
+    effectiveDefaultWeights,
+    effectiveCurrentUser?.role,
+    effectiveCurrentUser?.memberId,
+    firebaseUser?.uid,
+  ]);
+
+  const competingMembers = useMemo(() => {
+    if (activeEvent?.restrictParticipants) {
+      const allowedSet = new Set(activeEvent.participantIds || []);
+      return computedAllMembers.filter((m) => allowedSet.has(m.id));
+    }
+    return computedAllMembers;
+  }, [computedAllMembers, activeEvent]);
+
+  const rankedMembers = useMemo(() => rankMembers(competingMembers), [competingMembers]);
+  const allMembersRanked = useMemo(() => rankMembers(computedAllMembers), [computedAllMembers]);
+
+  const companyRankings = useMemo(
+    () => computeCompanyRankings(effectiveCompanies, rankedMembers),
+    [effectiveCompanies, rankedMembers]
+  );
+
+  const areaRankings = useMemo(
+    () => computeAreaRankings(effectiveAreas, rankedMembers),
+    [effectiveAreas, rankedMembers]
+  );
 
   // ---------- Trang thông tin MĐ (disciples) - Truy vấn theo cấp bậc (7 cấp) ----------
   const [disciples, setDisciples] = useState<DiscipleRecord[]>([]);
@@ -758,7 +838,7 @@ export default function App() {
   const managedUnitKey = JSON.stringify(effectiveCurrentUser?.managedUnitCodes || []);
 
   useEffect(() => {
-    if (!signedIn || !firebaseUser?.uid || !effectiveCurrentUser) {
+    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) {
       setDisciples([]);
       setDisciplesLoading(false);
       return;
@@ -837,16 +917,26 @@ export default function App() {
       });
     } else if (role === 'AREA_LEADER') {
       attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
-      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
-        attachQuery(
-          'leader_area',
-          query(
-            collection(db, 'disciples'),
-            where('companyCode', '==', effectiveCurrentUser.companyCode),
-            where('areaCode', '==', effectiveCurrentUser.areaCode)
-          )
-        );
-      }
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      const effectiveComps = Array.from(
+        new Set((compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean))
+      );
+      const effectiveAreaList = Array.from(
+        new Set((areaCodes.length ? areaCodes : [effectiveCurrentUser.areaCode]).filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        effectiveAreaList.forEach((aCode) => {
+          attachQuery(
+            `leader_${cCode}_${aCode}`,
+            query(
+              collection(db, 'disciples'),
+              where('companyCode', '==', cCode),
+              where('areaCode', '==', aCode)
+            )
+          );
+        });
+      });
     } else if (role === 'UNI_LEADER') {
       attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
@@ -875,7 +965,7 @@ export default function App() {
       unsubs.forEach((u) => u());
     };
   }, [
-    signedIn,
+    dataUnlocked,
     firebaseUser?.uid,
     effectiveCurrentUser?.role,
     effectiveCurrentUser?.companyCode,
@@ -893,7 +983,7 @@ export default function App() {
   const [workSchedulesError, setWorkSchedulesError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!signedIn || !firebaseUser?.uid || !effectiveCurrentUser) {
+    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) {
       setWorkSchedules([]);
       setWorkSchedulesLoading(false);
       setWorkSchedulesError(null);
@@ -977,16 +1067,26 @@ export default function App() {
       });
     } else if (role === 'AREA_LEADER') {
       attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
-      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
-        attachQuery(
-          'leader_area',
-          query(
-            collection(db, 'work_schedules'),
-            where('companyCode', '==', effectiveCurrentUser.companyCode),
-            where('areaCode', '==', effectiveCurrentUser.areaCode)
-          )
-        );
-      }
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      const effectiveComps = Array.from(
+        new Set((compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean))
+      );
+      const effectiveAreaList = Array.from(
+        new Set((areaCodes.length ? areaCodes : [effectiveCurrentUser.areaCode]).filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        effectiveAreaList.forEach((aCode) => {
+          attachQuery(
+            `leader_${cCode}_${aCode}`,
+            query(
+              collection(db, 'work_schedules'),
+              where('companyCode', '==', cCode),
+              where('areaCode', '==', aCode)
+            )
+          );
+        });
+      });
     } else if (role === 'UNI_LEADER') {
       attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
@@ -1015,7 +1115,7 @@ export default function App() {
       unsubs.forEach((u) => u());
     };
   }, [
-    signedIn,
+    dataUnlocked,
     firebaseUser?.uid,
     effectiveCurrentUser?.role,
     effectiveCurrentUser?.companyCode,
@@ -1025,6 +1125,320 @@ export default function App() {
     managedAreaKey,
     managedUnitKey,
     showNotification,
+  ]);
+
+  // ---------- Báo cáo hằng ngày (dailyReports) - Truy vấn theo cấp bậc (7 cấp) ----------
+  useEffect(() => {
+    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) {
+      setDailyReports([]);
+      return;
+    }
+
+    const uid = firebaseUser.uid;
+    const role = effectiveCurrentUser.role;
+    const buckets = new Map<string, Map<string, DailyReportRecord>>();
+    const unsubs: Array<() => void> = [];
+
+    const syncMerged = () => {
+      const merged = new Map<string, DailyReportRecord>();
+      buckets.forEach((b) => {
+        b.forEach((rec, id) => merged.set(id, rec));
+      });
+      setDailyReports(Array.from(merged.values()));
+    };
+
+    const attachQuery = (bucketKey: string, qRef: any) => {
+      const unsub = onSnapshot(
+        qRef,
+        (snap: any) => {
+          const map = new Map<string, DailyReportRecord>();
+          snap.docs.forEach((d: any) => {
+            map.set(d.id, { ...(d.data() as Omit<DailyReportRecord, 'id'>), id: d.id });
+          });
+          buckets.set(bucketKey, map);
+          syncMerged();
+        },
+        (err: any) => {
+          console.warn(`[Firestore] Lỗi đọc dailyReports (${bucketKey}):`, err);
+        }
+      );
+      unsubs.push(unsub);
+    };
+
+    if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      attachQuery('all', collection(db, 'dailyReports'));
+    } else if (role === 'MANAGER') {
+      attachQuery('own', query(collection(db, 'dailyReports'), where('uid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      compCodes.forEach((cCode) => {
+        if (cCode) {
+          attachQuery(
+            `comp_${cCode}`,
+            query(collection(db, 'dailyReports'), where('companyCode', '==', cCode))
+          );
+        }
+      });
+      areaCodes.forEach((aCode) => {
+        if (aCode) {
+          attachQuery(
+            `area_${aCode}`,
+            query(collection(db, 'dailyReports'), where('areaCode', '==', aCode))
+          );
+        }
+      });
+    } else if (role === 'SION_LEADER') {
+      attachQuery('own', query(collection(db, 'dailyReports'), where('uid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const effectiveComps = Array.from(
+        new Set((compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        attachQuery(
+          `sion_${cCode}`,
+          query(collection(db, 'dailyReports'), where('companyCode', '==', cCode))
+        );
+      });
+    } else if (role === 'AREA_LEADER') {
+      attachQuery('own', query(collection(db, 'dailyReports'), where('uid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      const effectiveComps = Array.from(
+        new Set((compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean))
+      );
+      const effectiveAreaList = Array.from(
+        new Set((areaCodes.length ? areaCodes : [effectiveCurrentUser.areaCode]).filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        effectiveAreaList.forEach((aCode) => {
+          attachQuery(
+            `leader_${cCode}_${aCode}`,
+            query(
+              collection(db, 'dailyReports'),
+              where('companyCode', '==', cCode),
+              where('areaCode', '==', aCode)
+            )
+          );
+        });
+      });
+    } else if (role === 'UNI_LEADER') {
+      attachQuery('own', query(collection(db, 'dailyReports'), where('uid', '==', uid)));
+      const unitCodes: string[] = JSON.parse(managedUnitKey);
+      const ownUnit = effectiveCurrentUser.unitCode || '';
+      const effectiveUnits = Array.from(
+        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
+      );
+      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
+        effectiveUnits.forEach((uCode) => {
+          attachQuery(
+            `uni_${uCode}`,
+            query(
+              collection(db, 'dailyReports'),
+              where('companyCode', '==', effectiveCurrentUser.companyCode),
+              where('areaCode', '==', effectiveCurrentUser.areaCode),
+              where('unitCode', '==', uCode)
+            )
+          );
+        });
+      }
+    } else {
+      attachQuery('own', query(collection(db, 'dailyReports'), where('uid', '==', uid)));
+    }
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [
+    dataUnlocked,
+    firebaseUser?.uid,
+    effectiveCurrentUser?.role,
+    effectiveCurrentUser?.companyCode,
+    effectiveCurrentUser?.areaCode,
+    effectiveCurrentUser?.unitCode,
+    managedCompKey,
+    managedAreaKey,
+    managedUnitKey,
+  ]);
+
+  // ---------- Edu (edu_topics, edu_assignments, edu_cms_profiles) - Truy vấn theo cấp bậc (7 cấp) ----------
+  useEffect(() => {
+    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) {
+      setEduTopics([]);
+      setEduAssignments([]);
+      setEduCmsProfiles([]);
+      setEduLoading(false);
+      return;
+    }
+
+    setEduLoading(true);
+    const uid = firebaseUser.uid;
+    const memberId = effectiveCurrentUser.memberId || `m-${uid}`;
+    const role = effectiveCurrentUser.role;
+    const unsubs: Array<() => void> = [];
+
+    const unsubTopics = onSnapshot(
+      collection(db, 'edu_topics'),
+      (snap) => {
+        setEduTopics(
+          snap.docs.map((d) => ({ ...(d.data() as Omit<EduWeeklyTopic, 'id'>), id: d.id }))
+        );
+        setEduLoading(false);
+      },
+      (err) => {
+        setEduLoading(false);
+        console.warn('[Firestore] Lỗi đọc edu_topics:', err);
+      }
+    );
+    unsubs.push(unsubTopics);
+
+    // edu_assignments (scoped by RBAC)
+    const assignBuckets = new Map<string, Map<string, EduTopicAssignment>>();
+    const syncAssignments = () => {
+      const merged = new Map<string, EduTopicAssignment>();
+      assignBuckets.forEach((b) => b.forEach((rec, id) => merged.set(id, rec)));
+      setEduAssignments(Array.from(merged.values()));
+    };
+    const attachAssign = (bucketKey: string, qRef: any) => {
+      const u = onSnapshot(
+        qRef,
+        (snap: any) => {
+          const map = new Map<string, EduTopicAssignment>();
+          snap.docs.forEach((d: any) => {
+            map.set(d.id, { ...(d.data() as Omit<EduTopicAssignment, 'id'>), id: d.id });
+          });
+          assignBuckets.set(bucketKey, map);
+          syncAssignments();
+        },
+        (err: any) => console.warn(`[Firestore] Lỗi đọc edu_assignments (${bucketKey}):`, err)
+      );
+      unsubs.push(u);
+    };
+
+    // edu_cms_profiles (scoped by RBAC)
+    const cmsBuckets = new Map<string, Map<string, EduCmsProfile>>();
+    const syncCms = () => {
+      const merged = new Map<string, EduCmsProfile>();
+      cmsBuckets.forEach((b) => b.forEach((rec, id) => merged.set(id, rec)));
+      setEduCmsProfiles(Array.from(merged.values()));
+    };
+    const attachCms = (bucketKey: string, qRef: any) => {
+      const u = onSnapshot(
+        qRef,
+        (snap: any) => {
+          const map = new Map<string, EduCmsProfile>();
+          snap.docs.forEach((d: any) => {
+            map.set(d.id, { ...(d.data() as Omit<EduCmsProfile, 'id'>), id: d.id });
+          });
+          cmsBuckets.set(bucketKey, map);
+          syncCms();
+        },
+        (err: any) => console.warn(`[Firestore] Lỗi đọc edu_cms_profiles (${bucketKey}):`, err)
+      );
+      unsubs.push(u);
+    };
+
+    if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      attachAssign('all', collection(db, 'edu_assignments'));
+      attachCms('all', collection(db, 'edu_cms_profiles'));
+    } else if (role === 'MANAGER') {
+      attachAssign('own', query(collection(db, 'edu_assignments'), where('assignedByUid', '==', uid)));
+      attachCms('own', query(collection(db, 'edu_cms_profiles'), where('ownerUid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      compCodes.forEach((cCode) => {
+        if (cCode) {
+          attachAssign(`comp_${cCode}`, query(collection(db, 'edu_assignments'), where('companyCode', '==', cCode)));
+          attachCms(`comp_${cCode}`, query(collection(db, 'edu_cms_profiles'), where('companyCode', '==', cCode)));
+        }
+      });
+      areaCodes.forEach((aCode) => {
+        if (aCode) {
+          attachAssign(`area_${aCode}`, query(collection(db, 'edu_assignments'), where('areaCode', '==', aCode)));
+          attachCms(`area_${aCode}`, query(collection(db, 'edu_cms_profiles'), where('areaCode', '==', aCode)));
+        }
+      });
+    } else if (role === 'SION_LEADER') {
+      attachAssign('own', query(collection(db, 'edu_assignments'), where('assignedByUid', '==', uid)));
+      attachCms('own', query(collection(db, 'edu_cms_profiles'), where('ownerUid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const effectiveComps = Array.from(
+        new Set((compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        attachAssign(`sion_${cCode}`, query(collection(db, 'edu_assignments'), where('companyCode', '==', cCode)));
+        attachCms(`sion_${cCode}`, query(collection(db, 'edu_cms_profiles'), where('companyCode', '==', cCode)));
+      });
+    } else if (role === 'AREA_LEADER') {
+      attachAssign('own', query(collection(db, 'edu_assignments'), where('assignedByUid', '==', uid)));
+      attachCms('own', query(collection(db, 'edu_cms_profiles'), where('ownerUid', '==', uid)));
+      const compCodes: string[] = JSON.parse(managedCompKey);
+      const areaCodes: string[] = JSON.parse(managedAreaKey);
+      const effectiveComps = Array.from(
+        new Set((compCodes.length ? compCodes : [effectiveCurrentUser.companyCode]).filter(Boolean))
+      );
+      const effectiveAreaList = Array.from(
+        new Set((areaCodes.length ? areaCodes : [effectiveCurrentUser.areaCode]).filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        effectiveAreaList.forEach((aCode) => {
+          attachAssign(
+            `leader_${cCode}_${aCode}`,
+            query(
+              collection(db, 'edu_assignments'),
+              where('companyCode', '==', cCode),
+              where('areaCode', '==', aCode)
+            )
+          );
+          attachCms(
+            `leader_${cCode}_${aCode}`,
+            query(
+              collection(db, 'edu_cms_profiles'),
+              where('companyCode', '==', cCode),
+              where('areaCode', '==', aCode)
+            )
+          );
+        });
+      });
+    } else if (role === 'UNI_LEADER') {
+      attachAssign('own', query(collection(db, 'edu_assignments'), where('assignedByUid', '==', uid)));
+      attachCms('own', query(collection(db, 'edu_cms_profiles'), where('ownerUid', '==', uid)));
+      if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
+        attachAssign(
+          'uni_area',
+          query(
+            collection(db, 'edu_assignments'),
+            where('companyCode', '==', effectiveCurrentUser.companyCode),
+            where('areaCode', '==', effectiveCurrentUser.areaCode)
+          )
+        );
+        attachCms(
+          'uni_area',
+          query(
+            collection(db, 'edu_cms_profiles'),
+            where('companyCode', '==', effectiveCurrentUser.companyCode),
+            where('areaCode', '==', effectiveCurrentUser.areaCode)
+          )
+        );
+      }
+    } else {
+      // MEMBER (TĐ): Chỉ xem lịch phân công / hồ sơ CMS của chính mình
+      attachAssign('own', query(collection(db, 'edu_assignments'), where('assignedByUid', '==', uid)));
+      attachAssign('self_member', query(collection(db, 'edu_assignments'), where('memberId', '==', memberId)));
+      attachCms('own', query(collection(db, 'edu_cms_profiles'), where('ownerUid', '==', uid)));
+    }
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [
+    dataUnlocked,
+    firebaseUser?.uid,
+    effectiveCurrentUser?.role,
+    effectiveCurrentUser?.memberId,
+    effectiveCurrentUser?.companyCode,
+    effectiveCurrentUser?.areaCode,
+    managedCompKey,
+    managedAreaKey,
   ]);
 
   const currentMemberData = useMemo(() => {
@@ -1059,13 +1473,13 @@ export default function App() {
     const totalPoints = activeMembers.reduce((acc, m) => acc + (m.score || 0), 0);
 
     return {
-      totalTeams: companies.length,
+      totalTeams: effectiveCompanies.length,
       totalMembers: activeMembers.length,
       totalTargets: totalReportsInEvent,
       totalPoints,
       lastUpdated,
     };
-  }, [rankedMembers, companies, dailyReports, activeEvent, lastUpdated]);
+  }, [rankedMembers, effectiveCompanies, dailyReports, activeEvent, lastUpdated]);
 
   // ---------- Áp dụng RBAC 7 cấp cho BXH, KPI, Podium & Thống kê Khu vực ----------
   const rbacLeaderboard = useMemo(
@@ -1121,16 +1535,21 @@ export default function App() {
     const memberId = currentUser.memberId || `m-${uid}`;
     const [year, month] = date.split('-');
     const reportId = `${uid}_${date}`;
-    const payload: Omit<DailyReportRecord, 'id'> = {
-      uid,
-      memberId,
-      date,
-      month: `${year}-${month}`,
-      year,
-      goals,
-      results,
-      updatedAt: new Date().toISOString(),
-    };
+    const payload: Omit<DailyReportRecord, 'id'> = JSON.parse(
+      JSON.stringify({
+        uid,
+        memberId,
+        companyCode: currentUser.companyCode,
+        areaCode: currentUser.areaCode,
+        ...(currentUser.unitCode ? { unitCode: currentUser.unitCode } : {}),
+        date,
+        month: `${year}-${month}`,
+        year,
+        goals,
+        results,
+        updatedAt: new Date().toISOString(),
+      })
+    );
 
     await setDoc(doc(db, 'dailyReports', reportId), payload);
 
@@ -1454,11 +1873,113 @@ export default function App() {
 
     try {
       await updateDoc(doc(db, 'users', targetUserId), cleanPatch);
+
+      // Đồng bộ role_claims/{emailLower} nếu tìm thấy email của tài khoản
+      const targetUserObj = usersList.find((u) => u.id === targetUserId);
+      const cleanEmail = (targetUserObj?.email || '').trim().toLowerCase();
+      if (cleanEmail) {
+        const claimData = JSON.parse(
+          JSON.stringify({
+            email: cleanEmail,
+            role: newRole,
+            grantedBy: currentUser?.fullName || 'Quản trị viên tổng',
+            grantedAt: new Date().toISOString().split('T')[0],
+            managedCompanyCodes: scope?.managedCompanyCodes,
+            managedAreaCodes: scope?.managedAreaCodes,
+            managedUnitCodes: scope?.managedUnitCodes,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+        setDoc(doc(db, 'role_claims', cleanEmail), claimData, { merge: true }).catch((e) =>
+          console.warn('[Firestore] Lỗi đồng bộ role_claims:', e)
+        );
+      }
+
       showNotification(`Đã cập nhật quyền cho "${targetName}" thành công!`);
     } catch (err: any) {
       console.error('[Firestore] Lỗi phân quyền:', err);
       showNotification(`Lỗi phân quyền: ${err?.message || 'Không thể cập nhật quyền'}`);
     }
+  };
+
+  const handleResetUserPin = async (targetUserId: string, targetName: string) => {
+    try {
+      await updateDoc(doc(db, 'users', targetUserId), {
+        pinHash: deleteField(),
+        pinUpdatedAt: deleteField(),
+      });
+      setUsersList((prev) =>
+        prev.map((u) =>
+          u.id === targetUserId ? { ...u, pinHash: undefined, pinUpdatedAt: undefined } : u
+        )
+      );
+      if (currentUser?.id === targetUserId) {
+        setCurrentUser((prev) =>
+          prev ? { ...prev, pinHash: undefined, pinUpdatedAt: undefined } : null
+        );
+        setPinUnlockedUid(null);
+      }
+      showNotification(
+        `Đã đặt lại Mã cá nhân cho "${targetName}". Tài khoản sẽ tạo mã 6 số mới ở lần đăng nhập kế tiếp.`
+      );
+    } catch (err: any) {
+      console.error('[Firestore] Lỗi đặt lại PIN:', err);
+      showNotification(`Không thể đặt lại Mã PIN: ${err?.message || 'Lỗi không xác định'}`);
+      throw err;
+    }
+  };
+
+  const handleDeleteUserAccount = async (
+    targetUserId: string,
+    targetName: string,
+    targetEmail?: string
+  ) => {
+    try {
+      await deleteDoc(doc(db, 'users', targetUserId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `users/${targetUserId}`);
+      throw err;
+    }
+
+    setUsersList((prev) => prev.filter((u) => u.id !== targetUserId));
+
+    const cleanEmail = (targetEmail || '').trim().toLowerCase();
+    if (cleanEmail) {
+      deleteDoc(doc(db, 'role_claims', cleanEmail)).catch((e) =>
+        console.warn('[Firestore] Lỗi xóa role_claims sau khi xóa TK:', e)
+      );
+    }
+
+    if (cleanEmail && preAssignedRoles.some((a) => a.email.toLowerCase() === cleanEmail)) {
+      const updated = preAssignedRoles.filter((a) => a.email.toLowerCase() !== cleanEmail);
+      const superAdmins = Array.from(
+        new Set([
+          ...BOOTSTRAP_SUPER_ADMIN_EMAILS,
+          ...updated.filter((a) => a.role === 'SUPER_ADMIN').map((a) => a.email.toLowerCase()),
+        ])
+      );
+      const admins = Array.from(
+        new Set(updated.filter((a) => a.role === 'ADMIN').map((a) => a.email.toLowerCase()))
+      );
+      try {
+        await setDoc(
+          doc(db, 'system_config', 'roles'),
+          {
+            superAdmins,
+            admins,
+            assignments: updated,
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser?.fullName || 'Quản trị viên tổng',
+          },
+          { merge: true }
+        );
+        setPreAssignedRoles(updated);
+      } catch (err) {
+        console.warn('[Firestore] Lỗi đồng bộ system_config/roles sau khi xóa TK:', err);
+      }
+    }
+
+    showNotification(`Đã xóa tài khoản "${targetName}" khỏi danh sách phân quyền.`);
   };
 
   const handlePreAssignRole = async (
@@ -1513,6 +2034,12 @@ export default function App() {
       );
     }
 
+    // Lưu bản ghi riêng tại role_claims/{cleanEmail} để user tự đọc được vai trò của riêng mình mà không cần mở system_config/roles
+    setDoc(doc(db, 'role_claims', cleanEmail), {
+      ...newAssignment,
+      updatedAt: new Date().toISOString(),
+    }).catch((err) => console.warn('Lỗi ghi role_claims:', err));
+
     const superAdmins = Array.from(
       new Set([
         ...BOOTSTRAP_SUPER_ADMIN_EMAILS,
@@ -1545,6 +2072,10 @@ export default function App() {
     const cleanEmail = email.trim().toLowerCase();
     const updated = preAssignedRoles.filter((a) => a.email.toLowerCase() !== cleanEmail);
 
+    deleteDoc(doc(db, 'role_claims', cleanEmail)).catch((err) =>
+      console.warn('Lỗi xóa role_claims:', err)
+    );
+
     const superAdmins = Array.from(
       new Set([
         ...BOOTSTRAP_SUPER_ADMIN_EMAILS,
@@ -1575,7 +2106,7 @@ export default function App() {
     showNotification(`Đã thu hồi cấp quyền trước của ${email}`);
   };
 
-  // ---------- Đăng ký / Đăng xuất ----------
+  // ---------- Đăng ký / Hoàn tất hồ sơ lần đầu / Mã PIN 6 số / Đăng xuất ----------
   const handleRegister = async (data: RegistrationData): Promise<void> => {
     pendingRegistrationRef.current = data;
     try {
@@ -1586,9 +2117,139 @@ export default function App() {
     }
   };
 
+  const handleCompleteOnboarding = async (data: OnboardingSubmitData): Promise<void> => {
+    if (!firebaseUser) return;
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const existing = await getDocFromServer(userRef);
+    if (existing.exists()) {
+      setProfileState('READY');
+      return;
+    }
+
+    const email = (firebaseUser.email || '').trim();
+    const emailLower = email.toLowerCase();
+    let remoteClaim: RoleAssignment | undefined =
+      ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower ? ownRoleClaim : undefined;
+    if (!remoteClaim && emailLower) {
+      try {
+        const claimSnap = await getDocFromServer(doc(db, 'role_claims', emailLower));
+        if (claimSnap.exists()) {
+          remoteClaim = claimSnap.data() as RoleAssignment;
+        }
+      } catch {
+        // Bỏ qua nếu chưa có role_claims cho email này
+      }
+    }
+
+    const preMatch =
+      preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim;
+    const isSuperEmail =
+      isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
+
+    let initialRole: UserRole = 'MEMBER';
+    if (isSuperEmail) initialRole = 'SUPER_ADMIN';
+    else if (preMatch?.role) initialRole = preMatch.role;
+
+    const nowIso = new Date().toISOString();
+    const today = nowIso.split('T')[0];
+    const memberId = `m-${firebaseUser.uid}`;
+    const pinHash = await hashPersonalPin(firebaseUser.uid, data.pin);
+    const unitCode = data.unitCode?.trim() || undefined;
+
+    const account = JSON.parse(
+      JSON.stringify({
+        username: email.split('@')[0] || `user_${Date.now()}`,
+        email,
+        fullName: data.fullName,
+        role: initialRole,
+        memberId,
+        companyCode: data.companyCode,
+        areaCode: data.areaCode,
+        departmentCode: data.departmentCode,
+        unitCode,
+        managedCompanyCodes: preMatch?.managedCompanyCodes || [],
+        managedAreaCodes: preMatch?.managedAreaCodes || [],
+        managedUnitCodes: preMatch?.managedUnitCodes || [],
+        avatarUrl: firebaseUser.photoURL || undefined,
+        emailVerified: firebaseUser.emailVerified,
+        pinHash,
+        pinUpdatedAt: nowIso,
+        onboardingCompleted: true,
+        createdAt: today,
+      })
+    );
+
+    const member = JSON.parse(
+      JSON.stringify({
+        code: `MEM-${firebaseUser.uid.slice(0, 6).toUpperCase()}`,
+        fullName: data.fullName,
+        companyCode: data.companyCode,
+        areaCode: data.areaCode,
+        departmentCode: data.departmentCode,
+        unitCode,
+        active: true,
+        score: 0,
+        avatarUrl: firebaseUser.photoURL || undefined,
+        goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
+        results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+        targets: [],
+        createdAt: today,
+      })
+    );
+
+    const batch = writeBatch(db);
+    batch.set(userRef, account);
+    batch.set(doc(db, 'members', memberId), member);
+    await batch.commit();
+
+    setPinUnlockedUid(firebaseUser.uid);
+    setActiveTab('ENTRY');
+    showNotification('Hoàn tất hồ sơ & thiết lập Mã cá nhân thành công!');
+  };
+
+  const handleSetupPin = async (pinHash: string): Promise<void> => {
+    if (!firebaseUser || !currentUser) return;
+    const nowIso = new Date().toISOString();
+    await updateDoc(doc(db, 'users', currentUser.id), {
+      pinHash,
+      pinUpdatedAt: nowIso,
+    });
+    setCurrentUser((prev) =>
+      prev ? { ...prev, pinHash, pinUpdatedAt: nowIso } : null
+    );
+    setPinUnlockedUid(firebaseUser.uid);
+    showNotification('Đã thiết lập Mã cá nhân 6 số thành công!');
+  };
+
+  const handleChangePin = async (
+    currentPin: string | undefined,
+    newPin: string
+  ): Promise<boolean> => {
+    if (!firebaseUser || !currentUser) return false;
+    if (currentUser.pinHash) {
+      const ok = await verifyPersonalPin(
+        currentUser.id,
+        currentPin || '',
+        currentUser.pinHash
+      );
+      if (!ok) return false;
+    }
+    const nextHash = await hashPersonalPin(currentUser.id, newPin);
+    const nowIso = new Date().toISOString();
+    await updateDoc(doc(db, 'users', currentUser.id), {
+      pinHash: nextHash,
+      pinUpdatedAt: nowIso,
+    });
+    setCurrentUser((prev) =>
+      prev ? { ...prev, pinHash: nextHash, pinUpdatedAt: nowIso } : null
+    );
+    return true;
+  };
+
   const handleLogout = () => {
+    setPinUnlockedUid(null);
     logOutFirebase().catch((err) => console.warn('Firebase logout notice:', err));
-    setActiveTab('HONORS');
+    setActiveTab('ENTRY');
     showNotification('Đã đăng xuất tài khoản.');
   };
 
@@ -1918,6 +2579,51 @@ export default function App() {
     }
   };
 
+  const openAuthModalWithMode = (mode: 'LOGIN' | 'REGISTER') => {
+    setAuthModalInitialMode(mode);
+    setIsAuthModalOpen(true);
+  };
+
+  // ---------- PHƯƠNG ÁN A: Cổng xác thực + Khóa Mã cá nhân 6 số toàn hệ thống ----------
+  if (securityGateMode !== null) {
+    return (
+      <>
+        {notification && (
+          <div className="fixed bottom-6 right-4 sm:right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>{notification}</span>
+          </div>
+        )}
+
+        <SecurityGateScreen
+          mode={securityGateMode}
+          firebaseUser={firebaseUser}
+          currentUser={effectiveCurrentUser}
+          companies={effectiveCompanies}
+          areas={effectiveAreas}
+          departments={effectiveDepartments}
+          onOpenAuthModal={openAuthModalWithMode}
+          onCompleteOnboarding={handleCompleteOnboarding}
+          onSetupPin={handleSetupPin}
+          onPinUnlocked={() => {
+            if (firebaseUser?.uid) setPinUnlockedUid(firebaseUser.uid);
+          }}
+          onLogout={handleLogout}
+        />
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          initialMode={authModalInitialMode}
+          onClose={() => setIsAuthModalOpen(false)}
+          companies={effectiveCompanies}
+          areas={effectiveAreas}
+          departments={effectiveDepartments}
+          onRegister={handleRegister}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f3f6fb] dark:bg-[#0b1120] text-slate-800 dark:text-slate-100 antialiased selection:bg-amber-200 selection:text-amber-900 transition-colors duration-300">
       {/* Toast Notification */}
@@ -1928,13 +2634,17 @@ export default function App() {
         </div>
       )}
 
-      {/* Minimal DB-independent Header */}
+      {/* Minimal Header: Sau khi đăng nhập thay nút "Tài khoản" bằng Profile + Đăng xuất */}
       <TopHeader
         isSidebarOpen={isDesktopSidebarOpen}
         onToggleSidebar={handleToggleSidebar}
         onOpenRulesModal={() => setIsRulesModalOpen(true)}
         onRefreshUI={handleRefresh}
-        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
+        currentUser={effectiveCurrentUser}
+        onNavigateProfile={() => setActiveTab('PROFILE')}
+        onLogout={handleLogout}
+        onLockPin={() => setPinUnlockedUid(null)}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
         onNavigateHome={() => setActiveTab('ENTRY')}
@@ -1949,29 +2659,11 @@ export default function App() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           currentUser={effectiveCurrentUser}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
           onLogout={handleLogout}
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
-          {/* Prompt đăng nhập nếu chưa đăng nhập */}
-          {authReady && !firebaseUser && (
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full mt-4">
-              <div className="rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-                  <strong>Vui lòng đăng nhập để nhập Báo cáo hằng ngày và xem Bảng xếp hạng trực tuyến.</strong>
-                  <br />
-                  Dữ liệu được đồng bộ an toàn trên máy chủ theo thời gian thực.
-                </div>
-                <button
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="shrink-0 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                >
-                  Đăng nhập / Đăng ký
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* TAB: BÁO CÁO HẰNG NGÀY (Trang chủ mặc định) */}
           {activeTab === 'ENTRY' && (
@@ -2317,13 +3009,13 @@ export default function App() {
                 currentUser={effectiveCurrentUser}
                 disciples={disciples}
                 isLoading={disciplesLoading}
-                companies={companies}
-                areas={areas}
+                companies={effectiveCompanies}
+                areas={effectiveAreas}
                 onCreateDisciple={handleCreateDisciple}
                 onUpdateDiscipleFull={handleUpdateDiscipleFull}
                 onUpdateDiscipleProgressNote={handleUpdateDiscipleProgressNote}
                 onDeleteDisciple={handleDeleteDisciple}
-                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
                 onShowNotification={showNotification}
               />
             </main>
@@ -2359,8 +3051,8 @@ export default function App() {
                 currentUser={effectiveCurrentUser}
                 topics={eduTopics}
                 assignments={eduAssignments}
-                companies={companies}
-                areas={areas}
+                companies={effectiveCompanies}
+                areas={effectiveAreas}
                 members={allMembersRanked}
                 isLoading={eduLoading}
                 onSaveTopic={handleSaveEduTopic}
@@ -2371,7 +3063,7 @@ export default function App() {
                   setCmsNavIntent({ subTab: 'CURRICULUM', topicId });
                   setActiveTab('EDU_CMS');
                 }}
-                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
                 onShowNotification={showNotification}
               />
             </main>
@@ -2384,14 +3076,14 @@ export default function App() {
                 currentUser={effectiveCurrentUser}
                 cmsProfiles={eduCmsProfiles}
                 topics={eduTopics}
-                companies={companies}
-                areas={areas}
+                companies={effectiveCompanies}
+                areas={effectiveAreas}
                 initialSubTab={cmsNavIntent.subTab}
                 initialTopicId={cmsNavIntent.topicId}
                 onSaveCmsProfile={handleSaveEduCmsProfile}
                 onDeleteCmsProfile={handleDeleteEduCmsProfile}
                 onSaveTopicCurriculum={handleSaveTopicCurriculum}
-                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
                 onShowNotification={showNotification}
               />
             </main>
@@ -2411,9 +3103,9 @@ export default function App() {
                   activeEvent={activeEvent}
                   defaultWeights={effectiveDefaultWeights}
                   disciples={disciples}
-                  companies={companies}
-                  areas={areas}
-                  departments={departments}
+                  companies={effectiveCompanies}
+                  areas={effectiveAreas}
+                  departments={effectiveDepartments}
                   onNavigateToEntry={() => setActiveTab('ENTRY')}
                   onNavigateToDisciples={() => setActiveTab('DISCIPLES')}
                   onNavigateToHonors={() => setActiveTab('HONORS')}
@@ -2423,6 +3115,7 @@ export default function App() {
                   onReactHuongKhi={handleReactHuongKhi}
                   onAddComment={handleAddComment}
                   onUpdateProfile={handleUpdateProfile}
+                  onChangePin={handleChangePin}
                   onShowNotification={showNotification}
                 />
               ) : (
@@ -2437,7 +3130,7 @@ export default function App() {
                     Vui lòng đăng nhập hoặc đăng ký tài khoản cá nhân để xem trang hồ sơ của bạn.
                   </p>
                   <button
-                    onClick={() => setIsAuthModalOpen(true)}
+                    onClick={() => openAuthModalWithMode('LOGIN')}
                     className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
                   >
                     Đăng nhập / Đăng ký ngay
@@ -2456,11 +3149,11 @@ export default function App() {
                 isLoading={workSchedulesLoading}
                 readError={workSchedulesError}
                 members={allMembersRanked}
-                companies={companies}
-                areas={areas}
+                companies={effectiveCompanies}
+                areas={effectiveAreas}
                 onSaveWorkSchedule={handleSaveWorkSchedule}
                 onDeleteWorkSchedule={handleDeleteWorkSchedule}
-                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
                 onShowNotification={showNotification}
               />
             </main>
@@ -2472,9 +3165,9 @@ export default function App() {
               {isAdminUser ? (
                 <AdminPanel
                   initialTab={adminNavTab}
-                  companies={companies}
-                  areas={areas}
-                  departments={departments}
+                  companies={effectiveCompanies}
+                  areas={effectiveAreas}
+                  departments={effectiveDepartments}
                   members={allMembersRanked}
                   onAddCompany={handleAddCompany}
                   onUpdateCompany={handleUpdateCompany}
@@ -2497,9 +3190,11 @@ export default function App() {
                   currentUser={effectiveCurrentUser}
                   usersList={usersList}
                   onUpdateUserRole={handleUpdateUserRole}
+                  onDeleteUserAccount={handleDeleteUserAccount}
                   preAssignedRoles={preAssignedRoles}
                   onPreAssignRole={handlePreAssignRole}
                   onDeletePreAssignedRole={handleDeletePreAssignedRole}
+                  onResetUserPin={handleResetUserPin}
                   bannerConfig={bannerConfig}
                   events={sortedEvents}
                   onSaveBannerConfig={handleSaveBannerConfig}
@@ -2563,10 +3258,11 @@ export default function App() {
       {/* Modals */}
       <AuthModal
         isOpen={isAuthModalOpen}
+        initialMode={authModalInitialMode}
         onClose={() => setIsAuthModalOpen(false)}
-        companies={companies}
-        areas={areas}
-        departments={departments}
+        companies={effectiveCompanies}
+        areas={effectiveAreas}
+        departments={effectiveDepartments}
         onRegister={handleRegister}
       />
 

@@ -41,6 +41,7 @@ import {
   EMPTY_DAILY_METRICS,
   DEFAULT_DAILY_GOALS,
   DEFAULT_EVENT_WEIGHTS,
+  ROLE_DISPLAY_META,
 } from '../types/edulms';
 import type { AppTab } from './Navbar';
 import { CustomSelect } from './CustomSelect';
@@ -447,8 +448,24 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   </div>
 
                   {currentUser ? (
-                    <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 truncate max-w-full">
-                      {currentUser.fullName} · {currentUser.companyCode}
+                    <div className="flex flex-col items-center gap-1 max-w-full">
+                      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[11px] font-bold text-slate-800 dark:text-slate-100">
+                        <span className="truncate max-w-[160px] sm:max-w-none">{currentUser.fullName}</span>
+                        <span className="px-2 py-0.5 rounded-md bg-white/85 dark:bg-slate-800/90 border border-sky-200 dark:border-slate-700 text-blue-800 dark:text-sky-300 text-[10px] font-extrabold">
+                          Sion {currentUser.companyCode} · KV {currentUser.areaCode}
+                          {currentUser.unitCode ? ` · ${currentUser.unitCode}` : ''}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold ${
+                            (ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).badgeClass
+                          }`}
+                        >
+                          {(ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).label}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-600 dark:text-slate-300 leading-tight max-w-md">
+                        {(ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).scopeSummary}
+                      </div>
                     </div>
                   ) : (
                     <button

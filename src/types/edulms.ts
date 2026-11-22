@@ -250,6 +250,9 @@ export interface UserAccount {
   bio?: string;
   emailVerified?: boolean;
   verificationCode?: string;
+  pinHash?: string;
+  pinUpdatedAt?: string;
+  onboardingCompleted?: boolean;
   createdAt: string;
 }
 
@@ -418,6 +421,9 @@ export interface DailyReportRecord {
   id: string; // `${uid}_${date}`
   uid: string;
   memberId: string;
+  companyCode?: string;
+  areaCode?: string;
+  unitCode?: string;
   date: string; // YYYY-MM-DD
   month: string; // YYYY-MM
   year: string; // YYYY

@@ -128,6 +128,11 @@ interface AdminPanelProps {
       managedUnitCodes?: string[];
     }
   ) => Promise<void>;
+  onDeleteUserAccount?: (
+    targetUserId: string,
+    targetName: string,
+    targetEmail?: string
+  ) => Promise<void>;
   preAssignedRoles?: RoleAssignment[];
   onPreAssignRole?: (
     email: string,
@@ -140,6 +145,7 @@ interface AdminPanelProps {
     }
   ) => Promise<void>;
   onDeletePreAssignedRole?: (email: string) => Promise<void>;
+  onResetUserPin?: (targetUserId: string, targetName: string) => Promise<void>;
   bannerConfig?: SystemBannerConfig | null;
   events?: FestivalEvent[];
   onSaveBannerConfig?: (config: SystemBannerConfig) => Promise<void>;
@@ -185,9 +191,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   currentUser,
   usersList,
   onUpdateUserRole,
+  onDeleteUserAccount,
   preAssignedRoles,
   onPreAssignRole,
   onDeletePreAssignedRole,
+  onResetUserPin,
   bannerConfig = null,
   events = [],
   onSaveBannerConfig,
@@ -2476,9 +2484,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               areas={areas}
               departments={departments}
               onUpdateUserRole={onUpdateUserRole || (async () => {})}
+              onDeleteUserAccount={onDeleteUserAccount}
               preAssignedRoles={preAssignedRoles}
               onPreAssignRole={onPreAssignRole}
               onDeletePreAssignedRole={onDeletePreAssignedRole}
+              onResetUserPin={onResetUserPin}
               onShowNotification={onShowNotification}
             />
           </div>

@@ -28,7 +28,7 @@ import {
   Area,
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
-import { canModifyEduRecord, isAdminRole } from '../utils/rbac';
+import { canModifyEduRecord, canViewEduRecord, isAdminRole } from '../utils/rbac';
 
 interface EduCmsPageProps {
   currentUser: UserAccount | null;
@@ -135,13 +135,18 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     }
   }, [activeTopic]);
 
+  const scopedCmsProfiles = useMemo(
+    () => cmsProfiles.filter((p) => canViewEduRecord(currentUser, p)),
+    [cmsProfiles, currentUser]
+  );
+
   const learnersList = useMemo(
-    () => cmsProfiles.filter((p) => p.stage !== 'NGV'),
-    [cmsProfiles]
+    () => scopedCmsProfiles.filter((p) => p.stage !== 'NGV'),
+    [scopedCmsProfiles]
   );
   const ngvList = useMemo(
-    () => cmsProfiles.filter((p) => p.stage === 'NGV'),
-    [cmsProfiles]
+    () => scopedCmsProfiles.filter((p) => p.stage === 'NGV'),
+    [scopedCmsProfiles]
   );
 
   const filteredLearners = useMemo(() => {

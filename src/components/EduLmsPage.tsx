@@ -30,7 +30,12 @@ import {
   Member,
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
-import { canModifyEduRecord, isAdminRole } from '../utils/rbac';
+import {
+  canModifyEduRecord,
+  canViewEduRecord,
+  canViewMemberDetail,
+  isAdminRole,
+} from '../utils/rbac';
 
 interface EduLmsPageProps {
   currentUser: UserAccount | null;
@@ -153,6 +158,11 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
     return Array.from(set);
   }, [topics, activeTrack]);
 
+  const visibleAssignments = useMemo(
+    () => assignments.filter((a) => canViewEduRecord(currentUser, a)),
+    [assignments, currentUser]
+  );
+
   const filteredTopics = useMemo(() => {
     return topics
       .filter((t) => t.track === activeTrack)
@@ -163,7 +173,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         }
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
-          const matchingAssigns = assignments.some(
+          const matchingAssigns = visibleAssignments.some(
             (a) =>
               a.topicId === t.id &&
               (a.studentName.toLowerCase().includes(q) ||
@@ -183,7 +193,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         if (b.year !== a.year) return b.year - a.year;
         return b.weekNumber - a.weekNumber;
       });
-  }, [topics, assignments, activeTrack, weekFilter, companyFilter, searchQuery]);
+  }, [topics, visibleAssignments, activeTrack, weekFilter, companyFilter, searchQuery]);
 
   const canModifyAssignment = (a: EduTopicAssignment): boolean =>
     canModifyEduRecord(currentUser, a);
@@ -273,21 +283,24 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       setANote(existing.note || '');
     } else {
       setEditingAssignId(null);
-      const defComp =
-        topic.companyCode !== 'ALL'
-          ? topic.companyCode
-          : currentUser?.companyCode || companies[0]?.code || 'Th1';
-      const defArea =
-        topic.areaCode !== 'ALL'
-          ? topic.areaCode
-          : currentUser?.areaCode ||
-            areas.find((a) => a.companyCode === defComp)?.code ||
-            areas[0]?.code ||
-            '1.1';
+      const isMemberOnly = currentUser?.role === 'MEMBER';
+      const defComp = isMemberOnly
+        ? currentUser.companyCode
+        : topic.companyCode !== 'ALL'
+        ? topic.companyCode
+        : currentUser?.companyCode || companies[0]?.code || 'Th1';
+      const defArea = isMemberOnly
+        ? currentUser.areaCode
+        : topic.areaCode !== 'ALL'
+        ? topic.areaCode
+        : currentUser?.areaCode ||
+          areas.find((a) => a.companyCode === defComp)?.code ||
+          areas[0]?.code ||
+          '1.1';
       setACompanyCode(defComp);
       setAAreaCode(defArea);
-      setAMemberId('');
-      setAStudentName(currentUser?.role === 'MEMBER' ? currentUser.fullName : '');
+      setAMemberId(isMemberOnly ? currentUser.memberId || `m-${currentUser.id}` : '');
+      setAStudentName(isMemberOnly ? currentUser.fullName : '');
       setAStatus('REGISTERED');
       setANote('');
     }
@@ -393,6 +406,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   const areaOptionsForAssign = areas.filter((a) => a.companyCode === aCompanyCode);
   const memberCandidatesForAssign = members.filter(
     (m) =>
+      canViewMemberDetail(currentUser, m) &&
       (!aCompanyCode || m.companyCode === aCompanyCode) &&
       (!aAreaCode || m.areaCode === aAreaCode)
   );
@@ -532,7 +546,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       ) : (
         <div className="space-y-3 sm:space-y-4">
           {filteredTopics.map((topic) => {
-            const topicAssigns = assignments.filter((a) => a.topicId === topic.id);
+            const topicAssigns = visibleAssignments.filter((a) => a.topicId === topic.id);
             const isLessonOpen = !!expandedLessonIds[topic.id];
             const hasLesson = Boolean(topic.curriculumContent?.trim());
 

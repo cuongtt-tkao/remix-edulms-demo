@@ -21,9 +21,29 @@
         "coverUrl": { "type": "string", "maxLength": 200000 },
         "bio": { "type": "string", "maxLength": 500 },
         "emailVerified": { "type": "boolean" },
+        "pinHash": { "type": "string", "maxLength": 128 },
+        "pinUpdatedAt": { "type": "string", "maxLength": 50 },
+        "onboardingCompleted": { "type": "boolean" },
         "createdAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["fullName", "email", "role"]
+    },
+    "RoleClaim": {
+      "title": "RoleClaim",
+      "description": "Individual per-email pre-assigned role and managed organizational scope",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN", "MANAGER", "SION_LEADER", "AREA_LEADER", "UNI_LEADER", "MEMBER"] },
+        "grantedBy": { "type": "string", "maxLength": 100 },
+        "grantedAt": { "type": "string", "maxLength": 50 },
+        "note": { "type": "string", "maxLength": 300 },
+        "managedCompanyCodes": { "type": "array" },
+        "managedAreaCodes": { "type": "array" },
+        "managedUnitCodes": { "type": "array" },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["email", "role"]
     },
     "Disciple": {
       "title": "Disciple",
@@ -58,6 +78,9 @@
       "properties": {
         "uid": { "type": "string", "maxLength": 128 },
         "memberId": { "type": "string", "maxLength": 128 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 30 },
+        "unitCode": { "type": "string", "maxLength": 50 },
         "date": { "type": "string", "maxLength": 15 },
         "month": { "type": "string", "maxLength": 10 },
         "year": { "type": "string", "maxLength": 6 },
@@ -208,7 +231,11 @@
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
-      "description": "User accounts, roles, and managed scopes"
+      "description": "User accounts, roles, PIN hashes, and managed scopes"
+    },
+    "/role_claims/{email}": {
+      "schema": "RoleClaim",
+      "description": "Per-email pre-assigned role claims readable only by the matching user and Super Admins"
     },
     "/system_config/{id}": {
       "schema": "SystemConfig",

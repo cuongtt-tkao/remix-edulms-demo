@@ -30,6 +30,9 @@ import {
   Award,
   FileSpreadsheet,
   Download,
+  Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -57,6 +60,7 @@ import { SPOTLIGHT_COVERS } from './HeroBanner';
 import { sumDailyReportMetrics, computeDailyMetricsScore } from '../utils/scoringEngine';
 import { CustomSelect } from './CustomSelect';
 import { isAdminRole, isSupervisorRole } from '../utils/rbac';
+import { isValidPersonalPin, sanitizePinInput } from '../utils/pinSecurity';
 import {
   exportDailyReportsByRbacExcel,
   DailyReportExportPeriod,
@@ -94,6 +98,7 @@ interface ProfilePageProps {
     departmentCode: string;
     unitCode?: string;
   }) => void | boolean | Promise<boolean | void>;
+  onChangePin?: (currentPin: string | undefined, newPin: string) => Promise<boolean>;
   onShowNotification: (msg: string) => void;
 }
 
@@ -168,12 +173,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   onReactHuongKhi,
   onAddComment,
   onUpdateProfile,
+  onChangePin,
   onShowNotification,
 }) => {
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isCoverModalOpen, setIsCoverModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isAddHuongKhiModalOpen, setIsAddHuongKhiModalOpen] = useState(false);
   const [activeProfileTab, setActiveProfileTab] = useState<
     'POSTS' | 'DISCIPLES' | 'REPORTS' | 'ABOUT'
@@ -216,6 +223,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [editError, setEditError] = useState('');
 
+  // Personal 6-digit PIN change state
+  const [currentPinInput, setCurrentPinInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [showPinDigits, setShowPinDigits] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [isSavingPin, setIsSavingPin] = useState(false);
+
   // Quick In-page Add Huong Khi Form State
   const [quickHkTitle, setQuickHkTitle] = useState('');
   const [quickHkCategory, setQuickHkCategory] =
@@ -250,6 +265,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         setIsAvatarModalOpen(false);
         setIsCoverModalOpen(false);
         setIsPasswordModalOpen(false);
+        setIsPinModalOpen(false);
         setIsAddHuongKhiModalOpen(false);
       }
     };
@@ -552,6 +568,49 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     onShowNotification('Đã đổi mật khẩu thành công!');
   };
 
+  const handleOpenPinModal = () => {
+    setCurrentPinInput('');
+    setNewPinInput('');
+    setConfirmPinInput('');
+    setPinError('');
+    setShowPinDigits(false);
+    setIsPinModalOpen(true);
+  };
+
+  const handleChangePinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinError('');
+    if (currentUser.pinHash && !isValidPersonalPin(currentPinInput)) {
+      setPinError('Vui lòng nhập đúng Mã cá nhân 6 số hiện tại.');
+      return;
+    }
+    if (!isValidPersonalPin(newPinInput)) {
+      setPinError('Mã cá nhân mới phải gồm đúng 6 chữ số (0–9).');
+      return;
+    }
+    if (newPinInput !== confirmPinInput) {
+      setPinError('Mã cá nhân xác nhận không khớp.');
+      return;
+    }
+    if (!onChangePin) return;
+
+    setIsSavingPin(true);
+    try {
+      const ok = await onChangePin(currentUser.pinHash ? currentPinInput : undefined, newPinInput);
+      if (!ok) {
+        setPinError('Mã cá nhân hiện tại không chính xác hoặc không thể cập nhật.');
+        return;
+      }
+      setIsPinModalOpen(false);
+      setCurrentPinInput('');
+      setNewPinInput('');
+      setConfirmPinInput('');
+      onShowNotification('Đã cập nhật Mã cá nhân 6 số thành công!');
+    } finally {
+      setIsSavingPin(false);
+    }
+  };
+
   const handlePostQuickHuongKhi = (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickHkTitle.trim() || !quickHkContent.trim()) {
@@ -770,6 +829,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <KeyRound className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                 <span className="hidden sm:inline">Mật khẩu</span>
               </button>
+
+              {onChangePin && (
+                <button
+                  type="button"
+                  onClick={handleOpenPinModal}
+                  className="h-9 px-2.5 sm:px-3 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 cursor-pointer shadow-2xs"
+                  title="Đổi Mã cá nhân 6 số"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Mã PIN</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -2302,6 +2373,124 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
                 >
                   Cập nhật mật khẩu
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          MODAL 2B: ĐỔI MÃ CÁ NHÂN 6 SỐ
+          ======================================================== */}
+      {isPinModalOpen && (
+        <div
+          onClick={() => setIsPinModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 dark:border-slate-800 p-6 sm:p-7 relative cursor-default"
+          >
+            <button
+              type="button"
+              onClick={() => setIsPinModalOpen(false)}
+              className="absolute top-5 right-5 p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center justify-between gap-2 mb-1 pr-8">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-400 flex items-center justify-center">
+                  <Lock className="w-4 h-4" />
+                </span>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Đổi Mã Cá Nhân 6 Số</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPinDigits((p) => !p)}
+                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 cursor-pointer"
+              >
+                {showPinDigits ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                <span>{showPinDigits ? 'Ẩn' : 'Hiện'}</span>
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+              Mã cá nhân 6 số được yêu cầu mỗi lần mở phiên làm việc để bảo vệ dữ liệu của bạn.
+            </p>
+
+            {pinError && (
+              <div className="mb-3 p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-semibold rounded-xl">
+                {pinError}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePinSubmit} className="space-y-3.5">
+              {currentUser.pinHash && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Mã PIN hiện tại (6 số) *
+                  </label>
+                  <input
+                    type={showPinDigits ? 'text' : 'password'}
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={currentPinInput}
+                    onChange={(e) => setCurrentPinInput(sanitizePinInput(e.target.value))}
+                    placeholder="••••••"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono tracking-widest text-slate-900 dark:text-white"
+                    required
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Mã PIN mới (6 chữ số) *
+                </label>
+                <input
+                  type={showPinDigits ? 'text' : 'password'}
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={newPinInput}
+                  onChange={(e) => setNewPinInput(sanitizePinInput(e.target.value))}
+                  placeholder="Ví dụ: 123456"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono tracking-widest text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Xác nhận Mã PIN mới *
+                </label>
+                <input
+                  type={showPinDigits ? 'text' : 'password'}
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={confirmPinInput}
+                  onChange={(e) => setConfirmPinInput(sanitizePinInput(e.target.value))}
+                  placeholder="Nhập lại 6 số"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono tracking-widest text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsPinModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingPin}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  {isSavingPin ? 'Đang lưu...' : 'Cập nhật Mã PIN'}
                 </button>
               </div>
             </form>

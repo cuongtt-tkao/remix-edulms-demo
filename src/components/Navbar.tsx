@@ -18,8 +18,9 @@ import {
   CalendarCheck2,
   GraduationCap,
   BookMarked,
+  Lock,
 } from 'lucide-react';
-import { UserAccount } from '../types/edulms';
+import { UserAccount, ROLE_DISPLAY_META } from '../types/edulms';
 
 export type AppTab =
   | 'ENTRY'
@@ -38,6 +39,10 @@ interface TopHeaderProps {
   onOpenRulesModal: () => void;
   onRefreshUI: () => void;
   onOpenAuthModal: () => void;
+  currentUser: UserAccount | null;
+  onNavigateProfile: () => void;
+  onLogout: () => void;
+  onLockPin?: () => void;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
   onNavigateHome: () => void;
@@ -45,7 +50,7 @@ interface TopHeaderProps {
 
 /**
  * Header tối giản, hài hòa:
- * Chỉ hiển thị các nút thao tác giao diện KHÔNG phụ thuộc vào dữ liệu Database.
+ * Sau khi đăng nhập: bỏ nút "Tài khoản", thay bằng hồ sơ cá nhân + nút Đăng xuất trực tiếp.
  */
 export const TopHeader: React.FC<TopHeaderProps> = ({
   isSidebarOpen,
@@ -53,6 +58,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenRulesModal,
   onRefreshUI,
   onOpenAuthModal,
+  currentUser,
+  onNavigateProfile,
+  onLogout,
+  onLockPin,
   isDarkMode,
   onToggleDarkMode,
   onNavigateHome,
@@ -64,6 +73,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     onRefreshUI();
     setTimeout(() => setIsSpinning(false), 500);
   };
+
+  const roleMeta = currentUser
+    ? ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER
+    : null;
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/90 dark:border-slate-800 sticky top-0 z-40 h-16 px-3 sm:px-5 flex items-center justify-between gap-2 backdrop-blur-md shadow-2xs transition-colors">
@@ -114,7 +127,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </button>
       </div>
 
-      {/* Right: Non-DB-dependent UI utility buttons */}
+      {/* Right: Utility buttons + Profile / Logout */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         <button
           type="button"
@@ -123,13 +136,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           title="Xem thể lệ & quy đổi điểm"
         >
           <BookOpen className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-          <span className="hidden sm:inline">Thể lệ</span>
+          <span className="hidden md:inline">Thể lệ</span>
         </button>
 
         <button
           type="button"
           onClick={handleRefreshClick}
-          className="p-2 min-w-[38px] min-h-[38px] flex items-center justify-center rounded-xl text-slate-500 hover:text-blue-700 dark:text-slate-300 dark:hover:text-blue-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          className="hidden sm:flex p-2 min-w-[38px] min-h-[38px] items-center justify-center rounded-xl text-slate-500 hover:text-blue-700 dark:text-slate-300 dark:hover:text-blue-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           title="Làm mới giao diện"
           aria-label="Làm mới giao diện"
         >
@@ -150,15 +163,72 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           )}
         </button>
 
-        <button
-          type="button"
-          onClick={onOpenAuthModal}
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[38px] rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
-          title="Mở cửa sổ đăng nhập / chuyển tài khoản"
-        >
-          <LogIn className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Tài khoản</span>
-        </button>
+        {currentUser ? (
+          <div className="flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={onNavigateProfile}
+              title={`Hồ sơ cá nhân · ${currentUser.fullName} (Sion ${currentUser.companyCode} · KV ${currentUser.areaCode})`}
+              className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 min-h-[38px] rounded-xl bg-slate-100/90 dark:bg-slate-800/90 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer max-w-[170px] sm:max-w-[230px]"
+            >
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-[11px] flex items-center justify-center shrink-0 overflow-hidden">
+                {currentUser.avatarUrl ? (
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt={currentUser.fullName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  (currentUser.fullName || 'U').charAt(0).toUpperCase()
+                )}
+              </div>
+              <div className="min-w-0 text-left hidden sm:block">
+                <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate leading-tight">
+                  {currentUser.fullName}
+                </div>
+                <div className="text-[10px] font-bold text-blue-700 dark:text-amber-300 truncate leading-tight">
+                  {currentUser.companyCode} · KV {currentUser.areaCode} · {roleMeta?.codeBadge || 'TĐ'}
+                </div>
+              </div>
+              <span className="sm:hidden text-[11px] font-extrabold text-slate-900 dark:text-white truncate">
+                {currentUser.fullName.split(' ').slice(-1)[0]}
+              </span>
+            </button>
+
+            {onLockPin && (
+              <button
+                type="button"
+                onClick={onLockPin}
+                title="Khóa màn hình bằng Mã cá nhân"
+                aria-label="Khóa màn hình bằng Mã cá nhân"
+                className="p-2 min-w-[36px] min-h-[38px] flex items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 transition cursor-pointer shrink-0"
+              >
+                <Lock className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onLogout}
+              title="Đăng xuất tài khoản"
+              aria-label="Đăng xuất tài khoản"
+              className="flex items-center gap-1 px-2.5 py-1.5 min-h-[38px] rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/60 text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Đăng xuất</span>
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenAuthModal}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[38px] rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            title="Mở cửa sổ đăng nhập"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Đăng nhập</span>
+          </button>
+        )}
       </div>
     </header>
   );

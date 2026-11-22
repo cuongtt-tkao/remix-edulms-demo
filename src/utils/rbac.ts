@@ -156,10 +156,25 @@ export function filterLeaderboardByRbac(
     }
   });
 
+  const sanitizeVisibleMembers = (list: Member[]): Member[] =>
+    list.map((m) =>
+      accessibleDetailIds.has(m.id)
+        ? m
+        : {
+            ...m,
+            targets: [],
+            dailyResults: undefined,
+            dailyGoals: undefined,
+            bio: undefined,
+            results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+            goals: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+          }
+    );
+
   // Guest (chưa đăng nhập): Quy tắc chung -> xem BXH Top 15 người đầu tiên
   if (!viewer) {
     return {
-      visibleMembers: top15,
+      visibleMembers: sanitizeVisibleMembers(top15),
       visibleCompanies: companyRankings.slice(0, 3),
       visibleAreas: areaRankings.slice(0, 5),
       top15Ids,
@@ -214,8 +229,8 @@ export function filterLeaderboardByRbac(
       return clusterCompanies.has(cCode) || clusterAreas.has(aCode);
     });
 
-    const visibleMembers = rankedMembers.filter(
-      (m) => top15Ids.has(m.id) || isSelfMember(viewer, m)
+    const visibleMembers = sanitizeVisibleMembers(
+      rankedMembers.filter((m) => top15Ids.has(m.id) || isSelfMember(viewer, m))
     );
 
     const companyListText = Array.from(clusterCompanies).join(', ') || viewer.companyCode || 'Chưa gán';
@@ -241,11 +256,13 @@ export function filterLeaderboardByRbac(
     const visibleAreas = areaRankings.filter((a) =>
       companies.has(normalizeOrgCode(a.companyCode))
     );
-    const visibleMembers = rankedMembers.filter(
-      (m) =>
-        top15Ids.has(m.id) ||
-        isSelfMember(viewer, m) ||
-        companies.has(normalizeOrgCode(m.companyCode))
+    const visibleMembers = sanitizeVisibleMembers(
+      rankedMembers.filter(
+        (m) =>
+          top15Ids.has(m.id) ||
+          isSelfMember(viewer, m) ||
+          companies.has(normalizeOrgCode(m.companyCode))
+      )
     );
 
     const companyLabel = Array.from(companies).join(', ') || viewer.companyCode || 'Sion';
@@ -278,13 +295,15 @@ export function filterLeaderboardByRbac(
         (companies.size === 0 || companies.has(normalizeOrgCode(a.companyCode))) &&
         areas.has(normalizeOrgCode(a.areaCode))
     );
-    const visibleMembers = rankedMembers.filter((m) => {
-      if (top15Ids.has(m.id) || isSelfMember(viewer, m)) return true;
-      const compOk = companies.size === 0 || companies.has(normalizeOrgCode(m.companyCode));
-      const areaOk = areas.has(normalizeOrgCode(m.areaCode));
-      const unitOk = managedUnits.size === 0 || managedUnits.has(getMemberUnitCode(m));
-      return compOk && areaOk && unitOk;
-    });
+    const visibleMembers = sanitizeVisibleMembers(
+      rankedMembers.filter((m) => {
+        if (top15Ids.has(m.id) || isSelfMember(viewer, m)) return true;
+        const compOk = companies.size === 0 || companies.has(normalizeOrgCode(m.companyCode));
+        const areaOk = areas.has(normalizeOrgCode(m.areaCode));
+        const unitOk = managedUnits.size === 0 || managedUnits.has(getMemberUnitCode(m));
+        return compOk && areaOk && unitOk;
+      })
+    );
 
     const areaLabel = Array.from(areas).join(', ') || viewer.areaCode || 'Khu vực';
     return {
@@ -314,13 +333,15 @@ export function filterLeaderboardByRbac(
         (!ownCompany || normalizeOrgCode(a.companyCode) === ownCompany) &&
         (!ownArea || normalizeOrgCode(a.areaCode) === ownArea)
     );
-    const visibleMembers = rankedMembers.filter((m) => {
-      if (top15Ids.has(m.id) || isSelfMember(viewer, m)) return true;
-      const compOk = !ownCompany || normalizeOrgCode(m.companyCode) === ownCompany;
-      const areaOk = !ownArea || normalizeOrgCode(m.areaCode) === ownArea;
-      const unitOk = units.size > 0 && units.has(getMemberUnitCode(m));
-      return compOk && areaOk && unitOk;
-    });
+    const visibleMembers = sanitizeVisibleMembers(
+      rankedMembers.filter((m) => {
+        if (top15Ids.has(m.id) || isSelfMember(viewer, m)) return true;
+        const compOk = !ownCompany || normalizeOrgCode(m.companyCode) === ownCompany;
+        const areaOk = !ownArea || normalizeOrgCode(m.areaCode) === ownArea;
+        const unitOk = units.size > 0 && units.has(getMemberUnitCode(m));
+        return compOk && areaOk && unitOk;
+      })
+    );
 
     const unitLabel = Array.from(units).join(', ') || viewer.departmentCode || 'Đội Uni';
     return {
@@ -339,8 +360,8 @@ export function filterLeaderboardByRbac(
   // TĐ (MEMBER): Chỉ xem được KQ của mình + BXH 15 người đầu tiên
   const ownCompany = normalizeOrgCode(viewer.companyCode);
   const ownArea = normalizeOrgCode(viewer.areaCode);
-  const visibleMembers = rankedMembers.filter(
-    (m) => top15Ids.has(m.id) || isSelfMember(viewer, m)
+  const visibleMembers = sanitizeVisibleMembers(
+    rankedMembers.filter((m) => top15Ids.has(m.id) || isSelfMember(viewer, m))
   );
   const visibleCompanies = companyRankings.filter(
     (c) => normalizeOrgCode(c.companyCode) === ownCompany
@@ -509,14 +530,68 @@ export function canModifyDiscipleRecord(
   return false;
 }
 
-export function canModifyEduRecord(
+export function canViewEduRecord(
   viewer: UserAccount | null,
-  record: { companyCode?: string; areaCode?: string; ownerUid?: string; assignedByUid?: string }
+  record: {
+    companyCode?: string;
+    areaCode?: string;
+    ownerUid?: string;
+    assignedByUid?: string;
+    memberId?: string;
+  }
 ): boolean {
   if (!viewer) return false;
   if (isAdminRole(viewer.role)) return true;
   if (record.ownerUid && record.ownerUid === viewer.id) return true;
   if (record.assignedByUid && record.assignedByUid === viewer.id) return true;
+  if (record.memberId && viewer.memberId && record.memberId === viewer.memberId) return true;
+
+  // TĐ (MEMBER): khóa hoàn toàn dữ liệu Edu của người khác
+  if (viewer.role === 'MEMBER') return false;
+
+  const recCompany = normalizeOrgCode(record.companyCode);
+  const recArea = normalizeOrgCode(record.areaCode);
+
+  if (viewer.role === 'MANAGER') {
+    return (
+      resolveViewerCompanyScope(viewer).has(recCompany) ||
+      resolveViewerAreaScope(viewer).has(recArea)
+    );
+  }
+  if (viewer.role === 'SION_LEADER') {
+    return resolveViewerCompanyScope(viewer).has(recCompany);
+  }
+  if (viewer.role === 'AREA_LEADER') {
+    const compOk =
+      resolveViewerCompanyScope(viewer).size === 0 ||
+      resolveViewerCompanyScope(viewer).has(recCompany);
+    return compOk && resolveViewerAreaScope(viewer).has(recArea);
+  }
+  if (viewer.role === 'UNI_LEADER') {
+    const ownCompany = normalizeOrgCode(viewer.companyCode);
+    const ownArea = normalizeOrgCode(viewer.areaCode);
+    return (!ownCompany || ownCompany === recCompany) && (!ownArea || ownArea === recArea);
+  }
+  return false;
+}
+
+export function canModifyEduRecord(
+  viewer: UserAccount | null,
+  record: {
+    companyCode?: string;
+    areaCode?: string;
+    ownerUid?: string;
+    assignedByUid?: string;
+    memberId?: string;
+  }
+): boolean {
+  if (!viewer) return false;
+  if (isAdminRole(viewer.role)) return true;
+  if (record.ownerUid && record.ownerUid === viewer.id) return true;
+  if (record.assignedByUid && record.assignedByUid === viewer.id) return true;
+  if (record.memberId && viewer.memberId && record.memberId === viewer.memberId) return true;
+
+  if (viewer.role === 'MEMBER') return false;
 
   const recCompany = normalizeOrgCode(record.companyCode);
   const recArea = normalizeOrgCode(record.areaCode);

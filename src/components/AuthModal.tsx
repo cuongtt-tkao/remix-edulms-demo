@@ -21,6 +21,17 @@ import { Company, Area, Department, formatCompanyDisplayName } from '../types/ed
 import { signInWithGoogle, signInWithEmail, sendResetPasswordEmail, describeAuthError } from '../firebase';
 import { CustomSelect } from './CustomSelect';
 
+import {
+  hashPersonalPin,
+  isValidPersonalPin,
+  sanitizePinInput,
+} from '../utils/pinSecurity';
+import {
+  INITIAL_COMPANIES,
+  INITIAL_AREAS,
+  INITIAL_DEPARTMENTS,
+} from '../data/competitionStore';
+
 export interface RegistrationData {
   fullName: string;
   username: string;
@@ -30,10 +41,12 @@ export interface RegistrationData {
   areaCode: string;
   departmentCode: string;
   unitCode?: string;
+  pin: string;
 }
 
 interface AuthModalProps {
   isOpen: boolean;
+  initialMode?: 'LOGIN' | 'REGISTER';
   onClose: () => void;
   companies: Company[];
   areas: Area[];
@@ -43,13 +56,18 @@ interface AuthModalProps {
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
+  initialMode = 'LOGIN',
   onClose,
   companies,
   areas,
   departments,
   onRegister,
 }) => {
-  const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT_PASS'>('LOGIN');
+  const effectiveCompanies = companies.length > 0 ? companies : INITIAL_COMPANIES;
+  const effectiveAreas = areas.length > 0 ? areas : INITIAL_AREAS;
+  const effectiveDepartments = departments.length > 0 ? departments : INITIAL_DEPARTMENTS;
+
+  const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT_PASS'>(initialMode);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -63,14 +81,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [regCompany, setRegCompany] = useState(companies[0]?.code || 'Th1');
-  const [regArea, setRegArea] = useState('1.1');
-  const [regDept, setRegDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
+  const [regCompany, setRegCompany] = useState(effectiveCompanies[0]?.code || 'Th1');
+  const [regArea, setRegArea] = useState(effectiveAreas[0]?.code || '1.1');
+  const [regDept, setRegDept] = useState(effectiveDepartments[0]?.code || 'Thanh Niên Nam');
   const [regUnitCode, setRegUnitCode] = useState('');
+  const [regPin, setRegPin] = useState('');
+  const [regPinConfirm, setRegPinConfirm] = useState('');
 
   // Forgot password form
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotMessage, setForgotMessage] = useState('');
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+      setAuthError('');
+    }
+  }, [isOpen, initialMode]);
+
+  const areasForRegCompany = React.useMemo(
+    () => effectiveAreas.filter((a) => a.companyCode === regCompany && a.active !== false),
+    [effectiveAreas, regCompany]
+  );
+
+  React.useEffect(() => {
+    if (effectiveCompanies.length > 0 && !effectiveCompanies.some((c) => c.code === regCompany)) {
+      setRegCompany(effectiveCompanies[0].code);
+    }
+  }, [effectiveCompanies]);
+
+  React.useEffect(() => {
+    if (areasForRegCompany.length > 0) {
+      if (!areasForRegCompany.some((a) => a.code === regArea)) {
+        setRegArea(areasForRegCompany[0].code);
+      }
+    }
+  }, [areasForRegCompany, regCompany]);
+
+  React.useEffect(() => {
+    if (
+      effectiveDepartments.length > 0 &&
+      !effectiveDepartments.some((d) => d.code === regDept)
+    ) {
+      setRegDept(effectiveDepartments[0].code);
+    }
+  }, [effectiveDepartments]);
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -144,9 +199,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setAuthError('Mật khẩu phải có tối thiểu 6 ký tự.');
       return;
     }
+    if (!regCompany.trim() || !regArea.trim()) {
+      setAuthError('Vui lòng chọn đầy đủ Sion / Công ty và Khu vực.');
+      return;
+    }
+    if (!isValidPersonalPin(regPin)) {
+      setAuthError('Mã cá nhân (PIN) phải gồm đúng 6 chữ số.');
+      return;
+    }
+    if (regPin !== regPinConfirm) {
+      setAuthError('Mã cá nhân xác nhận chưa khớp.');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
+      // Pre-validate hashing capability
+      await hashPersonalPin('preview', regPin);
       await onRegister({
         fullName: regFullName.trim(),
         username: regUsername.trim().toLowerCase(),
@@ -156,8 +225,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         areaCode: regArea.trim(),
         departmentCode: regDept,
         unitCode: regUnitCode.trim() || undefined,
+        pin: regPin,
       });
       setRegPassword('');
+      setRegPin('');
+      setRegPinConfirm('');
       onClose();
     } catch (err: any) {
       setAuthError(describeAuthError(err));
@@ -433,36 +505,56 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               {/* Units Selection */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Sion / Công ty trực thuộc *
-                </label>
-                <CustomSelect
-                  value={regCompany}
-                  onChange={setRegCompany}
-                  size="sm"
-                  leadingIcon={<Building2 className="w-3.5 h-3.5" />}
-                  options={companies.map((c) => ({
-                    value: c.code,
-                    label: formatCompanyDisplayName(c.name, c.code),
-                  }))}
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Sion / Công ty trực thuộc *
+                  </label>
+                  <CustomSelect
+                    value={regCompany}
+                    onChange={setRegCompany}
+                    size="sm"
+                    leadingIcon={<Building2 className="w-3.5 h-3.5" />}
+                    options={effectiveCompanies.map((c) => ({
+                      value: c.code,
+                      label: formatCompanyDisplayName(c.name, c.code),
+                      badge: c.code,
+                    }))}
+                    ariaLabel="Chọn Sion / Công ty"
+                  />
+                </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Khu vực *
                   </label>
-                  <input
-                    type="text"
-                    value={regArea}
-                    onChange={(e) => setRegArea(e.target.value)}
-                    placeholder="1.1, 1.2..."
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900"
-                    required
-                  />
+                  {areasForRegCompany.length > 0 ? (
+                    <CustomSelect
+                      value={regArea}
+                      onChange={setRegArea}
+                      size="sm"
+                      leadingIcon={<MapPin className="w-3.5 h-3.5" />}
+                      options={areasForRegCompany.map((a) => ({
+                        value: a.code,
+                        label: a.name || `Khu vực ${a.code}`,
+                        badge: a.code,
+                      }))}
+                      ariaLabel="Chọn Khu vực"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={regArea}
+                      onChange={(e) => setRegArea(e.target.value)}
+                      placeholder="1.1, 1.2..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900"
+                      required
+                    />
+                  )}
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Đội / Uni
@@ -484,18 +576,59 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     onChange={setRegDept}
                     size="sm"
                     searchable={false}
-                    options={departments.map((d) => ({
+                    leadingIcon={<Users2 className="w-3.5 h-3.5" />}
+                    options={effectiveDepartments.map((d) => ({
                       value: d.code,
                       label: d.name,
                     }))}
+                    ariaLabel="Chọn Ban ngành"
                   />
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                <div className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Mã cá nhân 6 số (PIN) bảo vệ tài khoản</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Mã PIN (6 chữ số) *
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={regPin}
+                      onChange={(e) => setRegPin(sanitizePinInput(e.target.value))}
+                      placeholder="••••••"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-center tracking-[0.35em] text-xs font-black text-slate-900"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Xác nhận 6 số *
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={regPinConfirm}
+                      onChange={(e) => setRegPinConfirm(sanitizePinInput(e.target.value))}
+                      placeholder="••••••"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-center tracking-[0.35em] text-xs font-black text-slate-900"
+                      required
+                    />
+                  </div>
                 </div>
               </div>
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-2 mt-4 cursor-pointer"
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-2 mt-3 cursor-pointer"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                 <span>Đăng ký tài khoản</span>
