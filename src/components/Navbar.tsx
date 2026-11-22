@@ -19,8 +19,11 @@ import {
   GraduationCap,
   BookMarked,
   Lock,
+  Bell,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react';
-import { UserAccount, ROLE_DISPLAY_META } from '../types/edulms';
+import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel } from '../types/edulms';
 
 export type AppTab =
   | 'ENTRY'
@@ -43,6 +46,9 @@ interface TopHeaderProps {
   onNavigateProfile: () => void;
   onLogout: () => void;
   onLockPin?: () => void;
+  pendingApprovals?: UserAccount[];
+  onNavigateAdminRoles?: () => void;
+  onNavigateAdmin?: () => void;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
   onNavigateHome: () => void;
@@ -62,11 +68,31 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onNavigateProfile,
   onLogout,
   onLockPin,
+  pendingApprovals = [],
+  onNavigateAdminRoles,
+  onNavigateAdmin,
   isDarkMode,
   onToggleDarkMode,
   onNavigateHome,
 }) => {
   const [isSpinning, setIsSpinning] = React.useState(false);
+  const [isBellOpen, setIsBellOpen] = React.useState(false);
+  const bellWrapperRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!isBellOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (bellWrapperRef.current && !bellWrapperRef.current.contains(e.target as Node)) {
+        setIsBellOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [isBellOpen]);
+
+  const isAdminViewer =
+    currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
+  const canAccessAdmin = canAccessAdminPanel(currentUser?.role);
 
   const handleRefreshClick = () => {
     setIsSpinning(true);
@@ -163,6 +189,109 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           )}
         </button>
 
+        {canAccessAdmin && onNavigateAdmin && (
+          <button
+            type="button"
+            onClick={onNavigateAdmin}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[38px] rounded-xl bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-700/60 text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
+            title={isAdminViewer ? 'Mở Trang Quản trị Tổng' : 'Mở Trang Quản trị Đơn vị'}
+          >
+            <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+            <span className="hidden sm:inline">
+              {isAdminViewer ? 'Quản trị' : 'Quản trị ĐV'}
+            </span>
+          </button>
+        )}
+
+        {isAdminViewer && (
+          <div className="relative" ref={bellWrapperRef}>
+            <button
+              type="button"
+              onClick={() => setIsBellOpen((v) => !v)}
+              aria-label="Thông báo phê duyệt đăng ký mới"
+              title={
+                pendingApprovals.length > 0
+                  ? `${pendingApprovals.length} đăng ký mới đang chờ phê duyệt`
+                  : 'Thông báo phê duyệt đăng ký'
+              }
+              className={`relative p-2 min-w-[38px] min-h-[38px] flex items-center justify-center rounded-xl border transition cursor-pointer ${
+                pendingApprovals.length > 0
+                  ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-300 hover:bg-rose-100'
+                  : 'bg-slate-100 dark:bg-slate-800 border-transparent text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <Bell className={`w-4 h-4 ${pendingApprovals.length > 0 ? 'animate-pulse' : ''}`} />
+              {pendingApprovals.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-sm ring-2 ring-white dark:ring-slate-900 tabular-nums">
+                  {pendingApprovals.length > 99 ? '99+' : pendingApprovals.length}
+                </span>
+              )}
+            </button>
+
+            {isBellOpen && (
+              <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-full sm:mt-2 w-[min(92vw,340px)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-50 space-y-2.5 animate-in fade-in slide-in-from-top-1">
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5 text-xs font-black text-slate-900 dark:text-white">
+                    <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Đăng ký chờ duyệt ({pendingApprovals.length})</span>
+                  </div>
+                  {onNavigateAdminRoles && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsBellOpen(false);
+                        onNavigateAdminRoles();
+                      }}
+                      className="text-[11px] font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                    >
+                      Mở trang duyệt →
+                    </button>
+                  )}
+                </div>
+
+                {pendingApprovals.length === 0 ? (
+                  <div className="py-5 text-center space-y-1">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      Không có yêu cầu chờ duyệt
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Hệ thống sẽ báo ngay khi có thành viên mới đăng ký.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                    {pendingApprovals.slice(0, 6).map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => {
+                          setIsBellOpen(false);
+                          onNavigateAdminRoles?.();
+                        }}
+                        className="w-full text-left p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 hover:bg-amber-100/80 dark:hover:bg-amber-950/50 border border-amber-200/80 dark:border-amber-800/50 transition cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                            {u.fullName}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200/80 dark:bg-amber-900 text-amber-900 dark:text-amber-200 shrink-0">
+                            {u.companyCode} · KV {u.areaCode}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {u.email}
+                          {u.unitCode ? ` · ${u.unitCode}` : ''}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {currentUser ? (
           <div className="flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-slate-700">
             <button
@@ -241,6 +370,7 @@ interface SideNavigationProps {
   activeTab: AppTab;
   setActiveTab: (tab: AppTab) => void;
   currentUser: UserAccount | null;
+  pendingApprovalCount?: number;
   onOpenAuthModal: () => void;
   onLogout: () => void;
 }
@@ -252,6 +382,7 @@ interface NavGroupItem {
   icon: React.ComponentType<{ className?: string }>;
   accent: string;
   visible: boolean;
+  badgeCount?: number;
 }
 
 interface NavGroup {
@@ -275,7 +406,7 @@ function getRoleSubtitle(user: UserAccount): string {
           : user.companyCode
       }`;
     case 'SION_LEADER':
-      return `Ts, Nq · Sion ${user.managedCompanyCodes?.join(', ') || user.companyCode}`;
+      return `TS, NQ · Sion ${user.managedCompanyCodes?.join(', ') || user.companyCode}`;
     case 'AREA_LEADER':
       return `Gru · KV ${user.managedAreaCodes?.join(', ') || user.areaCode}`;
     case 'UNI_LEADER':
@@ -300,10 +431,12 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
   activeTab,
   setActiveTab,
   currentUser,
+  pendingApprovalCount = 0,
   onOpenAuthModal,
   onLogout,
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
+  const canAccessAdmin = canAccessAdminPanel(currentUser?.role);
 
   const navGroups: NavGroup[] = [
     {
@@ -400,11 +533,19 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
       items: [
         {
           id: 'ADMIN',
-          label: currentUser?.role === 'SUPER_ADMIN' ? 'Quản trị Tổng' : 'Quản trị Hệ thống',
-          subLabel: 'Điểm, Banner, Nhân sự & Quyền',
+          label:
+            currentUser?.role === 'SUPER_ADMIN'
+              ? 'Quản trị Tổng'
+              : isAdmin
+              ? 'Quản trị Hệ thống'
+              : 'Quản trị Đơn vị',
+          subLabel: isAdmin
+            ? 'Điểm, Banner, Nhân sự & Quyền'
+            : 'Tổ chức, Nhân sự & Phân quyền',
           icon: Shield,
           accent: 'text-purple-400',
-          visible: isAdmin,
+          visible: canAccessAdmin,
+          badgeCount: isAdmin ? pendingApprovalCount : 0,
         },
       ],
     },
@@ -438,8 +579,8 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         </button>
       </div>
 
-      {/* Navigation Groups (3 Mục Chính: Turbo, Công Việc, Event) */}
-      <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-4">
+      {/* Navigation Groups */}
+      <nav className="flex-1 overflow-y-auto px-2.5 py-2 space-y-2.5">
         {navGroups.map((group, groupIdx) => {
           const visibleItems = group.items.filter((i) => i.visible);
           if (visibleItems.length === 0) return null;
@@ -447,10 +588,10 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
           return (
             <div
               key={group.key}
-              className={groupIdx > 0 ? 'pt-3 border-t border-white/10' : ''}
+              className={groupIdx > 0 ? 'pt-2 border-t border-white/10' : ''}
             >
               {!compactDesktop && (
-                <div className="px-3 pb-1.5 text-[11px] font-bold tracking-wide text-amber-300/90">
+                <div className="px-3 pb-1 text-[10px] font-bold tracking-wide text-amber-300/90 uppercase">
                   {group.title}
                 </div>
               )}
@@ -459,30 +600,49 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
                 {visibleItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
+                  const isAdminItem = item.id === 'ADMIN';
                   return (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => handleSelect(item.id)}
                       title={compactDesktop ? `${group.title}: ${item.label}` : undefined}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-2xl transition-all duration-150 cursor-pointer text-left ${
+                      className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 min-h-[40px] rounded-xl transition-all duration-150 cursor-pointer text-left ${
                         isActive
                           ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-950/50 ring-1 ring-white/20'
+                          : isAdminItem
+                          ? 'bg-purple-500/15 border border-purple-400/30 text-purple-100 hover:bg-purple-500/25 hover:text-white'
                           : 'text-slate-300 hover:bg-white/10 hover:text-white'
                       } ${compactDesktop ? 'justify-center px-2' : ''}`}
                     >
                       <div
-                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                          isActive ? 'bg-white/15' : 'bg-white/5'
+                        className={`relative w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                          isActive
+                            ? 'bg-white/15'
+                            : isAdminItem
+                            ? 'bg-purple-500/20'
+                            : 'bg-white/5'
                         }`}
                       >
                         <Icon className={`w-4 h-4 ${isActive ? 'text-white' : item.accent}`} />
+                        {compactDesktop && !!item.badgeCount && item.badgeCount > 0 && (
+                          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center ring-2 ring-slate-950">
+                            {item.badgeCount}
+                          </span>
+                        )}
                       </div>
 
                       {!compactDesktop && (
                         <>
                           <div className="min-w-0 flex-1">
-                            <div className="text-xs font-extrabold truncate">{item.label}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-extrabold truncate">{item.label}</span>
+                              {!!item.badgeCount && item.badgeCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black leading-none shrink-0 tabular-nums">
+                                  {item.badgeCount}
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[10px] text-slate-300/75 truncate">
                               {item.subLabel}
                             </div>
@@ -500,7 +660,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
       </nav>
 
       {/* Bottom User Card (inside Sidebar) */}
-      <div className="p-3 border-t border-white/10 bg-black/20">
+      <div className="p-2.5 border-t border-white/10 bg-black/20">
         {currentUser ? (
           <div className="space-y-2.5">
             {!compactDesktop ? (

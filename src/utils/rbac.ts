@@ -7,6 +7,8 @@ import {
   ROLE_DISPLAY_META,
   UserAccount,
   UserRole,
+  getRoleLevel,
+  getMaxAssignableRoleLevel,
 } from '../types/edulms';
 
 export function normalizeOrgCode(code?: string | null): string {
@@ -617,4 +619,86 @@ export function canModifyEduRecord(
     return (!ownCompany || ownCompany === recCompany) && (!ownArea || ownArea === recArea);
   }
   return false;
+}
+
+/**
+ * Kiểm tra xem người dùng (Cấp 2 -> 7) có quyền xem/quản lý bản ghi Tổ chức & Nhân sự
+ * (Thành viên / Tài khoản) thuộc phạm vi Sion / Khu vực / Uni của mình hay không.
+ */
+export function canManageOrgRecord(
+  viewer: UserAccount | null,
+  record: {
+    companyCode?: string | null;
+    areaCode?: string | null;
+    unitCode?: string | null;
+    departmentCode?: string | null;
+  }
+): boolean {
+  if (!viewer) return false;
+  if (isAdminRole(viewer.role)) return true;
+
+  const targetCompany = normalizeOrgCode(record.companyCode);
+  const targetArea = normalizeOrgCode(record.areaCode);
+  const targetUnit = getMemberUnitCode(record);
+
+  if (viewer.role === 'MANAGER') {
+    const companies = resolveViewerCompanyScope(viewer);
+    const areas = new Set(
+      (viewer.managedAreaCodes || []).map((a) => normalizeOrgCode(a)).filter(Boolean)
+    );
+    return companies.has(targetCompany) || (!!targetArea && areas.has(targetArea));
+  }
+
+  if (viewer.role === 'SION_LEADER') {
+    const companies = resolveViewerCompanyScope(viewer);
+    return companies.has(targetCompany);
+  }
+
+  if (viewer.role === 'AREA_LEADER') {
+    const companies = resolveViewerCompanyScope(viewer);
+    const areas = resolveViewerAreaScope(viewer);
+    const managedUnits = new Set(
+      (viewer.managedUnitCodes || []).map((u) => normalizeOrgCode(u)).filter(Boolean)
+    );
+    const companyOk = companies.size === 0 || companies.has(targetCompany);
+    const areaOk = areas.has(targetArea);
+    const unitOk = managedUnits.size === 0 || (!!targetUnit && managedUnits.has(targetUnit));
+    return companyOk && areaOk && unitOk;
+  }
+
+  if (viewer.role === 'UNI_LEADER') {
+    const ownCompany = normalizeOrgCode(viewer.companyCode);
+    const ownArea = normalizeOrgCode(viewer.areaCode);
+    const units = resolveViewerUnitScope(viewer);
+    const companyOk = !ownCompany || ownCompany === targetCompany;
+    const areaOk = !ownArea || ownArea === targetArea;
+    const unitOk = units.size > 0 && !!targetUnit && units.has(targetUnit);
+    return companyOk && areaOk && unitOk;
+  }
+
+  return false;
+}
+
+/**
+ * Kiểm tra quyền phân quyền theo thang bậc:
+ * - Cấp 7 (SUPER_ADMIN): phân quyền tất cả 7 cấp
+ * - Cấp 6 (ADMIN): cấp 5 trở xuống
+ * - Cấp 5 (MANAGER): cấp 4 trở xuống
+ * - Cấp 4 (SION_LEADER / TS, NQ): cấp 3 trở xuống
+ * - Cấp 3 (AREA_LEADER / Gru): cấp 2 trở xuống
+ * - Cấp 2 (UNI_LEADER / Uni): cấp 1 trở xuống
+ */
+export function canAssignTargetRole(
+  actorRole: UserRole | null | undefined,
+  currentTargetRole: UserRole,
+  nextTargetRole: UserRole
+): boolean {
+  if (!actorRole) return false;
+  if (actorRole === 'SUPER_ADMIN') return true;
+  const maxAssignable = getMaxAssignableRoleLevel(actorRole);
+  if (maxAssignable <= 0) return false;
+  return (
+    getRoleLevel(currentTargetRole) <= maxAssignable &&
+    getRoleLevel(nextTargetRole) <= maxAssignable
+  );
 }

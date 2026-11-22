@@ -24,6 +24,10 @@
         "pinHash": { "type": "string", "maxLength": 128 },
         "pinUpdatedAt": { "type": "string", "maxLength": 50 },
         "onboardingCompleted": { "type": "boolean" },
+        "approvalStatus": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "approvedBy": { "type": "string", "maxLength": 100 },
+        "approvedAt": { "type": "string", "maxLength": 50 },
+        "rejectionReason": { "type": "string", "maxLength": 300 },
         "createdAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["fullName", "email", "role"]
@@ -134,6 +138,8 @@
         "homeWidgets": { "type": "object" },
         "actionStripLabel": { "type": "string", "maxLength": 150 },
         "visibility": { "type": "object" },
+        "requireRegistrationApproval": { "type": "boolean" },
+        "autoApprovePreAssigned": { "type": "boolean" },
         "updatedAt": { "type": "string", "maxLength": 50 },
         "updatedBy": { "type": "string", "maxLength": 100 }
       }

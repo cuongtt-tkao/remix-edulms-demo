@@ -56,6 +56,11 @@ import {
   EduTopicAssignment,
   EduCmsProfile,
   WorkScheduleRecord,
+  SystemSecurityConfig,
+  DEFAULT_SECURITY_CONFIG,
+  resolveUserApprovalStatus,
+  canAccessAdminPanel,
+  getRoleLevel,
 } from './types/edulms';
 import {
   rankMembers,
@@ -70,8 +75,9 @@ import {
   getVisibleKpiSummary,
   getMemberUnitCode,
   isAdminRole,
+  canAssignTargetRole,
 } from './utils/rbac';
-import { hashPersonalPin, verifyPersonalPin } from './utils/pinSecurity';
+import { hashPersonalPin, verifyPersonalPin, isValidPersonalPin } from './utils/pinSecurity';
 import {
   OperationType,
   handleFirestoreError,
@@ -129,7 +135,15 @@ export default function App() {
   const creatingProfileRef = useRef<boolean>(false);
   const welcomedUidRef = useRef<string | null>(null);
   const prevAuthUidRef = useRef<string | null>(null);
+  const seenPendingUidsRef = useRef<Set<string> | null>(null);
   const signedIn = !!firebaseUser;
+
+  const currentEmailLower = (firebaseUser?.email || currentUser?.email || '').trim().toLowerCase();
+  const isSelfBootstrapSuperAdmin = isBootstrapSuperAdminEmail(currentEmailLower);
+  const currentApprovalStatus = useMemo(() => {
+    if (isSelfBootstrapSuperAdmin) return 'APPROVED' as const;
+    return resolveUserApprovalStatus(currentUser);
+  }, [isSelfBootstrapSuperAdmin, currentUser]);
 
   const securityGateMode: SecurityGateMode | null = useMemo(() => {
     if (!authReady) return 'LOADING';
@@ -139,15 +153,26 @@ export default function App() {
       return pendingRegistrationRef.current ? 'LOADING' : 'ONBOARDING';
     }
     if (!currentUser) return 'LOADING';
+    if (currentApprovalStatus === 'PENDING') return 'PENDING_APPROVAL';
+    if (currentApprovalStatus === 'REJECTED') return 'REJECTED_APPROVAL';
     if (!currentUser.pinHash) return 'PIN_SETUP';
     if (pinUnlockedUid !== firebaseUser?.uid) return 'PIN_LOCKED';
     return null;
-  }, [authReady, signedIn, profileState, currentUser, pinUnlockedUid, firebaseUser?.uid]);
+  }, [
+    authReady,
+    signedIn,
+    profileState,
+    currentUser,
+    currentApprovalStatus,
+    pinUnlockedUid,
+    firebaseUser?.uid,
+  ]);
 
   const dataUnlocked =
     signedIn &&
     profileState === 'READY' &&
     !!currentUser &&
+    currentApprovalStatus === 'APPROVED' &&
     !!currentUser.pinHash &&
     pinUnlockedUid === firebaseUser?.uid;
 
@@ -206,10 +231,25 @@ export default function App() {
     testFirestoreConnection();
   }, []);
 
-  // Banner, Điểm mặc định & Font/Bố cục Widget toàn hệ thống (công khai)
+  // Banner, Điểm mặc định, Giao diện & Chế độ Phê duyệt đăng ký toàn hệ thống (công khai đọc)
   const [bannerConfig, setBannerConfig] = useState<SystemBannerConfig | null>(null);
   const [scoringConfig, setScoringConfig] = useState<SystemScoringConfig | null>(null);
   const [appearanceConfig, setAppearanceConfig] = useState<SystemAppearanceConfig | null>(null);
+  const [securityConfig, setSecurityConfig] = useState<SystemSecurityConfig | null>(null);
+
+  const effectiveSecurityConfig = useMemo<SystemSecurityConfig>(
+    () => ({
+      requireRegistrationApproval:
+        securityConfig?.requireRegistrationApproval ??
+        DEFAULT_SECURITY_CONFIG.requireRegistrationApproval,
+      autoApprovePreAssigned:
+        securityConfig?.autoApprovePreAssigned ??
+        DEFAULT_SECURITY_CONFIG.autoApprovePreAssigned,
+      updatedAt: securityConfig?.updatedAt,
+      updatedBy: securityConfig?.updatedBy,
+    }),
+    [securityConfig]
+  );
 
   useEffect(() => {
     const unsubBanner = onSnapshot(
@@ -245,10 +285,22 @@ export default function App() {
       },
       (err) => console.warn('[Firestore] Lỗi đọc system_config/appearance:', err)
     );
+    const unsubSecurity = onSnapshot(
+      doc(db, 'system_config', 'security'),
+      (snap) => {
+        if (snap.exists()) {
+          setSecurityConfig({ ...(snap.data() as SystemSecurityConfig), id: snap.id });
+        } else {
+          setSecurityConfig(null);
+        }
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc system_config/security:', err)
+    );
     return () => {
       unsubBanner();
       unsubScoring();
       unsubAppearance();
+      unsubSecurity();
     };
   }, []);
 
@@ -355,24 +407,168 @@ export default function App() {
     return unsubscribe;
   }, [canReadAdminRolesConfig]);
 
+  const managedCompKeyEarly = JSON.stringify(currentUser?.managedCompanyCodes || []);
+  const managedAreaKeyEarly = JSON.stringify(currentUser?.managedAreaCodes || []);
+  const managedUnitKeyEarly = JSON.stringify(currentUser?.managedUnitCodes || []);
+
   useEffect(() => {
-    if (!dataUnlocked || !currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN')) {
+    if (!dataUnlocked || !firebaseUser?.uid) {
       setUsersList([]);
+      seenPendingUidsRef.current = null;
       return;
     }
-    const unsubscribe = onSnapshot(
-      collection(db, 'users'),
-      (snap) => {
-        const list: UserAccount[] = snap.docs.map((d) => ({
-          ...(d.data() as Omit<UserAccount, 'id'>),
-          id: d.id,
-        }));
-        setUsersList(list);
-      },
-      (err) => console.warn('[Firestore] Lỗi đọc danh sách users:', err)
-    );
-    return unsubscribe;
-  }, [dataUnlocked, currentUser?.role]);
+
+    if (canReadAdminRolesConfig) {
+      const unsubscribe = onSnapshot(
+        collection(db, 'users'),
+        (snap) => {
+          const list: UserAccount[] = snap.docs.map((d) => ({
+            ...(d.data() as Omit<UserAccount, 'id'>),
+            id: d.id,
+          }));
+          setUsersList(list);
+
+          const currentPending = list.filter((u) => resolveUserApprovalStatus(u) === 'PENDING');
+          const currentPendingSet = new Set(currentPending.map((u) => u.id));
+          if (seenPendingUidsRef.current === null) {
+            seenPendingUidsRef.current = currentPendingSet;
+          } else {
+            const newlyArrived = currentPending.filter((u) => !seenPendingUidsRef.current!.has(u.id));
+            seenPendingUidsRef.current = currentPendingSet;
+            if (newlyArrived.length > 0) {
+              const first = newlyArrived[0];
+              const extra = newlyArrived.length > 1 ? ` (+${newlyArrived.length - 1} khác)` : '';
+              showNotification(
+                `Đăng ký mới chờ duyệt: ${first.fullName} (${first.companyCode} · KV ${first.areaCode})${extra}`
+              );
+            }
+          }
+        },
+        (err) => console.warn('[Firestore] Lỗi đọc danh sách users:', err)
+      );
+      return unsubscribe;
+    }
+
+    if (!currentUser || !canAccessAdminPanel(currentUser.role)) {
+      setUsersList([]);
+      seenPendingUidsRef.current = null;
+      return;
+    }
+
+    seenPendingUidsRef.current = null;
+    const role = currentUser.role;
+    const buckets = new Map<string, Map<string, UserAccount>>();
+    const unsubs: Array<() => void> = [];
+
+    const syncMerged = () => {
+      const merged = new Map<string, UserAccount>();
+      buckets.forEach((b) => {
+        b.forEach((rec, id) => merged.set(id, rec));
+      });
+      if (!merged.has(currentUser.id)) {
+        merged.set(currentUser.id, currentUser);
+      }
+      setUsersList(Array.from(merged.values()));
+    };
+
+    const attachUserQuery = (bucketKey: string, qRef: any) => {
+      const unsub = onSnapshot(
+        qRef,
+        (snap: any) => {
+          const map = new Map<string, UserAccount>();
+          snap.docs.forEach((d: any) => {
+            map.set(d.id, { ...(d.data() as Omit<UserAccount, 'id'>), id: d.id });
+          });
+          buckets.set(bucketKey, map);
+          syncMerged();
+        },
+        (err: any) => {
+          console.warn(`[Firestore] Lỗi đọc users (${bucketKey}):`, err);
+        }
+      );
+      unsubs.push(unsub);
+    };
+
+    const compCodes: string[] = JSON.parse(managedCompKeyEarly);
+    const areaCodes: string[] = JSON.parse(managedAreaKeyEarly);
+    const unitCodes: string[] = JSON.parse(managedUnitKeyEarly);
+
+    if (role === 'MANAGER') {
+      const effectiveComps = Array.from(
+        new Set([...compCodes, ...(currentUser.companyCode ? [currentUser.companyCode] : [])].filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        attachUserQuery(`comp_${cCode}`, query(collection(db, 'users'), where('companyCode', '==', cCode)));
+      });
+      areaCodes.forEach((aCode) => {
+        if (aCode) {
+          attachUserQuery(`area_${aCode}`, query(collection(db, 'users'), where('areaCode', '==', aCode)));
+        }
+      });
+    } else if (role === 'SION_LEADER') {
+      const effectiveComps = Array.from(
+        new Set([...compCodes, ...(currentUser.companyCode ? [currentUser.companyCode] : [])].filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        attachUserQuery(`sion_${cCode}`, query(collection(db, 'users'), where('companyCode', '==', cCode)));
+      });
+    } else if (role === 'AREA_LEADER') {
+      const effectiveComps = Array.from(
+        new Set([...compCodes, ...(currentUser.companyCode ? [currentUser.companyCode] : [])].filter(Boolean))
+      );
+      const effectiveAreasList = Array.from(
+        new Set([...areaCodes, ...(currentUser.areaCode ? [currentUser.areaCode] : [])].filter(Boolean))
+      );
+      effectiveComps.forEach((cCode) => {
+        effectiveAreasList.forEach((aCode) => {
+          attachUserQuery(
+            `area_${cCode}_${aCode}`,
+            query(collection(db, 'users'), where('companyCode', '==', cCode), where('areaCode', '==', aCode))
+          );
+        });
+      });
+    } else if (role === 'UNI_LEADER') {
+      const ownUnit = currentUser.unitCode || '';
+      const effectiveUnits = Array.from(new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean)));
+      if (currentUser.companyCode && currentUser.areaCode) {
+        effectiveUnits.forEach((uCode) => {
+          attachUserQuery(
+            `uni_${uCode}`,
+            query(
+              collection(db, 'users'),
+              where('companyCode', '==', currentUser.companyCode),
+              where('areaCode', '==', currentUser.areaCode),
+              where('unitCode', '==', uCode)
+            )
+          );
+        });
+      }
+    }
+
+    syncMerged();
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [
+    dataUnlocked,
+    firebaseUser?.uid,
+    canReadAdminRolesConfig,
+    currentUser?.id,
+    currentUser?.role,
+    currentUser?.companyCode,
+    currentUser?.areaCode,
+    currentUser?.unitCode,
+    managedCompKeyEarly,
+    managedAreaKeyEarly,
+    managedUnitKeyEarly,
+    showNotification,
+  ]);
+
+  const pendingApprovalUsers = useMemo(
+    () => usersList.filter((u) => resolveUserApprovalStatus(u) === 'PENDING'),
+    [usersList]
+  );
 
   // Theme Dark/Light mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -400,6 +596,7 @@ export default function App() {
   // Navigation & Sidebar states
   const [activeTab, setActiveTab] = useState<AppTab>('ENTRY');
   const [adminNavTab, setAdminNavTab] = useState<AdminSectionId>('SCORING');
+  const [adminNavTrigger, setAdminNavTrigger] = useState<number>(0);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState<boolean>(true);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
@@ -492,17 +689,23 @@ export default function App() {
             (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
               ? ownRoleClaim
               : undefined);
+          const rawRole: UserRole = raw.role || 'MEMBER';
           const isSuper =
             isBootstrapSuperAdminEmail(emailLower) ||
             preMatch?.role === 'SUPER_ADMIN' ||
-            raw.role === 'SUPER_ADMIN';
+            rawRole === 'SUPER_ADMIN';
           const isAdmin =
-            isSuper || raw.role === 'ADMIN' || preMatch?.role === 'ADMIN';
+            isSuper || rawRole === 'ADMIN' || preMatch?.role === 'ADMIN';
+          const shouldAdoptPreMatch =
+            !!preMatch?.role &&
+            (rawRole === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(rawRole));
           const resolvedRole: UserRole = isSuper
             ? 'SUPER_ADMIN'
             : isAdmin
             ? 'ADMIN'
-            : preMatch?.role || raw.role || 'MEMBER';
+            : shouldAdoptPreMatch
+            ? preMatch!.role
+            : rawRole;
 
           const managedCompanyCodes =
             raw.managedCompanyCodes?.length
@@ -569,13 +772,27 @@ export default function App() {
       const today = nowIso.split('T')[0];
       const memberId = `m-${firebaseUser.uid}`;
       const emailLower = email.toLowerCase();
+      let remoteClaim: RoleAssignment | undefined =
+        ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower ? ownRoleClaim : undefined;
+      if (!remoteClaim && emailLower) {
+        try {
+          const claimSnap = await getDocFromServer(doc(db, 'role_claims', emailLower));
+          if (claimSnap.exists()) {
+            remoteClaim = claimSnap.data() as RoleAssignment;
+          }
+        } catch {
+          // Bỏ qua nếu chưa có role_claims cho email này
+        }
+      }
+
       const preMatch =
-        preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
-        (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
-          ? ownRoleClaim
-          : undefined);
+        preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim;
       const isSuperAdminEmail =
         isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
+      const shouldAutoApprove =
+        !effectiveSecurityConfig.requireRegistrationApproval ||
+        isSuperAdminEmail ||
+        (effectiveSecurityConfig.autoApprovePreAssigned && !!preMatch);
 
       let initialRole: UserRole = 'MEMBER';
       if (isSuperAdminEmail) initialRole = 'SUPER_ADMIN';
@@ -602,6 +819,8 @@ export default function App() {
           pinHash,
           pinUpdatedAt: pinHash ? nowIso : undefined,
           onboardingCompleted: true,
+          approvalStatus: shouldAutoApprove ? 'APPROVED' : 'PENDING',
+          ...(shouldAutoApprove ? { approvedBy: 'SYSTEM_AUTO', approvedAt: nowIso } : {}),
           createdAt: today,
         })
       );
@@ -614,7 +833,7 @@ export default function App() {
           areaCode,
           departmentCode,
           unitCode,
-          active: true,
+          active: shouldAutoApprove,
           score: 0,
           avatarUrl: firebaseUser.photoURL || undefined,
           goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
@@ -630,12 +849,14 @@ export default function App() {
       await batch.commit();
 
       pendingRegistrationRef.current = null;
-      if (pinHash) {
+      if (pinHash && shouldAutoApprove) {
         setPinUnlockedUid(firebaseUser.uid);
       }
       setActiveTab('ENTRY');
       showNotification(
-        'Đăng ký thành công! Thư xác thực đã được gửi tới email của bạn (kiểm tra cả mục Spam).'
+        shouldAutoApprove
+          ? 'Đăng ký thành công! Thư xác thực đã được gửi tới email của bạn (kiểm tra cả mục Spam).'
+          : 'Đã gửi hồ sơ đăng ký! Tài khoản của bạn đang chờ Quản trị viên phê duyệt.'
       );
     };
 
@@ -649,6 +870,7 @@ export default function App() {
     profileState,
     preAssignedRoles,
     ownRoleClaim,
+    effectiveSecurityConfig,
     effectiveCompanies,
     effectiveAreas,
     effectiveDepartments,
@@ -726,11 +948,14 @@ export default function App() {
         : undefined);
     const shouldBeSuper =
       isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
+    const shouldPromoteFromPreMatch =
+      !!preMatch?.role &&
+      (currentUser.role === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(currentUser.role));
 
     const expectedRole: UserRole = shouldBeSuper
       ? 'SUPER_ADMIN'
-      : preMatch?.role
-      ? preMatch.role
+      : shouldPromoteFromPreMatch
+      ? preMatch!.role
       : currentUser.role;
 
     if (currentUser.role !== expectedRole) {
@@ -740,7 +965,7 @@ export default function App() {
     const patch: Record<string, unknown> = {};
     if (shouldBeSuper && currentUser.role !== 'SUPER_ADMIN') {
       patch.role = 'SUPER_ADMIN';
-    } else if (preMatch && currentUser.role === 'MEMBER' && preMatch.role !== 'MEMBER') {
+    } else if (shouldPromoteFromPreMatch && preMatch && preMatch.role !== currentUser.role) {
       patch.role = preMatch.role;
       if (preMatch.managedCompanyCodes?.length) {
         patch.managedCompanyCodes = preMatch.managedCompanyCodes;
@@ -809,11 +1034,12 @@ export default function App() {
   ]);
 
   const competingMembers = useMemo(() => {
+    const activeOnly = computedAllMembers.filter((m) => m.active !== false);
     if (activeEvent?.restrictParticipants) {
       const allowedSet = new Set(activeEvent.participantIds || []);
-      return computedAllMembers.filter((m) => allowedSet.has(m.id));
+      return activeOnly.filter((m) => allowedSet.has(m.id));
     }
-    return computedAllMembers;
+    return activeOnly;
   }, [computedAllMembers, activeEvent]);
 
   const rankedMembers = useMemo(() => rankMembers(competingMembers), [competingMembers]);
@@ -1795,6 +2021,162 @@ export default function App() {
     await setDoc(doc(db, 'system_config', 'appearance'), clean);
   };
 
+  // ---------- Cấu hình Phê duyệt Đăng ký & Duyệt / Từ chối tài khoản (Admin & Super Admin) ----------
+  const handleSaveSecurityConfig = async (nextConfig: SystemSecurityConfig) => {
+    const clean = JSON.parse(
+      JSON.stringify({
+        requireRegistrationApproval: nextConfig.requireRegistrationApproval,
+        autoApprovePreAssigned: nextConfig.autoApprovePreAssigned,
+        updatedBy: effectiveCurrentUser?.fullName || 'Admin',
+        updatedAt: new Date().toISOString(),
+      })
+    );
+    await setDoc(doc(db, 'system_config', 'security'), clean);
+  };
+
+  const handleApproveUser = async (
+    targetUser: UserAccount,
+    options?: {
+      role?: UserRole;
+      companyCode?: string;
+      areaCode?: string;
+      unitCode?: string;
+      scope?: {
+        managedCompanyCodes?: string[];
+        managedAreaCodes?: string[];
+        managedUnitCodes?: string[];
+      };
+    }
+  ) => {
+    if (!isAdminUser) return;
+    const nowIso = new Date().toISOString();
+    const approverName = effectiveCurrentUser?.fullName || 'Admin';
+    const nextCompany = options?.companyCode || targetUser.companyCode;
+    const nextArea = options?.areaCode || targetUser.areaCode;
+    const nextUnit =
+      options?.unitCode !== undefined ? options.unitCode.trim() : targetUser.unitCode || '';
+
+    const canAssignRole =
+      options?.role &&
+      (options.role !== 'SUPER_ADMIN' || isSuperAdminUser) &&
+      (targetUser.role !== 'SUPER_ADMIN' || isSuperAdminUser);
+    const nextRole = canAssignRole ? options!.role! : targetUser.role;
+
+    const userPatch: Record<string, unknown> = {
+      approvalStatus: 'APPROVED',
+      approvedBy: approverName,
+      approvedAt: nowIso,
+      rejectionReason: deleteField(),
+      companyCode: nextCompany,
+      areaCode: nextArea,
+      ...(nextUnit ? { unitCode: nextUnit } : {}),
+      ...(canAssignRole ? { role: nextRole } : {}),
+      ...(options?.scope?.managedCompanyCodes !== undefined
+        ? { managedCompanyCodes: options.scope.managedCompanyCodes }
+        : {}),
+      ...(options?.scope?.managedAreaCodes !== undefined
+        ? { managedAreaCodes: options.scope.managedAreaCodes }
+        : {}),
+      ...(options?.scope?.managedUnitCodes !== undefined
+        ? { managedUnitCodes: options.scope.managedUnitCodes }
+        : {}),
+    };
+
+    const memberId = targetUser.memberId || `m-${targetUser.id}`;
+    const existingMember = members.find((m) => m.id === memberId);
+    const memberPayload = existingMember
+      ? JSON.parse(
+          JSON.stringify({
+            active: true,
+            fullName: targetUser.fullName,
+            companyCode: nextCompany,
+            areaCode: nextArea,
+            departmentCode: targetUser.departmentCode,
+            ...(nextUnit ? { unitCode: nextUnit } : {}),
+          })
+        )
+      : JSON.parse(
+          JSON.stringify({
+            code: `MEM-${targetUser.id.slice(0, 6).toUpperCase()}`,
+            fullName: targetUser.fullName,
+            companyCode: nextCompany,
+            areaCode: nextArea,
+            departmentCode: targetUser.departmentCode,
+            ...(nextUnit ? { unitCode: nextUnit } : {}),
+            active: true,
+            score: 0,
+            avatarUrl: targetUser.avatarUrl,
+            goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
+            results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+            targets: [],
+            createdAt: nowIso.split('T')[0],
+          })
+        );
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', targetUser.id), userPatch);
+    batch.set(doc(db, 'members', memberId), memberPayload, { merge: true });
+    await batch.commit();
+
+    setUsersList((prev) =>
+      prev.map((u) =>
+        u.id === targetUser.id
+          ? {
+              ...u,
+              approvalStatus: 'APPROVED',
+              approvedBy: approverName,
+              approvedAt: nowIso,
+              rejectionReason: undefined,
+              companyCode: nextCompany,
+              areaCode: nextArea,
+              ...(nextUnit ? { unitCode: nextUnit } : {}),
+              role: nextRole,
+            }
+          : u
+      )
+    );
+    showNotification(`Đã phê duyệt tài khoản "${targetUser.fullName}"!`);
+  };
+
+  const handleRejectUser = async (targetUser: UserAccount, reason?: string) => {
+    if (!isAdminUser) return;
+    if (targetUser.role === 'SUPER_ADMIN' && !isSuperAdminUser) {
+      showNotification('Không thể từ chối tài khoản Tổng Quản trị.');
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const approverName = effectiveCurrentUser?.fullName || 'Admin';
+    const cleanReason = (reason || '').trim().slice(0, 300);
+    const memberId = targetUser.memberId || `m-${targetUser.id}`;
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', targetUser.id), {
+      approvalStatus: 'REJECTED',
+      approvedBy: approverName,
+      approvedAt: nowIso,
+      rejectionReason: cleanReason,
+    });
+    if (members.some((m) => m.id === memberId)) {
+      batch.set(doc(db, 'members', memberId), { active: false }, { merge: true });
+    }
+    await batch.commit();
+
+    setUsersList((prev) =>
+      prev.map((u) =>
+        u.id === targetUser.id
+          ? {
+              ...u,
+              approvalStatus: 'REJECTED',
+              approvedBy: approverName,
+              approvedAt: nowIso,
+              rejectionReason: cleanReason,
+            }
+          : u
+      )
+    );
+    showNotification(`Đã từ chối yêu cầu đăng ký của "${targetUser.fullName}".`);
+  };
+
   // ---------- Hệ thống Edu LMS & CMS CRUD ----------
   const handleSaveEduTopic = async (topic: Omit<EduWeeklyTopic, 'id'>, existingId?: string) => {
     const id = existingId || `topic_${Date.now()}`;
@@ -1849,6 +2231,21 @@ export default function App() {
       managedUnitCodes?: string[];
     }
   ) => {
+    const targetUserObj = usersList.find((u) => u.id === targetUserId);
+    const currentTargetRole: UserRole = targetUserObj?.role || 'MEMBER';
+
+    if (!canAssignTargetRole(effectiveCurrentUser?.role, currentTargetRole, newRole)) {
+      const msg = 'Bạn chỉ được phân quyền cho tài khoản cấp thấp hơn trong phạm vi quản lý.';
+      showNotification(msg);
+      throw new Error(msg);
+    }
+
+    if (!isSuperAdminUser && targetUserId === effectiveCurrentUser?.id) {
+      const msg = 'Không thể tự thay đổi quyền của chính mình.';
+      showNotification(msg);
+      throw new Error(msg);
+    }
+
     const cleanPatch = JSON.parse(
       JSON.stringify({
         role: newRole,
@@ -1864,6 +2261,7 @@ export default function App() {
       })
     );
 
+    const prevTargetSnapshot = targetUserObj;
     setUsersList((prev) =>
       prev.map((u) => (u.id === targetUserId ? { ...u, ...cleanPatch } : u))
     );
@@ -1874,10 +2272,9 @@ export default function App() {
     try {
       await updateDoc(doc(db, 'users', targetUserId), cleanPatch);
 
-      // Đồng bộ role_claims/{emailLower} nếu tìm thấy email của tài khoản
-      const targetUserObj = usersList.find((u) => u.id === targetUserId);
+      // Chỉ Tổng Quản trị mới có quyền ghi role_claims/{emailLower}
       const cleanEmail = (targetUserObj?.email || '').trim().toLowerCase();
-      if (cleanEmail) {
+      if (isSuperAdminUser && cleanEmail) {
         const claimData = JSON.parse(
           JSON.stringify({
             email: cleanEmail,
@@ -1897,13 +2294,61 @@ export default function App() {
 
       showNotification(`Đã cập nhật quyền cho "${targetName}" thành công!`);
     } catch (err: any) {
+      if (prevTargetSnapshot) {
+        setUsersList((prev) =>
+          prev.map((u) => (u.id === targetUserId ? prevTargetSnapshot : u))
+        );
+      }
       console.error('[Firestore] Lỗi phân quyền:', err);
       showNotification(`Lỗi phân quyền: ${err?.message || 'Không thể cập nhật quyền'}`);
+      throw err;
     }
   };
 
-  const handleResetUserPin = async (targetUserId: string, targetName: string) => {
+  const handleResetUserPin = async (
+    targetUserId: string,
+    targetName: string,
+    newPin?: string
+  ) => {
+    if (!isAdminUser) {
+      const msg = 'Chỉ Admin (Cấp 6) và Tổng Quản trị (Cấp 7) mới có quyền đổi hoặc đặt lại Mã PIN.';
+      showNotification(msg);
+      throw new Error(msg);
+    }
+
+    const targetUserObj = usersList.find((u) => u.id === targetUserId);
+    if (!isSuperAdminUser && targetUserObj?.role === 'SUPER_ADMIN') {
+      const msg = 'Không thể thay đổi Mã PIN của tài khoản Tổng Quản trị.';
+      showNotification(msg);
+      throw new Error(msg);
+    }
+
     try {
+      if (newPin !== undefined) {
+        const cleanPin = newPin.trim();
+        if (!isValidPersonalPin(cleanPin)) {
+          const msg = 'Mã cá nhân mới phải gồm đúng 6 chữ số.';
+          showNotification(msg);
+          throw new Error(msg);
+        }
+        const pinHash = await hashPersonalPin(targetUserId, cleanPin);
+        const nowIso = new Date().toISOString();
+        await updateDoc(doc(db, 'users', targetUserId), {
+          pinHash,
+          pinUpdatedAt: nowIso,
+        });
+        setUsersList((prev) =>
+          prev.map((u) =>
+            u.id === targetUserId ? { ...u, pinHash, pinUpdatedAt: nowIso } : u
+          )
+        );
+        if (currentUser?.id === targetUserId) {
+          setCurrentUser((prev) => (prev ? { ...prev, pinHash, pinUpdatedAt: nowIso } : null));
+        }
+        showNotification(`Đã thay đổi Mã cá nhân 6 số cho "${targetName}" thành công!`);
+        return;
+      }
+
       await updateDoc(doc(db, 'users', targetUserId), {
         pinHash: deleteField(),
         pinUpdatedAt: deleteField(),
@@ -1923,8 +2368,8 @@ export default function App() {
         `Đã đặt lại Mã cá nhân cho "${targetName}". Tài khoản sẽ tạo mã 6 số mới ở lần đăng nhập kế tiếp.`
       );
     } catch (err: any) {
-      console.error('[Firestore] Lỗi đặt lại PIN:', err);
-      showNotification(`Không thể đặt lại Mã PIN: ${err?.message || 'Lỗi không xác định'}`);
+      console.error('[Firestore] Lỗi cập nhật PIN:', err);
+      showNotification(`Không thể cập nhật Mã PIN: ${err?.message || 'Lỗi không xác định'}`);
       throw err;
     }
   };
@@ -2012,7 +2457,9 @@ export default function App() {
 
     const target = usersList.find((u) => (u.email || '').toLowerCase().trim() === cleanEmail);
     if (target) {
-      const targetPatch = JSON.parse(
+      const needsApproval = resolveUserApprovalStatus(target) !== 'APPROVED';
+      const nowIso = new Date().toISOString();
+      const targetPatch: Record<string, unknown> = JSON.parse(
         JSON.stringify({
           role,
           ...(scope?.managedCompanyCodes !== undefined
@@ -2024,14 +2471,31 @@ export default function App() {
           ...(scope?.managedUnitCodes !== undefined
             ? { managedUnitCodes: scope.managedUnitCodes }
             : {}),
+          ...(needsApproval
+            ? {
+                approvalStatus: 'APPROVED',
+                approvedBy: effectiveCurrentUser?.fullName || 'Admin',
+                approvedAt: nowIso,
+              }
+            : {}),
         })
       );
       setUsersList((prev) =>
         prev.map((u) => (u.id === target.id ? { ...u, ...targetPatch } : u))
       );
-      updateDoc(doc(db, 'users', target.id), targetPatch).catch((e) =>
-        console.warn('Lỗi phân quyền trực tiếp:', e)
-      );
+      updateDoc(doc(db, 'users', target.id), {
+        ...targetPatch,
+        ...(needsApproval ? { rejectionReason: deleteField() } : {}),
+      }).catch((e) => console.warn('Lỗi phân quyền trực tiếp:', e));
+
+      if (needsApproval) {
+        const targetMemberId = target.memberId || `m-${target.id}`;
+        if (members.some((m) => m.id === targetMemberId)) {
+          setDoc(doc(db, 'members', targetMemberId), { active: true }, { merge: true }).catch((e) =>
+            console.warn('Lỗi kích hoạt thành viên:', e)
+          );
+        }
+      }
     }
 
     // Lưu bản ghi riêng tại role_claims/{cleanEmail} để user tự đọc được vai trò của riêng mình mà không cần mở system_config/roles
@@ -2145,6 +2609,10 @@ export default function App() {
       preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim;
     const isSuperEmail =
       isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
+    const shouldAutoApprove =
+      !effectiveSecurityConfig.requireRegistrationApproval ||
+      isSuperEmail ||
+      (effectiveSecurityConfig.autoApprovePreAssigned && !!preMatch);
 
     let initialRole: UserRole = 'MEMBER';
     if (isSuperEmail) initialRole = 'SUPER_ADMIN';
@@ -2175,6 +2643,8 @@ export default function App() {
         pinHash,
         pinUpdatedAt: nowIso,
         onboardingCompleted: true,
+        approvalStatus: shouldAutoApprove ? 'APPROVED' : 'PENDING',
+        ...(shouldAutoApprove ? { approvedBy: 'SYSTEM_AUTO', approvedAt: nowIso } : {}),
         createdAt: today,
       })
     );
@@ -2187,7 +2657,7 @@ export default function App() {
         areaCode: data.areaCode,
         departmentCode: data.departmentCode,
         unitCode,
-        active: true,
+        active: shouldAutoApprove,
         score: 0,
         avatarUrl: firebaseUser.photoURL || undefined,
         goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
@@ -2202,9 +2672,14 @@ export default function App() {
     batch.set(doc(db, 'members', memberId), member);
     await batch.commit();
 
-    setPinUnlockedUid(firebaseUser.uid);
-    setActiveTab('ENTRY');
-    showNotification('Hoàn tất hồ sơ & thiết lập Mã cá nhân thành công!');
+    if (shouldAutoApprove) {
+      setPinUnlockedUid(firebaseUser.uid);
+      setActiveTab('ENTRY');
+      showNotification('Hoàn tất hồ sơ & thiết lập Mã cá nhân thành công!');
+    } else {
+      setPinUnlockedUid(null);
+      showNotification('Đã gửi hồ sơ! Tài khoản của bạn đang chờ Admin phê duyệt.');
+    }
   };
 
   const handleSetupPin = async (pinHash: string): Promise<void> => {
@@ -2602,6 +3077,7 @@ export default function App() {
           companies={effectiveCompanies}
           areas={effectiveAreas}
           departments={effectiveDepartments}
+          requireRegistrationApproval={effectiveSecurityConfig.requireRegistrationApproval}
           onOpenAuthModal={openAuthModalWithMode}
           onCompleteOnboarding={handleCompleteOnboarding}
           onSetupPin={handleSetupPin}
@@ -2618,6 +3094,7 @@ export default function App() {
           companies={effectiveCompanies}
           areas={effectiveAreas}
           departments={effectiveDepartments}
+          requireRegistrationApproval={effectiveSecurityConfig.requireRegistrationApproval}
           onRegister={handleRegister}
         />
       </>
@@ -2645,6 +3122,21 @@ export default function App() {
         onNavigateProfile={() => setActiveTab('PROFILE')}
         onLogout={handleLogout}
         onLockPin={() => setPinUnlockedUid(null)}
+        pendingApprovals={isAdminUser ? pendingApprovalUsers : []}
+        onNavigateAdminRoles={() => {
+          setAdminNavTab('ROLES');
+          setAdminNavTrigger((n) => n + 1);
+          setActiveTab('ADMIN');
+        }}
+        onNavigateAdmin={
+          canAccessAdminPanel(effectiveCurrentUser?.role)
+            ? () => {
+                setAdminNavTab(isAdminUser ? 'SCORING' : 'MEMBERS');
+                setAdminNavTrigger((n) => n + 1);
+                setActiveTab('ADMIN');
+              }
+            : undefined
+        }
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
         onNavigateHome={() => setActiveTab('ENTRY')}
@@ -2657,8 +3149,15 @@ export default function App() {
           isMobileOpen={isMobileDrawerOpen}
           onCloseMobile={() => setIsMobileDrawerOpen(false)}
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={(tab) => {
+            if (tab === 'ADMIN') {
+              setAdminNavTab(isAdminUser ? 'SCORING' : 'MEMBERS');
+              setAdminNavTrigger((n) => n + 1);
+            }
+            setActiveTab(tab);
+          }}
           currentUser={effectiveCurrentUser}
+          pendingApprovalCount={isAdminUser ? pendingApprovalUsers.length : 0}
           onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
           onLogout={handleLogout}
         />
@@ -2678,7 +3177,13 @@ export default function App() {
                 appearanceConfig={appearanceConfig}
                 huongKhiList={huongKhiView}
                 onReactHuongKhi={handleReactHuongKhi}
-                onNavigateTab={setActiveTab}
+                onNavigateTab={(tab) => {
+                  if (tab === 'ADMIN') {
+                    setAdminNavTab(isAdminUser ? 'SCORING' : 'MEMBERS');
+                    setAdminNavTrigger((n) => n + 1);
+                  }
+                  setActiveTab(tab);
+                }}
                 onSaveDailyReport={handleSaveDailyReport}
                 onSavePeriodGoal={handleSavePeriodGoal}
                 onOpenAuthModal={() => setIsAuthModalOpen(true)}
@@ -2909,7 +3414,11 @@ export default function App() {
                   <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full pt-2 flex justify-end">
                     <button
                       type="button"
-                      onClick={() => setActiveTab('ADMIN')}
+                      onClick={() => {
+                        setAdminNavTab('APPEARANCE_FONT');
+                        setAdminNavTrigger((n) => n + 1);
+                        setActiveTab('ADMIN');
+                      }}
                       className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] sm:text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-800 flex items-center gap-1.5 shadow-2xs cursor-pointer"
                     >
                       <Sliders className="w-3.5 h-3.5" />
@@ -2938,7 +3447,11 @@ export default function App() {
                         {isAdminUser && (
                           <button
                             type="button"
-                            onClick={() => setActiveTab('ADMIN')}
+                            onClick={() => {
+                              setAdminNavTab('APPEARANCE_FONT');
+                              setAdminNavTrigger((n) => n + 1);
+                              setActiveTab('ADMIN');
+                            }}
                             className="px-4 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-bold cursor-pointer"
                           >
                             Mở Tùy chỉnh Widget
@@ -3036,6 +3549,7 @@ export default function App() {
                   isAdminUser
                     ? () => {
                         setAdminNavTab('EVENTS');
+                        setAdminNavTrigger((n) => n + 1);
                         setActiveTab('ADMIN');
                       }
                     : undefined
@@ -3162,9 +3676,10 @@ export default function App() {
           {/* TAB: TRANG QUẢN TRỊ */}
           {activeTab === 'ADMIN' && (
             <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
-              {isAdminUser ? (
+              {canAccessAdminPanel(effectiveCurrentUser?.role) ? (
                 <AdminPanel
                   initialTab={adminNavTab}
+                  initialTabTrigger={adminNavTrigger}
                   companies={effectiveCompanies}
                   areas={effectiveAreas}
                   departments={effectiveDepartments}
@@ -3195,6 +3710,10 @@ export default function App() {
                   onPreAssignRole={handlePreAssignRole}
                   onDeletePreAssignedRole={handleDeletePreAssignedRole}
                   onResetUserPin={handleResetUserPin}
+                  securityConfig={effectiveSecurityConfig}
+                  onSaveSecurityConfig={handleSaveSecurityConfig}
+                  onApproveUser={handleApproveUser}
+                  onRejectUser={handleRejectUser}
                   bannerConfig={bannerConfig}
                   events={sortedEvents}
                   onSaveBannerConfig={handleSaveBannerConfig}
@@ -3221,7 +3740,7 @@ export default function App() {
                     Khu vực Giới hạn Quyền
                   </h3>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
-                    Trang Quản trị yêu cầu tài khoản Ban Quản Trị hệ thống.
+                    Trang Quản trị chỉ dành cho tài khoản từ cấp Uni (Cấp 2) trở lên.
                   </p>
                   <div className="flex items-center justify-center gap-3">
                     <button
@@ -3263,6 +3782,7 @@ export default function App() {
         companies={effectiveCompanies}
         areas={effectiveAreas}
         departments={effectiveDepartments}
+        requireRegistrationApproval={effectiveSecurityConfig.requireRegistrationApproval}
         onRegister={handleRegister}
       />
 

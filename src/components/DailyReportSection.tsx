@@ -25,6 +25,7 @@ import {
   ThumbsUp,
   ArrowRight,
   Sparkles,
+  Shield,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -42,6 +43,7 @@ import {
   DEFAULT_DAILY_GOALS,
   DEFAULT_EVENT_WEIGHTS,
   ROLE_DISPLAY_META,
+  canAccessAdminPanel,
 } from '../types/edulms';
 import type { AppTab } from './Navbar';
 import { CustomSelect } from './CustomSelect';
@@ -871,50 +873,64 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
         {/* RIGHT / SECONDARY COLUMN: COMPANION BLOCKS (ADMIN CONFIGURABLE) */}
         {hasAnyCompanionBlock && (
           <div className="lg:col-span-5 space-y-2.5 sm:space-y-4">
-            {/* 1. Quick 5-Icon Shortcut Strip */}
-            {homeCfg.showQuickShortcuts && (
-              <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3 sm:p-4 shadow-sm border border-slate-200/80 dark:border-slate-800">
-                <div className="grid grid-cols-5 gap-2 text-center">
-                  {(
-                    [
+            {/* 1. Quick Shortcut Strip (5 for Member, +Quản trị for Cấp 2-7) */}
+            {homeCfg.showQuickShortcuts && (() => {
+              const canOpenAdmin = canAccessAdminPanel(currentUser?.role);
+              const isAdminUserRole =
+                currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
+              const quickItems = [
+                {
+                  label: 'Xếp hạng',
+                  tab: 'HONORS' as AppTab,
+                  icon: Trophy,
+                  bg: 'bg-sky-100 dark:bg-sky-950/60',
+                  fg: 'text-sky-600 dark:text-sky-400',
+                },
+                {
+                  label: 'Sự kiện',
+                  tab: 'EVENT_HUB' as AppTab,
+                  icon: Award,
+                  bg: 'bg-rose-100 dark:bg-rose-950/60',
+                  fg: 'text-rose-500 dark:text-rose-400',
+                  badge: Boolean(activeEvent),
+                },
+                {
+                  label: 'MĐ',
+                  tab: 'DISCIPLES' as AppTab,
+                  icon: Users,
+                  bg: 'bg-indigo-100 dark:bg-indigo-950/60',
+                  fg: 'text-indigo-600 dark:text-indigo-400',
+                },
+                {
+                  label: 'Edu LMS',
+                  tab: 'EDU_LMS' as AppTab,
+                  icon: GraduationCap,
+                  bg: 'bg-emerald-100 dark:bg-emerald-950/60',
+                  fg: 'text-emerald-600 dark:text-emerald-400',
+                },
+                {
+                  label: 'Edu CMS',
+                  tab: 'EDU_CMS' as AppTab,
+                  icon: BookMarked,
+                  bg: 'bg-amber-100 dark:bg-amber-950/60',
+                  fg: 'text-amber-600 dark:text-amber-400',
+                },
+                ...(canOpenAdmin
+                  ? [
                       {
-                        label: 'Xếp hạng',
-                        tab: 'HONORS' as AppTab,
-                        icon: Trophy,
-                        bg: 'bg-sky-100 dark:bg-sky-950/60',
-                        fg: 'text-sky-600 dark:text-sky-400',
-                      },
-                      {
-                        label: 'Sự kiện',
-                        tab: 'EVENT_HUB' as AppTab,
-                        icon: Award,
-                        bg: 'bg-rose-100 dark:bg-rose-950/60',
-                        fg: 'text-rose-500 dark:text-rose-400',
-                        badge: Boolean(activeEvent),
-                      },
-                      {
-                        label: 'MĐ',
-                        tab: 'DISCIPLES' as AppTab,
-                        icon: Users,
-                        bg: 'bg-indigo-100 dark:bg-indigo-950/60',
-                        fg: 'text-indigo-600 dark:text-indigo-400',
-                      },
-                      {
-                        label: 'Edu LMS',
-                        tab: 'EDU_LMS' as AppTab,
-                        icon: GraduationCap,
-                        bg: 'bg-emerald-100 dark:bg-emerald-950/60',
-                        fg: 'text-emerald-600 dark:text-emerald-400',
-                      },
-                      {
-                        label: 'Edu CMS',
-                        tab: 'EDU_CMS' as AppTab,
-                        icon: BookMarked,
-                        bg: 'bg-amber-100 dark:bg-amber-950/60',
-                        fg: 'text-amber-600 dark:text-amber-400',
+                        label: isAdminUserRole ? 'Quản trị' : 'Quản trị ĐV',
+                        tab: 'ADMIN' as AppTab,
+                        icon: Shield,
+                        bg: 'bg-purple-100 dark:bg-purple-950/60',
+                        fg: 'text-purple-600 dark:text-purple-400',
                       },
                     ]
-                  ).map((item) => {
+                  : []),
+              ];
+              return (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3 sm:p-4 shadow-sm border border-slate-200/80 dark:border-slate-800">
+                <div className={`grid gap-2 text-center ${canOpenAdmin ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-5'}`}>
+                  {quickItems.map((item) => {
                     const Icon = item.icon;
                     return (
                       <button
@@ -941,7 +957,8 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   })}
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* 2. Cheer Message Bar ("Tin nhắn cổ vũ") */}
             {homeCfg.showCheerTicker && (

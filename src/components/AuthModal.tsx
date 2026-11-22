@@ -51,6 +51,7 @@ interface AuthModalProps {
   companies: Company[];
   areas: Area[];
   departments: Department[];
+  requireRegistrationApproval?: boolean;
   onRegister: (data: RegistrationData) => Promise<void>;
 }
 
@@ -61,6 +62,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   companies,
   areas,
   departments,
+  requireRegistrationApproval = true,
   onRegister,
 }) => {
   const effectiveCompanies = companies.length > 0 ? companies : INITIAL_COMPANIES;
@@ -624,6 +626,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {requireRegistrationApproval && (
+                <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200/80 text-[11px] text-blue-900 leading-relaxed">
+                  <strong>Lưu ý phê duyệt:</strong> Sau khi đăng ký, tài khoản mới sẽ chờ Admin phê duyệt (hoặc tự động vào ngay nếu email đã được cấp quyền trước).
+                </div>
+              )}
 
               <button
                 type="submit"

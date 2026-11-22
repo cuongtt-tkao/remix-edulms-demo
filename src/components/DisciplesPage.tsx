@@ -143,7 +143,7 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
         return `QL Cụm · ${compText}${areaText}`;
       }
       case 'SION_LEADER':
-        return `Ts, Nq · ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`;
+        return `TS, NQ · ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`;
       case 'AREA_LEADER':
         return `Gru · KV ${currentUser.managedAreaCodes?.join(', ') || currentUser.areaCode}`;
       case 'UNI_LEADER':

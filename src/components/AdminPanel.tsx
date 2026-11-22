@@ -53,8 +53,12 @@ import {
   EduTopicAssignment,
   EduCmsProfile,
   WorkScheduleRecord,
+  SystemSecurityConfig,
+  resolveUserApprovalStatus,
   DEFAULT_EVENT_WEIGHTS,
+  getRoleLevel,
 } from '../types/edulms';
+import { canManageOrgRecord, isAdminRole, normalizeOrgCode } from '../utils/rbac';
 import {
   exportSystemConfigExcel,
   exportMembersAndTargetsExcel,
@@ -94,6 +98,7 @@ export type AdminSectionId =
 
 interface AdminPanelProps {
   initialTab?: AdminSectionId;
+  initialTabTrigger?: number;
   companies: Company[];
   areas: Area[];
   departments: Department[];
@@ -145,7 +150,24 @@ interface AdminPanelProps {
     }
   ) => Promise<void>;
   onDeletePreAssignedRole?: (email: string) => Promise<void>;
-  onResetUserPin?: (targetUserId: string, targetName: string) => Promise<void>;
+  onResetUserPin?: (targetUserId: string, targetName: string, newPin?: string) => Promise<void>;
+  securityConfig?: SystemSecurityConfig | null;
+  onSaveSecurityConfig?: (config: SystemSecurityConfig) => Promise<void>;
+  onApproveUser?: (
+    targetUser: UserAccount,
+    options?: {
+      role?: UserRole;
+      companyCode?: string;
+      areaCode?: string;
+      unitCode?: string;
+      scope?: {
+        managedCompanyCodes?: string[];
+        managedAreaCodes?: string[];
+        managedUnitCodes?: string[];
+      };
+    }
+  ) => Promise<void>;
+  onRejectUser?: (targetUser: UserAccount, reason?: string) => Promise<void>;
   bannerConfig?: SystemBannerConfig | null;
   events?: FestivalEvent[];
   onSaveBannerConfig?: (config: SystemBannerConfig) => Promise<void>;
@@ -166,6 +188,7 @@ interface AdminPanelProps {
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   initialTab,
+  initialTabTrigger = 0,
   companies,
   areas,
   departments,
@@ -196,6 +219,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onPreAssignRole,
   onDeletePreAssignedRole,
   onResetUserPin,
+  securityConfig = null,
+  onSaveSecurityConfig,
+  onApproveUser,
+  onRejectUser,
   bannerConfig = null,
   events = [],
   onSaveBannerConfig,
@@ -213,13 +240,150 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   eduCmsProfiles = [],
   workSchedules = [],
 }) => {
-  const [activeTab, setActiveTab] = useState<AdminSectionId>(initialTab || 'SCORING');
+  const isAdmin = isAdminRole(currentUser?.role);
+  const actorRoleLevel = getRoleLevel(currentUser?.role);
+  const supervisorAllowedTabs: AdminSectionId[] = React.useMemo(
+    () => ['COMPANIES', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES'],
+    []
+  );
+
+  const [activeTab, setActiveTab] = useState<AdminSectionId>(() => {
+    if (initialTab && (isAdmin || supervisorAllowedTabs.includes(initialTab))) {
+      return initialTab;
+    }
+    return isAdmin ? 'SCORING' : 'MEMBERS';
+  });
+
+  const pendingApprovalCount = React.useMemo(
+    () =>
+      isAdmin
+        ? (usersList || []).filter((u) => resolveUserApprovalStatus(u) === 'PENDING').length
+        : 0,
+    [usersList, isAdmin]
+  );
+
+  const lastAppliedNavRef = React.useRef<string>(
+    `${initialTab || ''}:${initialTabTrigger}`
+  );
 
   React.useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
+    const navKey = `${initialTab || ''}:${initialTabTrigger}`;
+    if (navKey !== lastAppliedNavRef.current) {
+      lastAppliedNavRef.current = navKey;
+      if (initialTab && (isAdmin || supervisorAllowedTabs.includes(initialTab))) {
+        setActiveTab(initialTab);
+      }
     }
-  }, [initialTab]);
+  }, [initialTab, initialTabTrigger, isAdmin, supervisorAllowedTabs]);
+
+  React.useEffect(() => {
+    if (!isAdmin && !supervisorAllowedTabs.includes(activeTab)) {
+      setActiveTab('MEMBERS');
+    }
+  }, [isAdmin, activeTab, supervisorAllowedTabs]);
+
+  const viewerCompanyScope = React.useMemo(() => {
+    const set = new Set<string>();
+    (currentUser?.managedCompanyCodes || []).forEach((c) => {
+      const n = normalizeOrgCode(c);
+      if (n) set.add(n);
+    });
+    if (set.size === 0 && currentUser?.companyCode) {
+      const n = normalizeOrgCode(currentUser.companyCode);
+      if (n) set.add(n);
+    }
+    return set;
+  }, [currentUser?.managedCompanyCodes, currentUser?.companyCode]);
+
+  const viewerAreaScope = React.useMemo(() => {
+    const set = new Set<string>();
+    (currentUser?.managedAreaCodes || []).forEach((a) => {
+      const n = normalizeOrgCode(a);
+      if (n) set.add(n);
+    });
+    if (set.size === 0 && currentUser?.areaCode) {
+      const n = normalizeOrgCode(currentUser.areaCode);
+      if (n) set.add(n);
+    }
+    return set;
+  }, [currentUser?.managedAreaCodes, currentUser?.areaCode]);
+
+  const viewerUnitScope = React.useMemo(() => {
+    const set = new Set<string>();
+    (currentUser?.managedUnitCodes || []).forEach((u) => {
+      const n = normalizeOrgCode(u);
+      if (n) set.add(n);
+    });
+    if (set.size === 0 && (currentUser?.unitCode || currentUser?.departmentCode)) {
+      const n = normalizeOrgCode(currentUser.unitCode || currentUser.departmentCode);
+      if (n) set.add(n);
+    }
+    return set;
+  }, [currentUser?.managedUnitCodes, currentUser?.unitCode, currentUser?.departmentCode]);
+
+  const scopedCompanies = React.useMemo(() => {
+    if (isAdmin) return companies;
+    return companies.filter((c) => {
+      const code = normalizeOrgCode(c.code);
+      if (viewerCompanyScope.has(code)) return true;
+      if (currentUser?.role === 'MANAGER') {
+        return areas.some(
+          (a) =>
+            normalizeOrgCode(a.companyCode) === code &&
+            viewerAreaScope.has(normalizeOrgCode(a.code))
+        );
+      }
+      return false;
+    });
+  }, [isAdmin, companies, areas, viewerCompanyScope, viewerAreaScope, currentUser?.role]);
+
+  const scopedAreas = React.useMemo(() => {
+    if (isAdmin) return areas;
+    if (currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') {
+      return areas.filter(
+        (a) =>
+          viewerCompanyScope.has(normalizeOrgCode(a.companyCode)) ||
+          (currentUser.role === 'MANAGER' && viewerAreaScope.has(normalizeOrgCode(a.code)))
+      );
+    }
+    return areas.filter(
+      (a) =>
+        (viewerCompanyScope.size === 0 || viewerCompanyScope.has(normalizeOrgCode(a.companyCode))) &&
+        viewerAreaScope.has(normalizeOrgCode(a.code))
+    );
+  }, [isAdmin, areas, viewerCompanyScope, viewerAreaScope, currentUser?.role]);
+
+  const scopedMembers = React.useMemo(() => {
+    if (isAdmin) return members;
+    return members.filter((m) => canManageOrgRecord(currentUser || null, m));
+  }, [isAdmin, members, currentUser]);
+
+  const canCreateCompany = isAdmin;
+  const canDeleteCompany = isAdmin;
+  const canEditCompany = (comp: Company) =>
+    isAdmin ||
+    ((currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') &&
+      viewerCompanyScope.has(normalizeOrgCode(comp.code)));
+
+  const canCreateArea =
+    isAdmin || currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER';
+  const canDeleteArea = (area: Area) =>
+    isAdmin ||
+    ((currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') &&
+      viewerCompanyScope.has(normalizeOrgCode(area.companyCode)));
+  const canEditArea = (area: Area) =>
+    isAdmin ||
+    ((currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') &&
+      viewerCompanyScope.has(normalizeOrgCode(area.companyCode))) ||
+    (currentUser?.role === 'AREA_LEADER' &&
+      viewerAreaScope.has(normalizeOrgCode(area.code)) &&
+      (viewerCompanyScope.size === 0 ||
+        viewerCompanyScope.has(normalizeOrgCode(area.companyCode))));
+
+  const canModifyDepartments = isAdmin;
+  const canModifyMember = (mem: Member) =>
+    isAdmin || canManageOrgRecord(currentUser || null, mem);
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{
     title: string;
@@ -275,7 +439,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isAddAreaOpen, setIsAddAreaOpen] = useState(false);
   const [newAreaCode, setNewAreaCode] = useState('');
   const [newAreaName, setNewAreaName] = useState('');
-  const [newAreaCompany, setNewAreaCompany] = useState(companies[0]?.code || 'Th1');
+  const [newAreaCompany, setNewAreaCompany] = useState(
+    scopedCompanies[0]?.code || companies[0]?.code || 'Th1'
+  );
 
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
   const [isAddDepartmentOpen, setIsAddDepartmentOpen] = useState(false);
@@ -285,10 +451,50 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
-  const [newMemberCompany, setNewMemberCompany] = useState(companies[0]?.code || 'Th1');
-  const [newMemberArea, setNewMemberArea] = useState('1.1');
+  const [newMemberCompany, setNewMemberCompany] = useState(
+    scopedCompanies[0]?.code || companies[0]?.code || 'Th1'
+  );
+  const [newMemberArea, setNewMemberArea] = useState(
+    scopedAreas[0]?.code || currentUser?.areaCode || '1.1'
+  );
   const [newMemberDept, setNewMemberDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
-  const [newMemberUnit, setNewMemberUnit] = useState('');
+  const [newMemberUnit, setNewMemberUnit] = useState(
+    currentUser?.role === 'UNI_LEADER'
+      ? currentUser?.unitCode || currentUser?.managedUnitCodes?.[0] || ''
+      : ''
+  );
+
+  React.useEffect(() => {
+    if (!isAdmin) {
+      if (scopedCompanies.length > 0 && !scopedCompanies.some((c) => c.code === newAreaCompany)) {
+        setNewAreaCompany(scopedCompanies[0].code);
+      }
+      if (scopedCompanies.length > 0 && !scopedCompanies.some((c) => c.code === newMemberCompany)) {
+        setNewMemberCompany(scopedCompanies[0].code);
+      }
+      if (scopedAreas.length > 0 && !scopedAreas.some((a) => a.code === newMemberArea)) {
+        setNewMemberArea(scopedAreas[0].code);
+      }
+      if (currentUser?.role === 'UNI_LEADER') {
+        const ownU = currentUser.unitCode || currentUser.managedUnitCodes?.[0] || '';
+        if (ownU && !viewerUnitScope.has(normalizeOrgCode(newMemberUnit))) {
+          setNewMemberUnit(ownU);
+        }
+      }
+    }
+  }, [
+    isAdmin,
+    scopedCompanies,
+    scopedAreas,
+    newAreaCompany,
+    newMemberCompany,
+    newMemberArea,
+    newMemberUnit,
+    currentUser?.role,
+    currentUser?.unitCode,
+    currentUser?.managedUnitCodes,
+    viewerUnitScope,
+  ]);
 
   // Handlers for Company
   const handleSaveCompany = (e: React.FormEvent) => {
@@ -482,78 +688,108 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div>
             <div className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2.5 py-0.5 rounded-lg mb-1">
               <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <span>Quản trị Hệ thống</span>
+              <span>{isAdmin ? 'Quản trị Hệ thống' : 'Quản trị Đơn vị'}</span>
             </div>
             <h2 className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
               <Shield className="w-4 h-4 text-purple-600 sm:hidden" />
-              <span>Bảng Điều Khiển Quản Trị</span>
+              <span>
+                {isAdmin ? 'Bảng Điều Khiển Quản Trị' : 'Tổ Chức, Nhân Sự & Phân Quyền'}
+              </span>
             </h2>
           </div>
+
+          {isAdmin && pendingApprovalCount > 0 && activeTab !== 'ROLES' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('ROLES')}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-300 animate-ping" />
+              <span>{pendingApprovalCount} đăng ký chờ duyệt →</span>
+            </button>
+          )}
         </div>
 
         {(() => {
-          const adminNavGroups: {
+          const allAdminNavGroups: {
             groupKey: string;
             groupTitle: string;
             shortTitle: string;
             groupIcon: React.ComponentType<{ className?: string }>;
+            alertCount?: number;
             items: {
               id: AdminSectionId;
               label: string;
               icon: React.ComponentType<{ className?: string }>;
               badge?: string;
+              isAlert?: boolean;
             }[];
           }[] = [
-            {
-              groupKey: 'COMPETITION',
-              groupTitle: '1. Thi đua & Event',
-              shortTitle: 'Thi đua & Event',
-              groupIcon: Trophy,
-              items: [
-                { id: 'SCORING', label: 'Bảng điểm mặc định', icon: Scale, badge: '7 mục' },
-                { id: 'EVENTS', label: 'Quản lý Event', icon: Trophy, badge: `${events.length}` },
-              ],
-            },
-            {
-              groupKey: 'DISPLAY',
-              groupTitle: '2. Giao diện & Hiển thị',
-              shortTitle: 'Giao diện',
-              groupIcon: LayoutGrid,
-              items: [
-                { id: 'BANNER', label: 'Banner Trang chủ', icon: ImageIcon },
-                { id: 'APPEARANCE_FONT', label: 'Font & Cỡ chữ', icon: Type },
-                { id: 'APPEARANCE_HOME', label: 'Bố cục Trang chủ', icon: Home },
-                { id: 'APPEARANCE_HONORS', label: 'Bảng Vinh danh', icon: LayoutGrid },
-              ],
-            },
+            ...(isAdmin
+              ? [
+                  {
+                    groupKey: 'COMPETITION',
+                    groupTitle: '1. Thi đua & Event',
+                    shortTitle: 'Thi đua & Event',
+                    groupIcon: Trophy,
+                    items: [
+                      { id: 'SCORING' as AdminSectionId, label: 'Bảng điểm mặc định', icon: Scale, badge: '7 mục' },
+                      { id: 'EVENTS' as AdminSectionId, label: 'Quản lý Event', icon: Trophy, badge: `${events.length}` },
+                    ],
+                  },
+                  {
+                    groupKey: 'DISPLAY',
+                    groupTitle: '2. Giao diện & Hiển thị',
+                    shortTitle: 'Giao diện',
+                    groupIcon: LayoutGrid,
+                    items: [
+                      { id: 'BANNER' as AdminSectionId, label: 'Banner Trang chủ', icon: ImageIcon },
+                      { id: 'APPEARANCE_FONT' as AdminSectionId, label: 'Font & Cỡ chữ', icon: Type },
+                      { id: 'APPEARANCE_HOME' as AdminSectionId, label: 'Bố cục Trang chủ', icon: Home },
+                      { id: 'APPEARANCE_HONORS' as AdminSectionId, label: 'Bảng Vinh danh', icon: LayoutGrid },
+                    ],
+                  },
+                ]
+              : []),
             {
               groupKey: 'ORG',
-              groupTitle: '3. Tổ chức & Nhân sự',
+              groupTitle: isAdmin ? '3. Tổ chức & Nhân sự' : '1. Tổ chức & Nhân sự',
               shortTitle: 'Tổ chức & NS',
               groupIcon: Building2,
               items: [
-                { id: 'COMPANIES', label: 'Sion / Công ty', icon: Building2, badge: `${companies.length}` },
-                { id: 'AREAS', label: 'Khu vực', icon: MapPin, badge: `${areas.length}` },
+                { id: 'COMPANIES', label: 'Sion / Công ty', icon: Building2, badge: `${scopedCompanies.length}` },
+                { id: 'AREAS', label: 'Khu vực', icon: MapPin, badge: `${scopedAreas.length}` },
                 { id: 'DEPARTMENTS', label: 'Ban ngành', icon: Users2, badge: `${departments.length}` },
-                { id: 'MEMBERS', label: 'Thành viên', icon: User, badge: `${members.length}` },
+                { id: 'MEMBERS', label: 'Thành viên', icon: User, badge: `${scopedMembers.length}` },
               ],
             },
             {
               groupKey: 'SYSTEM',
-              groupTitle: '4. Hệ thống & Dữ liệu',
-              shortTitle: 'Hệ thống',
+              groupTitle: isAdmin ? '4. Hệ thống & Dữ liệu' : '2. Phân quyền cấp dưới',
+              shortTitle: isAdmin ? 'Hệ thống' : 'Phân quyền',
               groupIcon: Crown,
+              alertCount: isAdmin ? pendingApprovalCount : 0,
               items: [
                 {
                   id: 'ROLES',
-                  label: 'Phân quyền (7 cấp)',
+                  label: isAdmin ? 'Phân quyền & Duyệt' : `Phân quyền (≤ Cấp ${Math.max(1, actorRoleLevel - 1)})`,
                   icon: Crown,
-                  badge: usersList ? `${usersList.length}` : undefined,
+                  badge:
+                    isAdmin && pendingApprovalCount > 0
+                      ? `${pendingApprovalCount} chờ`
+                      : usersList
+                      ? `${usersList.length}`
+                      : undefined,
+                  isAlert: isAdmin && pendingApprovalCount > 0,
                 },
-                { id: 'EXCEL_SYNC', label: 'Nhập / Xuất Excel', icon: FileSpreadsheet },
+                ...(isAdmin
+                  ? [{ id: 'EXCEL_SYNC' as AdminSectionId, label: 'Nhập / Xuất Excel', icon: FileSpreadsheet }]
+                  : []),
               ],
             },
           ];
+
+          const adminNavGroups = allAdminNavGroups;
 
           const activeGroup =
             adminNavGroups.find((g) => g.items.some((it) => it.id === activeTab)) ||
@@ -563,8 +799,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <>
               {/* Mobile / Tablet Menu 2 tầng hiển thị trực tiếp */}
               <div className="lg:hidden mt-2.5 space-y-2 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-2">
-                {/* Tầng 1: 4 Nhóm chính (2x2 mobile, 4 cột sm/md) */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {/* Tầng 1: Nhóm chính */}
+                <div className={`grid gap-1.5 ${isAdmin ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'}`}>
                   {adminNavGroups.map((grp, idx) => {
                     const GroupIcon = grp.groupIcon;
                     const isGroupActive = grp.groupKey === activeGroup.groupKey;
@@ -591,6 +827,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <span className="truncate">
                           {idx + 1}. {grp.shortTitle}
                         </span>
+                        {!!grp.alertCount && grp.alertCount > 0 && (
+                          <span className="ml-auto px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black leading-none tabular-nums">
+                            {grp.alertCount}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -624,7 +865,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {item.badge && (
                             <span
                               className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums shrink-0 ${
-                                isItemActive
+                                item.isAlert
+                                  ? 'bg-rose-600 text-white'
+                                  : isItemActive
                                   ? 'bg-white/20 text-white'
                                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                               }`}
@@ -674,7 +917,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               {item.badge && (
                                 <span
                                   className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums shrink-0 ${
-                                    active
+                                    item.isAlert
+                                      ? 'bg-rose-600 text-white'
+                                      : active
                                       ? 'bg-white/20 text-white'
                                       : 'bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                                   }`}
@@ -696,14 +941,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {activeTab === 'COMPANIES' && (
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-sm text-slate-800">Danh sách các Công ty (Th1, Th2, Th3, HT, NC, QN...)</h3>
-              <button
-                onClick={() => setIsAddCompanyOpen(true)}
-                className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Thêm Công ty</span>
-              </button>
+              <h3 className="font-bold text-sm text-slate-800">Danh sách các Sion / Công ty</h3>
+              {canCreateCompany && (
+                <button
+                  onClick={() => setIsAddCompanyOpen(true)}
+                  className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Thêm Công ty</span>
+                </button>
+              )}
             </div>
 
             {/* Add Company Form */}
@@ -764,9 +1011,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {companies.map((comp) => {
-                    const compAreas = areas.filter((a) => a.companyCode === comp.code);
-                    const compMembers = members.filter((m) => m.companyCode === comp.code);
+                  {scopedCompanies.map((comp) => {
+                    const compAreas = scopedAreas.filter((a) => a.companyCode === comp.code);
+                    const compMembers = scopedMembers.filter((m) => m.companyCode === comp.code);
+                    const canEditThisComp = canEditCompany(comp);
 
                     return (
                       <tr key={comp.id} className="hover:bg-slate-50/80 transition">
@@ -782,28 +1030,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => setEditingCompany(comp)}
-                            className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition"
-                            title="Chỉnh sửa"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              setConfirmDeleteTarget({
-                                title: `Xóa công ty ${comp.name}?`,
-                                onConfirm: () => {
-                                  onDeleteCompany(comp.id);
-                                  onShowNotification(`Đã xóa công ty ${comp.name}.`);
-                                },
-                              })
-                            }
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                            title="Xóa công ty"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canEditThisComp ? (
+                            <button
+                              onClick={() => setEditingCompany(comp)}
+                              className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
+                              title="Chỉnh sửa"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">Chỉ xem</span>
+                          )}
+                          {canDeleteCompany && (
+                            <button
+                              onClick={() =>
+                                setConfirmDeleteTarget({
+                                  title: `Xóa công ty ${comp.name}?`,
+                                  onConfirm: () => {
+                                    onDeleteCompany(comp.id);
+                                    onShowNotification(`Đã xóa công ty ${comp.name}.`);
+                                  },
+                                })
+                              }
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+                              title="Xóa công ty"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -829,9 +1083,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <label className="block text-xs font-bold text-slate-600 mb-1">Mã Công ty</label>
                       <input
                         type="text"
+                        disabled={!isAdmin}
                         value={editingCompany.code}
                         onChange={(e) => setEditingCompany({ ...editingCompany, code: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-60"
                       />
                     </div>
                     <div>
@@ -870,17 +1125,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="mt-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-sm text-slate-800">Danh sách Khu vực (1.1, 1.2, 2.1, 2.2...)</h3>
-              <button
-                onClick={() => setIsAddAreaOpen(true)}
-                className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Thêm Khu vực</span>
-              </button>
+              {canCreateArea && (
+                <button
+                  onClick={() => setIsAddAreaOpen(true)}
+                  className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Thêm Khu vực</span>
+                </button>
+              )}
             </div>
 
             {/* Add Area Form */}
-            {isAddAreaOpen && (
+            {isAddAreaOpen && canCreateArea && (
               <form onSubmit={handleSaveArea} className="mb-6 p-4 rounded-2xl bg-blue-50/50 border border-blue-200 animate-in fade-in">
                 <div className="font-bold text-xs text-blue-950 mb-3">Thêm Khu vực mới</div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -890,7 +1147,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       size="sm"
                       value={newAreaCompany}
                       onChange={setNewAreaCompany}
-                      options={companies.map((c) => ({
+                      options={(isAdmin ? companies : scopedCompanies).map((c) => ({
                         value: c.code,
                         label: c.name,
                         badge: c.code,
@@ -950,8 +1207,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {areas.map((area) => {
-                    const areaMembers = members.filter((m) => m.areaCode === area.code);
+                  {scopedAreas.map((area) => {
+                    const areaMembers = scopedMembers.filter((m) => m.areaCode === area.code);
+                    const editable = canEditArea(area);
+                    const deletable = canDeleteArea(area);
 
                     return (
                       <tr key={area.id} className="hover:bg-slate-50/80 transition">
@@ -965,28 +1224,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => setEditingArea(area)}
-                            className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition"
-                            title="Chỉnh sửa"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              setConfirmDeleteTarget({
-                                title: `Xóa khu vực ${area.name}?`,
-                                onConfirm: () => {
-                                  onDeleteArea(area.id);
-                                  onShowNotification(`Đã xóa khu vực ${area.name}.`);
-                                },
-                              })
-                            }
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                            title="Xóa khu vực"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {editable ? (
+                            <button
+                              onClick={() => setEditingArea(area)}
+                              className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
+                              title="Chỉnh sửa"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">Chỉ xem</span>
+                          )}
+                          {deletable && (
+                            <button
+                              onClick={() =>
+                                setConfirmDeleteTarget({
+                                  title: `Xóa khu vực ${area.name}?`,
+                                  onConfirm: () => {
+                                    onDeleteArea(area.id);
+                                    onShowNotification(`Đã xóa khu vực ${area.name}.`);
+                                  },
+                                })
+                              }
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+                              title="Xóa khu vực"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1012,9 +1277,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <label className="block text-xs font-bold text-slate-600 mb-1">Trực thuộc Công ty</label>
                       <CustomSelect
                         size="sm"
+                        disabled={!isAdmin}
                         value={editingArea.companyCode}
                         onChange={(val) => setEditingArea({ ...editingArea, companyCode: val })}
-                        options={companies.map((c) => ({
+                        options={(isAdmin ? companies : scopedCompanies).map((c) => ({
                           value: c.code,
                           label: c.name,
                           badge: c.code,
@@ -1025,9 +1291,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <label className="block text-xs font-bold text-slate-600 mb-1">Mã Khu vực</label>
                       <input
                         type="text"
+                        disabled={!isAdmin && currentUser?.role === 'AREA_LEADER'}
                         value={editingArea.code}
                         onChange={(e) => setEditingArea({ ...editingArea, code: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-60"
                       />
                     </div>
                     <div>
@@ -1066,17 +1333,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="mt-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-sm text-slate-800">Danh sách Ban ngành (Tráng Niên, Phụ Nữ, Thanh Niên Nam, Thanh Niên Nữ)</h3>
-              <button
-                onClick={() => setIsAddDepartmentOpen(true)}
-                className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Thêm Ban ngành</span>
-              </button>
+              {canModifyDepartments && (
+                <button
+                  onClick={() => setIsAddDepartmentOpen(true)}
+                  className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Thêm Ban ngành</span>
+                </button>
+              )}
             </div>
 
             {/* Add Department Form */}
-            {isAddDepartmentOpen && (
+            {isAddDepartmentOpen && canModifyDepartments && (
               <form onSubmit={handleSaveDepartment} className="mb-6 p-4 rounded-2xl bg-blue-50/50 border border-blue-200 animate-in fade-in">
                 <div className="font-bold text-xs text-blue-950 mb-3">Thêm Ban ngành mới</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1132,7 +1401,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {departments.map((dept) => {
-                    const deptMembers = members.filter((m) => m.departmentCode === dept.code);
+                    const deptMembers = scopedMembers.filter((m) => m.departmentCode === dept.code);
 
                     return (
                       <tr key={dept.id} className="hover:bg-slate-50/80 transition">
@@ -1144,28 +1413,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => setEditingDepartment(dept)}
-                            className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition"
-                            title="Chỉnh sửa"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              setConfirmDeleteTarget({
-                                title: `Xóa ban ngành ${dept.name}?`,
-                                onConfirm: () => {
-                                  onDeleteDepartment(dept.id);
-                                  onShowNotification(`Đã xóa ban ngành ${dept.name}.`);
-                                },
-                              })
-                            }
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                            title="Xóa ban ngành"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canModifyDepartments ? (
+                            <>
+                              <button
+                                onClick={() => setEditingDepartment(dept)}
+                                className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
+                                title="Chỉnh sửa"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() =>
+                                  setConfirmDeleteTarget({
+                                    title: `Xóa ban ngành ${dept.name}?`,
+                                    onConfirm: () => {
+                                      onDeleteDepartment(dept.id);
+                                      onShowNotification(`Đã xóa ban ngành ${dept.name}.`);
+                                    },
+                                  })
+                                }
+                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+                                title="Xóa ban ngành"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">Danh mục chung</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1261,9 +1536,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Sion / Công ty *</label>
                     <CustomSelect
                       size="sm"
+                      disabled={!isAdmin && scopedCompanies.length <= 1}
                       value={newMemberCompany}
                       onChange={setNewMemberCompany}
-                      options={companies.map((c) => ({
+                      options={(isAdmin ? companies : scopedCompanies).map((c) => ({
                         value: c.code,
                         label: c.name,
                         badge: c.code,
@@ -1272,22 +1548,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Khu vực *</label>
-                    <input
-                      type="text"
-                      value={newMemberArea}
-                      onChange={(e) => setNewMemberArea(e.target.value)}
-                      placeholder="1.1, 1.2..."
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
-                    />
+                    {!isAdmin && actorRoleLevel <= 3 ? (
+                      <CustomSelect
+                        size="sm"
+                        disabled={scopedAreas.length <= 1}
+                        value={newMemberArea}
+                        onChange={setNewMemberArea}
+                        options={(scopedAreas.length > 0
+                          ? scopedAreas
+                          : [{ id: 'own', code: currentUser?.areaCode || newMemberArea, name: `KV ${currentUser?.areaCode || newMemberArea}`, companyCode: newMemberCompany, active: true }]
+                        ).map((a) => ({
+                          value: a.code,
+                          label: a.name || `KV ${a.code}`,
+                          badge: a.code,
+                        }))}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={newMemberArea}
+                        onChange={(e) => setNewMemberArea(e.target.value)}
+                        placeholder="1.1, 1.2..."
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Đội / Uni</label>
                     <input
                       type="text"
+                      disabled={currentUser?.role === 'UNI_LEADER'}
                       value={newMemberUnit}
                       onChange={(e) => setNewMemberUnit(e.target.value)}
                       placeholder="Uni 1, Đội A..."
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-60"
                     />
                   </div>
                   <div>
@@ -1338,7 +1632,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {members
+                  {scopedMembers
                     .filter((m) => {
                       if (!searchQuery.trim()) return true;
                       const q = searchQuery.toLowerCase();
@@ -1349,7 +1643,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         m.departmentCode.toLowerCase().includes(q)
                       );
                     })
-                    .map((mem) => (
+                    .map((mem) => {
+                      const canEditThisMem = canModifyMember(mem);
+                      return (
                       <tr key={mem.id} className="hover:bg-slate-50/80 transition">
                         <td className="py-3 px-4">
                           <div className="font-bold text-slate-900 text-sm">{mem.fullName}</div>
@@ -1360,6 +1656,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <td className="py-3 px-4 text-slate-600">{mem.departmentCode}</td>
                         <td className="py-3 px-4 text-center">
                           <button
+                            type="button"
+                            disabled={!canEditThisMem}
                             onClick={() => {
                               onUpdateMember({ ...mem, active: !mem.active });
                               onShowNotification(
@@ -1368,7 +1666,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   : `Đã kích hoạt hoạt động cho ${mem.fullName}.`
                               );
                             }}
-                            className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] inline-flex items-center gap-1 transition ${
+                            className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] inline-flex items-center gap-1 transition cursor-pointer disabled:opacity-60 ${
                               mem.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
                             }`}
                             title="Bấm để bật/tắt tính điểm vào mẫu số trung bình"
@@ -1383,31 +1681,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {mem.targets?.length || 0}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => setEditingMember(mem)}
-                            className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition"
-                            title="Chỉnh sửa"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              setConfirmDeleteTarget({
-                                title: `Xóa thành viên ${mem.fullName}?`,
-                                onConfirm: () => {
-                                  onDeleteMember(mem.id);
-                                  onShowNotification(`Đã xóa thành viên ${mem.fullName}.`);
-                                },
-                              })
-                            }
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                            title="Xóa thành viên"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canEditThisMem && (
+                            <>
+                              <button
+                                onClick={() => setEditingMember(mem)}
+                                className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
+                                title="Chỉnh sửa"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() =>
+                                  setConfirmDeleteTarget({
+                                    title: `Xóa thành viên ${mem.fullName}?`,
+                                    onConfirm: () => {
+                                      onDeleteMember(mem.id);
+                                      onShowNotification(`Đã xóa thành viên ${mem.fullName}.`);
+                                    },
+                                  })
+                                }
+                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+                                title="Xóa thành viên"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -1439,9 +1742,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <label className="block text-xs font-bold text-slate-600 mb-1">Sion / Công ty</label>
                         <CustomSelect
                           size="sm"
+                          disabled={!isAdmin && scopedCompanies.length <= 1}
                           value={editingMember.companyCode}
                           onChange={(val) => setEditingMember({ ...editingMember, companyCode: val })}
-                          options={companies.map((c) => ({
+                          options={(isAdmin ? companies : scopedCompanies).map((c) => ({
                             value: c.code,
                             label: c.name,
                             badge: c.code,
@@ -1452,9 +1756,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <label className="block text-xs font-bold text-slate-600 mb-1">Khu vực</label>
                         <input
                           type="text"
+                          disabled={!isAdmin && actorRoleLevel <= 3 && scopedAreas.length <= 1}
                           value={editingMember.areaCode}
                           onChange={(e) => setEditingMember({ ...editingMember, areaCode: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800"
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 disabled:opacity-60"
                         />
                       </div>
                     </div>
@@ -1463,10 +1768,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <label className="block text-xs font-bold text-slate-600 mb-1">Đội / Uni</label>
                         <input
                           type="text"
+                          disabled={currentUser?.role === 'UNI_LEADER'}
                           value={editingMember.unitCode || ''}
                           onChange={(e) => setEditingMember({ ...editingMember, unitCode: e.target.value })}
                           placeholder="Uni 1, Đội A..."
-                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800"
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 disabled:opacity-60"
                         />
                       </div>
                       <div>
@@ -2489,6 +2795,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onPreAssignRole={onPreAssignRole}
               onDeletePreAssignedRole={onDeletePreAssignedRole}
               onResetUserPin={onResetUserPin}
+              securityConfig={securityConfig}
+              onSaveSecurityConfig={onSaveSecurityConfig}
+              onApproveUser={onApproveUser}
+              onRejectUser={onRejectUser}
               onShowNotification={onShowNotification}
             />
           </div>

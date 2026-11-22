@@ -16,6 +16,8 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  Clock,
+  XCircle,
 } from 'lucide-react';
 import {
   Company,
@@ -38,6 +40,8 @@ export type SecurityGateMode =
   | 'LOADING'
   | 'UNAUTHENTICATED'
   | 'ONBOARDING'
+  | 'PENDING_APPROVAL'
+  | 'REJECTED_APPROVAL'
   | 'PIN_SETUP'
   | 'PIN_LOCKED';
 
@@ -57,6 +61,7 @@ interface SecurityGateScreenProps {
   companies: Company[];
   areas: Area[];
   departments: Department[];
+  requireRegistrationApproval?: boolean;
   onOpenAuthModal: (initialMode: 'LOGIN' | 'REGISTER') => void;
   onCompleteOnboarding: (data: OnboardingSubmitData) => Promise<void>;
   onSetupPin: (pinHash: string) => Promise<void>;
@@ -74,6 +79,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   companies,
   areas,
   departments,
+  requireRegistrationApproval = true,
   onOpenAuthModal,
   onCompleteOnboarding,
   onSetupPin,
@@ -362,6 +368,9 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   </div>
                   <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
                     Đăng nhập tài khoản và nhập <strong>Mã cá nhân 6 số</strong> để xem đúng dữ liệu thuộc Sion / Khu vực và quyền của bạn.
+                    {requireRegistrationApproval && (
+                      <> Đăng ký mới cần Admin phê duyệt trước khi truy cập.</>
+                    )}
                   </p>
                 </div>
               </div>
@@ -589,6 +598,114 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 <span>Hoàn tất &amp; Vào hệ thống</span>
               </button>
             </form>
+          )}
+
+          {mode === 'PENDING_APPROVAL' && currentUser && (
+            <div className="space-y-3.5">
+              <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-600 dark:text-amber-300 flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                      Chờ Admin phê duyệt
+                    </h2>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      {currentUser.email}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-600 dark:text-rose-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Đăng xuất</span>
+                </button>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-amber-50/80 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-100 space-y-1.5 leading-relaxed">
+                <div className="font-extrabold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>Hồ sơ của bạn đã được gửi tới Ban Quản trị</span>
+                </div>
+                <p className="text-[11px] text-amber-800/90 dark:text-amber-200/90">
+                  Để bảo mật thông tin toàn hệ thống, tài khoản mới cần Admin hoặc Tổng Quản trị xác nhận trước khi xem dữ liệu. Màn hình này sẽ tự động mở khóa ngay khi được phê duyệt.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 dark:text-slate-400">Họ và tên:</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white truncate">
+                    {currentUser.fullName}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 dark:text-slate-400">Đơn vị đăng ký:</span>
+                  <span className="font-bold text-blue-700 dark:text-blue-300 truncate">
+                    Sion {currentUser.companyCode} · KV {currentUser.areaCode}
+                    {currentUser.unitCode ? ` · ${currentUser.unitCode}` : ''}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 dark:text-slate-400">Ban ngành:</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                    {currentUser.departmentCode}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 pt-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                <span>Đang chờ Admin xác nhận tự động theo thời gian thực...</span>
+              </div>
+            </div>
+          )}
+
+          {mode === 'REJECTED_APPROVAL' && currentUser && (
+            <div className="space-y-3.5">
+              <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-300 flex items-center justify-center shrink-0">
+                    <XCircle className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                      Yêu cầu đăng ký chưa được duyệt
+                    </h2>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      {currentUser.email}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-xs text-rose-800 dark:text-rose-200 space-y-1.5 leading-relaxed">
+                <div className="font-bold">
+                  Tài khoản {currentUser.fullName} ({currentUser.companyCode} · KV {currentUser.areaCode}) hiện chưa được cấp quyền truy cập.
+                </div>
+                {currentUser.rejectionReason && (
+                  <div className="text-[11px] bg-white/70 dark:bg-slate-900/60 px-2.5 py-1.5 rounded-xl border border-rose-200/80 dark:border-rose-800">
+                    <strong>Lý do:</strong> {currentUser.rejectionReason}
+                  </div>
+                )}
+                <p className="text-[11px]">
+                  Vui lòng liên hệ Quản trị viên hoặc Trưởng Khu vực/Sion để kiểm tra lại thông tin.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onLogout}
+                className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Đăng xuất / Đổi tài khoản</span>
+              </button>
+            </div>
           )}
 
           {mode === 'PIN_SETUP' && currentUser && (

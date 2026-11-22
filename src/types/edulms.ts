@@ -163,10 +163,10 @@ export const ROLE_DISPLAY_META: Record<UserRole, RoleDisplayMeta> = {
   },
   SION_LEADER: {
     role: 'SION_LEADER',
-    codeBadge: 'Ts, Nq',
-    label: 'Trưởng Sion / Nội quy (Ts, Nq)',
-    shortLabel: 'Ts, Nq',
-    scopeSummary: 'Xem toàn bộ khu vực & thành viên thuộc Sion phụ trách + BXH Top 15',
+    codeBadge: 'TS, NQ',
+    label: 'TS, NQ',
+    shortLabel: 'TS, NQ',
+    scopeSummary: 'Quản lý tổ chức, nhân sự & xem dữ liệu Sion phụ trách + BXH Top 15',
     badgeClass: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-700',
     level: 4,
   },
@@ -209,6 +209,32 @@ export const ROLE_ORDER: UserRole[] = [
   'MEMBER',
 ];
 
+export function getRoleLevel(role?: UserRole | null): number {
+  if (!role) return 1;
+  return ROLE_DISPLAY_META[role]?.level || 1;
+}
+
+/**
+ * Cấp độ tối đa mà vai trò hiện tại được phép phân quyền cho người khác:
+ * - Cấp 7 (SUPER_ADMIN): 7 trở xuống (toàn bộ)
+ * - Cấp 6 (ADMIN): 5 trở xuống
+ * - Cấp 5 (MANAGER): 4 trở xuống
+ * - Cấp 4 (SION_LEADER - TS, NQ): 3 trở xuống
+ * - Cấp 3 (AREA_LEADER - Gru): 2 trở xuống
+ * - Cấp 2 (UNI_LEADER - Uni): 1 trở xuống
+ * - Cấp 1 (MEMBER - TĐ): 0 (không được phân quyền)
+ */
+export function getMaxAssignableRoleLevel(actorRole?: UserRole | null): number {
+  const lvl = getRoleLevel(actorRole);
+  if (lvl >= 7) return 7;
+  if (lvl >= 2) return lvl - 1;
+  return 0;
+}
+
+export function canAccessAdminPanel(role?: UserRole | null): boolean {
+  return getRoleLevel(role) >= 2;
+}
+
 export interface RoleAssignment {
   email: string;
   role: UserRole;
@@ -229,6 +255,21 @@ export interface SystemRolesConfig {
 }
 
 export type ThemeMode = 'light' | 'dark';
+
+export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface SystemSecurityConfig {
+  id?: string;
+  requireRegistrationApproval: boolean;
+  autoApprovePreAssigned: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export const DEFAULT_SECURITY_CONFIG: SystemSecurityConfig = {
+  requireRegistrationApproval: true,
+  autoApprovePreAssigned: true,
+};
 
 export interface UserAccount {
   id: string;
@@ -253,7 +294,21 @@ export interface UserAccount {
   pinHash?: string;
   pinUpdatedAt?: string;
   onboardingCompleted?: boolean;
+  approvalStatus?: ApprovalStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
   createdAt: string;
+}
+
+export function resolveUserApprovalStatus(
+  user?: Pick<UserAccount, 'approvalStatus'> | null
+): ApprovalStatus {
+  if (!user) return 'PENDING';
+  if (user.approvalStatus === 'PENDING' || user.approvalStatus === 'REJECTED') {
+    return user.approvalStatus;
+  }
+  return 'APPROVED';
 }
 
 export type ReactionType = 'heart' | 'pray' | 'praise' | 'fire' | 'blessing' | 'like';

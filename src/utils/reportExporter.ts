@@ -50,7 +50,7 @@ function matchesPeriod(rep: DailyReportRecord, opts: DailyReportExportOptions): 
  * Xuất Excel Báo cáo hằng ngày tuân thủ chặt chẽ phân quyền 7 cấp:
  * - HT (SUPER_ADMIN / ADMIN): Toàn hệ thống (tùy chọn lọc Sion/KV)
  * - QL Cụm (MANAGER): Tổng hợp các Sion & Khu vực trong cụm + Chi tiết cá nhân bản thân
- * - Ts, nq (SION_LEADER): Thành viên & khu vực thuộc Sion phụ trách
+ * - TS, NQ (SION_LEADER): Thành viên & khu vực thuộc Sion phụ trách
  * - Gru (AREA_LEADER): Các Uni & thành viên thuộc Khu vực quản lý
  * - Uni (UNI_LEADER): Thành viên thuộc đội Uni của mình
  * - TĐ (MEMBER): Chỉ báo cáo cá nhân của chính mình
