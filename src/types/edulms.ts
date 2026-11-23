@@ -795,6 +795,14 @@ export const DEFAULT_HOME_WIDGET_VISIBILITY: HomeWidgetVisibilityConfig = {
   showFeatureCards: true,
 };
 
+export interface LlvWidgetVisibilityConfig {
+  showWsSection: boolean;
+}
+
+export const DEFAULT_LLV_WIDGET_VISIBILITY: LlvWidgetVisibilityConfig = {
+  showWsSection: true,
+};
+
 export interface SystemAppearanceConfig {
   id?: string;
   fontKey: AppFontKey;
@@ -802,6 +810,7 @@ export interface SystemAppearanceConfig {
   widgetOrder: HonorsWidgetId[];
   hiddenWidgets: HonorsWidgetId[];
   homeWidgets?: HomeWidgetVisibilityConfig;
+  llvWidgets?: LlvWidgetVisibilityConfig;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -812,6 +821,7 @@ export const DEFAULT_APPEARANCE_CONFIG: SystemAppearanceConfig = {
   widgetOrder: [...DEFAULT_HONORS_WIDGET_ORDER],
   hiddenWidgets: [],
   homeWidgets: { ...DEFAULT_HOME_WIDGET_VISIBILITY },
+  llvWidgets: { ...DEFAULT_LLV_WIDGET_VISIBILITY },
 };
 
 // ---------- Hệ thống Giáo dục: Edu (LMS & CMS) ----------

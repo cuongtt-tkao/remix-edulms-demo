@@ -60,6 +60,7 @@ interface WorkSchedulePageProps {
   onDeleteWorkSchedule: (scheduleId: string) => Promise<void>;
   onOpenAuthModal: () => void;
   onShowNotification: (msg: string) => void;
+  showWsSection?: boolean;
 }
 
 type ScheduleViewMode = 'MY_SCHEDULE' | 'TEAM_SCHEDULES';
@@ -240,6 +241,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
   onDeleteWorkSchedule,
   onOpenAuthModal,
   onShowNotification,
+  showWsSection = true,
 }) => {
   const todayStr = useMemo(() => toLocalDateStr(new Date()), []);
   const currentWeekStart = useMemo(() => getSundayOfWeek(new Date()), []);
@@ -252,6 +254,13 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
   const [viewMode, setViewMode] = useState<ScheduleViewMode>('MY_SCHEDULE');
   const [mobileSectionTab, setMobileSectionTab] = useState<'SESSIONS' | 'WS'>('SESSIONS');
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(currentWeekStart);
+
+  // Tự đưa về tab Lịch 3 buổi trên mobile nếu Admin tắt mục WS
+  useEffect(() => {
+    if (!showWsSection && mobileSectionTab === 'WS') {
+      setMobileSectionTab('SESSIONS');
+    }
+  }, [showWsSection, mobileSectionTab]);
 
   // Draft states for My Schedule
   const [draftSessions, setDraftSessions] = useState<Record<WeekDayKey, DayThreeSessions>>(() =>
@@ -542,6 +551,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
       filterCompanyCode: scopeMode === 'TEAM' ? teamFilterCompany : undefined,
       filterAreaCode: scopeMode === 'TEAM' ? teamFilterArea : undefined,
       filterOwnerKey: specificOwnerKey || 'ALL',
+      includeWs: showWsSection,
     });
     if (res.recordsCount === 0) {
       onShowNotification(
@@ -630,13 +640,13 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
 
     return rows.sort((a, b) => {
       // Filled schedules first, then self, then alphabetical
-      const aHas = a.filledSessions + a.filledWs > 0 ? 1 : 0;
-      const bHas = b.filledSessions + b.filledWs > 0 ? 1 : 0;
+      const aHas = a.filledSessions + (showWsSection ? a.filledWs : 0) > 0 ? 1 : 0;
+      const bHas = b.filledSessions + (showWsSection ? b.filledWs : 0) > 0 ? 1 : 0;
       if (aHas !== bHas) return bHas - aHas;
       if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;
       return a.fullName.localeCompare(b.fullName, 'vi');
     });
-  }, [currentUser, canViewTeamSchedules, members, workSchedules, selectedWeekStart]);
+  }, [currentUser, canViewTeamSchedules, members, workSchedules, selectedWeekStart, showWsSection]);
 
   const availableTeamCompanies = useMemo(() => {
     const codes = Array.from(new Set(teamRoster.map((r) => r.companyCode).filter(Boolean))).sort();
@@ -673,7 +683,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
       ) {
         return false;
       }
-      const hasData = row.filledSessions + row.filledWs > 0;
+      const hasData = row.filledSessions + (showWsSection ? row.filledWs : 0) > 0;
       if (teamStatusFilter === 'FILLED' && !hasData) return false;
       if (teamStatusFilter === 'EMPTY' && hasData) return false;
       if (q) {
@@ -682,15 +692,17 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
       }
       return true;
     });
-  }, [teamRoster, teamFilterCompany, teamFilterArea, teamStatusFilter, teamSearch]);
+  }, [teamRoster, teamFilterCompany, teamFilterArea, teamStatusFilter, teamSearch, showWsSection]);
 
   const teamStats = useMemo(() => {
     const total = teamRoster.length;
-    const updatedCount = teamRoster.filter((r) => r.filledSessions + r.filledWs > 0).length;
+    const updatedCount = teamRoster.filter(
+      (r) => r.filledSessions + (showWsSection ? r.filledWs : 0) > 0
+    ).length;
     const totalSessions = teamRoster.reduce((acc, r) => acc + r.filledSessions, 0);
     const totalWs = teamRoster.reduce((acc, r) => acc + r.filledWs, 0);
     return { total, updatedCount, totalSessions, totalWs };
-  }, [teamRoster]);
+  }, [teamRoster, showWsSection]);
 
   if (!currentUser) {
     return (
@@ -702,7 +714,9 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
           Vui lòng đăng nhập
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-          Đăng nhập tài khoản để nhập Lịch làm việc tuần (3 buổi & WS) của bạn.
+          {showWsSection
+            ? 'Đăng nhập tài khoản để nhập Lịch làm việc tuần (3 buổi & WS) của bạn.'
+            : 'Đăng nhập tài khoản để nhập Lịch làm việc tuần (3 buổi) của bạn.'}
         </p>
         <button
           type="button"
@@ -743,7 +757,9 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                 </span>
               </div>
               <p className="hidden sm:block text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                Nhập 1 số đại diện mỗi buổi · Tách riêng 3 buổi và WS
+                {showWsSection
+                  ? 'Nhập 1 số đại diện mỗi buổi · Tách riêng 3 buổi và WS'
+                  : 'Nhập 1 số đại diện mỗi buổi · Sáng / Chiều / Tối'}
               </p>
             </div>
           </div>
@@ -947,42 +963,44 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
           )}
 
           {/* Mobile Tab Switcher: Tách 3 Buổi | WS Tuần trên màn hình điện thoại để vừa 1 màn hình */}
-          <div className="md:hidden grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700">
-            <button
-              type="button"
-              onClick={() => setMobileSectionTab('SESSIONS')}
-              className={`py-1.5 px-2.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                mobileSectionTab === 'SESSIONS'
-                  ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <span>1. 3 Buổi</span>
-              <span className="text-[11px] font-black tabular-nums text-sky-600 dark:text-sky-400">
-                {myFilledSessionsCount}/21
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileSectionTab('WS')}
-              className={`py-1.5 px-2.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                mobileSectionTab === 'WS'
-                  ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-              <span>2. WS Tuần</span>
-              <span className="text-[11px] font-black tabular-nums text-indigo-600 dark:text-indigo-400">
-                {myFilledWsCount}
-              </span>
-            </button>
-          </div>
+          {showWsSection && (
+            <div className="md:hidden grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setMobileSectionTab('SESSIONS')}
+                className={`py-1.5 px-2.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  mobileSectionTab === 'SESSIONS'
+                    ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <span>1. 3 Buổi</span>
+                <span className="text-[11px] font-black tabular-nums text-sky-600 dark:text-sky-400">
+                  {myFilledSessionsCount}/21
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileSectionTab('WS')}
+                className={`py-1.5 px-2.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  mobileSectionTab === 'WS'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                <span>2. WS Tuần</span>
+                <span className="text-[11px] font-black tabular-nums text-indigo-600 dark:text-indigo-400">
+                  {myFilledWsCount}
+                </span>
+              </button>
+            </div>
+          )}
 
           {/* KHỐI 1: LỊCH HOẠT ĐỘNG 3 BUỔI (CN -> T7) */}
           <section
             className={`${
-              mobileSectionTab === 'SESSIONS' ? 'block' : 'hidden md:block'
+              !showWsSection || mobileSectionTab === 'SESSIONS' ? 'block' : 'hidden md:block'
             } bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-2.5 sm:p-4 shadow-2xs`}
           >
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 sm:mb-3">
@@ -1193,11 +1211,12 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
           </section>
 
           {/* KHỐI 2: LỊCH WS TUẦN (TÁCH RIÊNG + THANH TÍCH CHỌN NGÀY) */}
-          <section
-            className={`${
-              mobileSectionTab === 'WS' ? 'block' : 'hidden md:block'
-            } bg-white dark:bg-slate-900 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/70 p-2.5 sm:p-4 shadow-2xs`}
-          >
+          {showWsSection && (
+            <section
+              className={`${
+                mobileSectionTab === 'WS' ? 'block' : 'hidden md:block'
+              } bg-white dark:bg-slate-900 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/70 p-2.5 sm:p-4 shadow-2xs`}
+            >
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
               <div className="min-w-0">
                 <h2 className="text-xs sm:text-base font-extrabold text-slate-900 dark:text-white flex flex-wrap items-baseline gap-x-1.5">
@@ -1339,7 +1358,8 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                 </div>
               </div>
             )}
-          </section>
+            </section>
+          )}
 
           {/* GHI CHÚ CÁ NHÂN (TÙY CHỌN, GỌN NHẸ) */}
           <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 px-3 py-2.5 sm:px-4 sm:py-3 shadow-2xs">
@@ -1385,7 +1405,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
         <div className="space-y-2.5 sm:space-y-3.5">
           {/* Summary Strip + Filters */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-3 sm:p-4 shadow-2xs space-y-2.5">
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-2.5">
+            <div className={`grid gap-1.5 sm:gap-2.5 ${showWsSection ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 p-2 sm:p-2.5">
                 <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-semibold truncate">
                   Phạm vi
@@ -1410,14 +1430,16 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                   {teamStats.totalSessions}
                 </div>
               </div>
-              <div className="rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/60 p-2 sm:p-2.5">
-                <div className="text-[10px] sm:text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold truncate">
-                  Buổi WS
+              {showWsSection && (
+                <div className="rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/60 p-2 sm:p-2.5">
+                  <div className="text-[10px] sm:text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold truncate">
+                    Buổi WS
+                  </div>
+                  <div className="text-sm sm:text-base font-extrabold text-indigo-800 dark:text-indigo-200 mt-0.5 tabular-nums">
+                    {teamStats.totalWs}
+                  </div>
                 </div>
-                <div className="text-sm sm:text-base font-extrabold text-indigo-800 dark:text-indigo-200 mt-0.5 tabular-nums">
-                  {teamStats.totalWs}
-                </div>
-              </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -1490,7 +1512,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
             <div className="space-y-2.5">
               {filteredTeamRoster.map((row) => {
                 const isExpanded = expandedMemberKey === row.rowKey;
-                const hasData = row.filledSessions + row.filledWs > 0;
+                const hasData = row.filledSessions + (showWsSection ? row.filledWs : 0) > 0;
                 const rec = row.schedule;
                 const recWsDays = rec
                   ? resolveWsActiveDays(rec.wsActiveDays, rec.ws)
@@ -1540,9 +1562,11 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                             <span className="px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 text-[11px] font-bold">
                               {row.filledSessions}/21 buổi
                             </span>
-                            <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold">
-                              {row.filledWs} WS
-                            </span>
+                            {showWsSection && (
+                              <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold">
+                                {row.filledWs} WS
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 text-[11px] font-semibold">
@@ -1671,46 +1695,48 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                             </div>
 
                             {/* Read-only WS block */}
-                            <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 p-3">
-                              <div className="text-[11px] font-extrabold text-indigo-800 dark:text-indigo-300 mb-2 flex items-center gap-1.5">
-                                <Sparkles className="w-3.5 h-3.5" />
-                                <span>Lịch WS Tuần</span>
-                              </div>
-                              <div className="space-y-1.5">
-                                {weekDays
-                                  .filter((day) => recWsDays.includes(day.key))
-                                  .map((day) => {
-                                    const wsDay = rec.ws?.[day.key];
-                                    return (
-                                      <div
-                                        key={day.key}
-                                        className="flex items-center justify-between gap-2 text-xs bg-white/80 dark:bg-slate-900/80 rounded-lg px-2.5 py-1.5 border border-indigo-100 dark:border-indigo-900/50"
-                                      >
-                                        <span className="font-bold text-indigo-900 dark:text-indigo-200">
-                                          {day.fullLabel} ({day.displayDate})
-                                        </span>
-                                        <div className="flex items-center gap-2">
-                                          {SESSION_ROWS.map((sr) => {
-                                            const val = wsDay?.[sr.key] || '';
-                                            return (
-                                              <span
-                                                key={sr.key}
-                                                className={`px-2 py-0.5 rounded text-[11px] ${
-                                                  val
-                                                    ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 font-extrabold'
-                                                    : 'text-slate-400 dark:text-slate-600'
-                                                }`}
-                                              >
-                                                {sr.label}: {val || '—'}
-                                              </span>
-                                            );
-                                          })}
+                            {showWsSection && (
+                              <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 p-3">
+                                <div className="text-[11px] font-extrabold text-indigo-800 dark:text-indigo-300 mb-2 flex items-center gap-1.5">
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>Lịch WS Tuần</span>
+                                </div>
+                                <div className="space-y-1.5">
+                                  {weekDays
+                                    .filter((day) => recWsDays.includes(day.key))
+                                    .map((day) => {
+                                      const wsDay = rec.ws?.[day.key];
+                                      return (
+                                        <div
+                                          key={day.key}
+                                          className="flex items-center justify-between gap-2 text-xs bg-white/80 dark:bg-slate-900/80 rounded-lg px-2.5 py-1.5 border border-indigo-100 dark:border-indigo-900/50"
+                                        >
+                                          <span className="font-bold text-indigo-900 dark:text-indigo-200">
+                                            {day.fullLabel} ({day.displayDate})
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            {SESSION_ROWS.map((sr) => {
+                                              const val = wsDay?.[sr.key] || '';
+                                              return (
+                                                <span
+                                                  key={sr.key}
+                                                  className={`px-2 py-0.5 rounded text-[11px] ${
+                                                    val
+                                                      ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 font-extrabold'
+                                                      : 'text-slate-400 dark:text-slate-600'
+                                                  }`}
+                                                >
+                                                  {sr.label}: {val || '—'}
+                                                </span>
+                                              );
+                                            })}
+                                          </div>
                                         </div>
-                                      </div>
-                                    );
-                                  })}
+                                      );
+                                    })}
+                                </div>
                               </div>
-                            </div>
+                            )}
 
                             {rec.noteLegend && (
                               <div className="text-xs bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-600 dark:text-slate-300">

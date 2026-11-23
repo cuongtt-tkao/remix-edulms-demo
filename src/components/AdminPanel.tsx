@@ -96,6 +96,7 @@ export type AdminSectionId =
   | 'BANNER'
   | 'APPEARANCE_FONT'
   | 'APPEARANCE_HOME'
+  | 'APPEARANCE_LLV'
   | 'APPEARANCE_HONORS'
   | 'COMPANIES'
   | 'AREAS'
@@ -843,6 +844,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       { id: 'BANNER' as AdminSectionId, label: 'Banner Trang chủ', icon: ImageIcon },
                       { id: 'APPEARANCE_FONT' as AdminSectionId, label: 'Font & Cỡ chữ', icon: Type },
                       { id: 'APPEARANCE_HOME' as AdminSectionId, label: 'Bố cục Trang chủ', icon: Home },
+                      { id: 'APPEARANCE_LLV' as AdminSectionId, label: 'Bố cục trang LLV', icon: CalendarDays },
                       { id: 'APPEARANCE_HONORS' as AdminSectionId, label: 'Bảng Vinh danh', icon: LayoutGrid },
                     ],
                   },
@@ -2677,6 +2679,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             filterCompanyCode: wsExportCompany,
                             filterAreaCode: wsExportArea,
                             filterOwnerKey: wsExportOwnerKey,
+                            includeWs: appearanceConfig?.llvWidgets?.showWsSection ?? true,
                           });
                           onShowNotification(
                             `Đã xuất ${res.fileName} (${res.recordsCount} tuần · ${res.peopleCount} nhân sự).`
@@ -3030,6 +3033,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {activeTab === 'APPEARANCE_HOME' && (
           <AdminScoringAppearanceTab
             forcedSection="HOME_LAYOUT"
+            scoringConfig={scoringConfig}
+            appearanceConfig={appearanceConfig}
+            activeEvent={activeEvent}
+            onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
+            onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
+            onShowNotification={onShowNotification}
+          />
+        )}
+
+        {/* TAB: BỐ CỤC TRANG LLV (NHÓM 2) */}
+        {activeTab === 'APPEARANCE_LLV' && (
+          <AdminScoringAppearanceTab
+            forcedSection="LLV_LAYOUT"
             scoringConfig={scoringConfig}
             appearanceConfig={appearanceConfig}
             activeEvent={activeEvent}

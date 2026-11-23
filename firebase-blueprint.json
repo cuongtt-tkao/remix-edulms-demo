@@ -136,6 +136,7 @@
         "widgetOrder": { "type": "array" },
         "hiddenWidgets": { "type": "array" },
         "homeWidgets": { "type": "object" },
+        "llvWidgets": { "type": "object" },
         "actionStripLabel": { "type": "string", "maxLength": 150 },
         "visibility": { "type": "object" },
         "requireRegistrationApproval": { "type": "boolean" },

@@ -29,6 +29,7 @@ export interface WorkScheduleExportOptions {
   filterCompanyCode?: string;
   filterAreaCode?: string;
   filterOwnerKey?: string; // 'ALL' | memberId | ownerUid
+  includeWs?: boolean; // Mặc định true; nếu false sẽ ẩn toàn bộ cột/dòng WS khi xuất Excel
 }
 
 export interface WorkScheduleExportSummary {
@@ -172,6 +173,7 @@ export function exportWorkSchedulesByRbacExcel(
   opts: WorkScheduleExportOptions
 ): WorkScheduleExportSummary {
   const { viewer, workSchedules, members } = opts;
+  const includeWs = opts.includeWs !== false;
   const wb = XLSX.utils.book_new();
   const ownMemberId = viewer.memberId || `m-${viewer.id}`;
   const isSelfOnly = opts.scopeMode === 'SELF' || viewer.role === 'MEMBER';
@@ -278,10 +280,14 @@ export function exportWorkSchedulesByRbacExcel(
       'Khu Vực': rec.areaCode || '',
       'Đội / Uni': rec.ownerUnitCode || '',
       'Buổi thường (/21)': countRegularFilled(rec),
-      'Buổi WS': countWsFilled(rec),
-      'Ngày bật WS': activeWsLabels || '—',
+      ...(includeWs
+        ? {
+            'Buổi WS': countWsFilled(rec),
+            'Ngày bật WS': activeWsLabels || '—',
+          }
+        : {}),
       ...dayColumns,
-      'Chi tiết Lịch WS': formatWsSummary(rec),
+      ...(includeWs ? { 'Chi tiết Lịch WS': formatWsSummary(rec) } : {}),
       'Ghi chú cá nhân': rec.noteLegend || '',
       'Cập nhật lúc': rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('vi-VN') : '',
     };
@@ -319,10 +325,14 @@ export function exportWorkSchedulesByRbacExcel(
         'Sáng': (sEntry?.morning || '').trim() || '',
         'Chiều': (sEntry?.afternoon || '').trim() || '',
         'Tối': (sEntry?.evening || '').trim() || '',
-        'Có WS': isWsDay ? 'Có' : '',
-        'WS Sáng': isWsDay ? (wEntry?.morning || '').trim() : '',
-        'WS Chiều': isWsDay ? (wEntry?.afternoon || '').trim() : '',
-        'WS Tối': isWsDay ? (wEntry?.evening || '').trim() : '',
+        ...(includeWs
+          ? {
+              'Có WS': isWsDay ? 'Có' : '',
+              'WS Sáng': isWsDay ? (wEntry?.morning || '').trim() : '',
+              'WS Chiều': isWsDay ? (wEntry?.afternoon || '').trim() : '',
+              'WS Tối': isWsDay ? (wEntry?.evening || '').trim() : '',
+            }
+          : {}),
       });
     });
   });
@@ -373,16 +383,18 @@ export function exportWorkSchedulesByRbacExcel(
         ]);
       });
 
-      // Tách riêng khối WS
-      const activeWsSet = new Set(resolveActiveWsDays(rec));
-      sessionDefs.forEach((sDef) => {
-        matrixAoA.push([
-          `WS · ${sDef.label.split(' ')[0]}`,
-          ...WORK_WEEK_DAYS.map((d) =>
-            activeWsSet.has(d.key) ? (rec.ws?.[d.key]?.[sDef.key] || '').trim() || '—' : 'Không bật'
-          ),
-        ]);
-      });
+      // Tách riêng khối WS (chỉ thêm khi đang bật hiển thị WS)
+      if (includeWs) {
+        const activeWsSet = new Set(resolveActiveWsDays(rec));
+        sessionDefs.forEach((sDef) => {
+          matrixAoA.push([
+            `WS · ${sDef.label.split(' ')[0]}`,
+            ...WORK_WEEK_DAYS.map((d) =>
+              activeWsSet.has(d.key) ? (rec.ws?.[d.key]?.[sDef.key] || '').trim() || '—' : 'Không bật'
+            ),
+          ]);
+        });
+      }
 
       if (rec.noteLegend) {
         matrixAoA.push(['Ghi chú quy ước số', rec.noteLegend]);

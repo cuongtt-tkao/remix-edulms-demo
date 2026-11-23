@@ -49,6 +49,7 @@ import {
   SystemAppearanceConfig,
   DEFAULT_APPEARANCE_CONFIG,
   DEFAULT_HOME_WIDGET_VISIBILITY,
+  DEFAULT_LLV_WIDGET_VISIBILITY,
   APP_FONT_OPTIONS,
   DEFAULT_HONORS_WIDGET_ORDER,
   HonorsWidgetId,
@@ -2024,6 +2025,7 @@ export default function App() {
         widgetOrder: config.widgetOrder,
         hiddenWidgets: config.hiddenWidgets,
         homeWidgets: config.homeWidgets || DEFAULT_HOME_WIDGET_VISIBILITY,
+        llvWidgets: config.llvWidgets || DEFAULT_LLV_WIDGET_VISIBILITY,
         updatedBy: effectiveCurrentUser?.fullName || 'Admin',
         updatedAt: new Date().toISOString(),
       })
@@ -3697,6 +3699,10 @@ export default function App() {
                 onDeleteWorkSchedule={handleDeleteWorkSchedule}
                 onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
                 onShowNotification={showNotification}
+                showWsSection={
+                  appearanceConfig?.llvWidgets?.showWsSection ??
+                  DEFAULT_LLV_WIDGET_VISIBILITY.showWsSection
+                }
               />
             </main>
           )}

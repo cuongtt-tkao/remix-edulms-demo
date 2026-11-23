@@ -21,6 +21,7 @@ import {
   Heart,
   TrendingUp,
   Star,
+  CalendarDays,
 } from 'lucide-react';
 import {
   DailyMetricKey,
@@ -35,13 +36,20 @@ import {
   HONORS_WIDGET_DEFINITIONS,
   DEFAULT_HONORS_WIDGET_ORDER,
   DEFAULT_HOME_WIDGET_VISIBILITY,
+  DEFAULT_LLV_WIDGET_VISIBILITY,
   DEFAULT_APPEARANCE_CONFIG,
   HomeWidgetVisibilityConfig,
+  LlvWidgetVisibilityConfig,
   HonorsWidgetId,
   FestivalEvent,
 } from '../types/edulms';
 
-export type AdminAppearanceSection = 'SCORING' | 'TYPOGRAPHY' | 'HOME_LAYOUT' | 'HONORS_LAYOUT';
+export type AdminAppearanceSection =
+  | 'SCORING'
+  | 'TYPOGRAPHY'
+  | 'HOME_LAYOUT'
+  | 'HONORS_LAYOUT'
+  | 'LLV_LAYOUT';
 
 interface AdminScoringAppearanceTabProps {
   scoringConfig: SystemScoringConfig | null;
@@ -97,6 +105,18 @@ const HOME_WIDGET_ITEMS: Array<{
     key: 'showFeatureCards',
     title: '2 Thẻ lối tắt nổi bật cuối Trang chủ',
     desc: 'Hai thẻ pastel dẫn nhanh sang Bảng Vinh danh và Hệ thống Giáo dục Edu.',
+  },
+];
+
+const LLV_WIDGET_ITEMS: Array<{
+  key: keyof LlvWidgetVisibilityConfig;
+  title: string;
+  desc: string;
+}> = [
+  {
+    key: 'showWsSection',
+    title: 'Khối Lịch WS Tuần (Bật / Tắt)',
+    desc: 'Cho phép hiển thị bảng nhập Lịch WS Tuần, tab chuyển WS trên điện thoại, thống kê WS đội ngũ và cột WS khi xuất Excel LLV. Dữ liệu WS cũ vẫn được giữ an toàn khi tắt.',
   },
 ];
 
@@ -196,6 +216,10 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
     ...DEFAULT_HOME_WIDGET_VISIBILITY,
     ...(appearanceConfig?.homeWidgets || {}),
   });
+  const [llvWidgets, setLlvWidgets] = useState<LlvWidgetVisibilityConfig>({
+    ...DEFAULT_LLV_WIDGET_VISIBILITY,
+    ...(appearanceConfig?.llvWidgets || {}),
+  });
 
   const [draggedWidget, setDraggedWidget] = useState<HonorsWidgetId | null>(null);
   const [dragOverWidget, setDragOverWidget] = useState<HonorsWidgetId | null>(null);
@@ -218,6 +242,10 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
     setHomeWidgets({
       ...DEFAULT_HOME_WIDGET_VISIBILITY,
       ...(appearanceConfig.homeWidgets || {}),
+    });
+    setLlvWidgets({
+      ...DEFAULT_LLV_WIDGET_VISIBILITY,
+      ...(appearanceConfig.llvWidgets || {}),
     });
   }, [appearanceConfig]);
 
@@ -257,12 +285,17 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
     setHomeWidgets((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const toggleLlvWidget = (key: keyof LlvWidgetVisibilityConfig) => {
+    setLlvWidgets((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
   const handleResetAppearanceDraft = () => {
     setFontKey(DEFAULT_APPEARANCE_CONFIG.fontKey);
     setFontScale(DEFAULT_APPEARANCE_CONFIG.fontScale);
     setWidgetOrder([...DEFAULT_HONORS_WIDGET_ORDER]);
     setHiddenWidgets([]);
     setHomeWidgets({ ...DEFAULT_HOME_WIDGET_VISIBILITY });
+    setLlvWidgets({ ...DEFAULT_LLV_WIDGET_VISIBILITY });
     onShowNotification(
       'Đã đưa cấu hình font & bố cục về mặc định (bấm Lưu để áp dụng toàn trang).'
     );
@@ -277,6 +310,7 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
         widgetOrder,
         hiddenWidgets,
         homeWidgets,
+        llvWidgets,
       });
       onShowNotification('Đã cập nhật cấu hình Giao diện & Bố cục cho toàn bộ người dùng!');
     } catch (err: any) {
@@ -325,7 +359,7 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
     <div className="space-y-5 animate-in fade-in duration-200">
       {/* Sub-tab Selector (only shown when forcedSection is not specified) */}
       {!forcedSection && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700">
           {(
             [
               {
@@ -351,6 +385,12 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
                 label: '4. Bảng Vinh danh',
                 sub: `${widgetOrder.length - hiddenWidgets.length}/${widgetOrder.length} widget bật`,
                 icon: Trophy,
+              },
+              {
+                id: 'LLV_LAYOUT' as const,
+                label: '5. Trang LLV',
+                sub: llvWidgets.showWsSection ? 'Đang hiện WS' : 'Đang ẩn WS',
+                icon: CalendarDays,
               },
             ]
           ).map((tab) => {
@@ -669,6 +709,82 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
                     isVisible
                       ? 'bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-700 shadow-2xs'
                       : 'bg-slate-100/70 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 opacity-70'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white">
+                      {item.title}
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                      {item.desc}
+                    </p>
+                  </div>
+                  <div
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black flex items-center gap-1 shrink-0 ${
+                      isVisible
+                        ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                    <span>{isVisible ? 'HIỆN' : 'ẨN'}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {renderSaveAppearanceFooter()}
+        </div>
+      )}
+
+      {/* SUB-TAB 3B: LLV PAGE LAYOUT (BẬT / TẮT MỤC WS TRONG LỊCH LÀM VIỆC) */}
+      {subTab === 'LLV_LAYOUT' && (
+        <div className="rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-5 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 mb-1">
+                <CalendarDays className="w-3.5 h-3.5" />
+                <span>Tùy biến trang Lịch làm việc tuần (LLV)</span>
+              </div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                Bố cục &amp; Hiển thị khối WS trong LLV
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Chỉ Admin (Cấp 6) và Admin Tổng (Cấp 7) có quyền bật/tắt cấu hình này. Khi bấm Lưu, toàn bộ trang LLV và file Excel LLV sẽ tự đồng bộ theo trạng thái mới.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setLlvWidgets({ showWsSection: true })}
+                className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer whitespace-nowrap"
+              >
+                Bật hiển thị WS
+              </button>
+              <button
+                type="button"
+                onClick={() => setLlvWidgets({ showWsSection: false })}
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold hover:bg-slate-100 cursor-pointer whitespace-nowrap"
+              >
+                Ẩn khối WS
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            {LLV_WIDGET_ITEMS.map((item) => {
+              const isVisible = llvWidgets[item.key];
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => toggleLlvWidget(item.key)}
+                  className={`flex items-start justify-between gap-3 p-4 rounded-2xl border text-left transition cursor-pointer ${
+                    isVisible
+                      ? 'bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                      : 'bg-slate-100/70 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 opacity-85'
                   }`}
                 >
                   <div className="min-w-0 flex-1">
