@@ -164,7 +164,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>(todayStr.slice(0, 7));
   const [selectedYear, setSelectedYear] = useState<string>(todayStr.slice(0, 4));
 
-  const [goalsDraft, setGoalsDraft] = useState<DailyReportMetrics>({ ...DEFAULT_DAILY_GOALS });
+  const [goalsDraft, setGoalsDraft] = useState<DailyReportMetrics>({ ...EMPTY_DAILY_METRICS });
   const [resultsDraft, setResultsDraft] = useState<DailyReportMetrics>({ ...EMPTY_DAILY_METRICS });
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
@@ -202,15 +202,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
     const existingYearGoal = periodGoals.find(
       (g) => g.uid === currentUser?.id && g.periodType === 'YEAR' && g.periodKey === selectedYear
     );
-    const goalObj = existingYearGoal?.goals || {
-      kn: DEFAULT_DAILY_GOALS.kn * 300,
-      tham: DEFAULT_DAILY_GOALS.tham * 240,
-      gm: DEFAULT_DAILY_GOALS.gm * 180,
-      dt: DEFAULT_DAILY_GOALS.dt * 240,
-      hh: DEFAULT_DAILY_GOALS.hh * 240,
-      kt: DEFAULT_DAILY_GOALS.kt * 300,
-      wsNew: DEFAULT_DAILY_GOALS.wsNew * 48,
-    };
+    const goalObj = existingYearGoal?.goals || EMPTY_DAILY_METRICS;
     let tGoal = 0;
     let tDone = 0;
     DAILY_METRIC_DEFINITIONS.forEach(({ key }) => {
@@ -232,10 +224,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
         setGoalsDraft({ ...EMPTY_DAILY_METRICS, ...existing.goals });
         setResultsDraft({ ...EMPTY_DAILY_METRICS, ...existing.results });
       } else {
-        const latest = [...userReports].sort((a, b) => b.date.localeCompare(a.date))[0];
-        setGoalsDraft(
-          latest ? { ...DEFAULT_DAILY_GOALS, ...latest.goals } : { ...DEFAULT_DAILY_GOALS }
-        );
+        setGoalsDraft({ ...EMPTY_DAILY_METRICS });
         setResultsDraft({ ...EMPTY_DAILY_METRICS });
       }
     } else if (activePeriod === 'MONTH') {
@@ -243,34 +232,14 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
         (g) => g.uid === currentUser?.id && g.periodType === 'MONTH' && g.periodKey === selectedMonth
       );
       setGoalsDraft(
-        existing
-          ? { ...EMPTY_DAILY_METRICS, ...existing.goals }
-          : {
-              kn: DEFAULT_DAILY_GOALS.kn * 25,
-              tham: DEFAULT_DAILY_GOALS.tham * 20,
-              gm: DEFAULT_DAILY_GOALS.gm * 15,
-              dt: DEFAULT_DAILY_GOALS.dt * 20,
-              hh: DEFAULT_DAILY_GOALS.hh * 20,
-              kt: DEFAULT_DAILY_GOALS.kt * 25,
-              wsNew: DEFAULT_DAILY_GOALS.wsNew * 4,
-            }
+        existing ? { ...EMPTY_DAILY_METRICS, ...existing.goals } : { ...EMPTY_DAILY_METRICS }
       );
     } else {
       const existing = periodGoals.find(
         (g) => g.uid === currentUser?.id && g.periodType === 'YEAR' && g.periodKey === selectedYear
       );
       setGoalsDraft(
-        existing
-          ? { ...EMPTY_DAILY_METRICS, ...existing.goals }
-          : {
-              kn: DEFAULT_DAILY_GOALS.kn * 300,
-              tham: DEFAULT_DAILY_GOALS.tham * 240,
-              gm: DEFAULT_DAILY_GOALS.gm * 180,
-              dt: DEFAULT_DAILY_GOALS.dt * 240,
-              hh: DEFAULT_DAILY_GOALS.hh * 240,
-              kt: DEFAULT_DAILY_GOALS.kt * 300,
-              wsNew: DEFAULT_DAILY_GOALS.wsNew * 48,
-            }
+        existing ? { ...EMPTY_DAILY_METRICS, ...existing.goals } : { ...EMPTY_DAILY_METRICS }
       );
     }
   }, [activePeriod, selectedDate, selectedMonth, selectedYear, userReports, periodGoals, currentUser?.id]);

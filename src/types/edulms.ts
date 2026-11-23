@@ -436,13 +436,13 @@ export const EMPTY_DAILY_METRICS: DailyReportMetrics = {
 };
 
 export const DEFAULT_DAILY_GOALS: DailyReportMetrics = {
-  kn: 5,
-  tham: 1,
-  gm: 1,
-  dt: 2,
-  hh: 1,
-  kt: 1,
-  wsNew: 1,
+  kn: 0,
+  tham: 0,
+  gm: 0,
+  dt: 0,
+  hh: 0,
+  kt: 0,
+  wsNew: 0,
 };
 
 export const DEFAULT_EVENT_WEIGHTS: DailyReportMetrics = {

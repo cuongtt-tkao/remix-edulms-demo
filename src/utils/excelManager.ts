@@ -17,12 +17,28 @@ import {
   EDU_ASSIGNMENT_STATUS_LABELS,
 } from '../types/edulms';
 
+import {
+  canManageOrgRecord,
+  canModifyDiscipleRecord,
+  canViewEduRecord,
+  canViewMemberDetail,
+  isAdminRole,
+  isMemberInManagerCluster,
+  normalizeOrgCode,
+} from './rbac';
+
 function getDateStamp(): string {
   const now = new Date();
   return `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now
     .getDate()
     .toString()
     .padStart(2, '0')}`;
+}
+
+function getSafeRoleBadge(viewer?: UserAccount | null): string {
+  if (!viewer) return '';
+  const badge = ROLE_DISPLAY_META[viewer.role]?.codeBadge || viewer.role;
+  return badge.replace(/[^a-zA-Z0-9]/g, '') || viewer.role;
 }
 
 function formatUserManagedScope(u?: UserAccount): string {
@@ -45,6 +61,19 @@ function formatUserManagedScope(u?: UserAccount): string {
     return units.length ? `Uni: ${units.join(', ')}` : u.departmentCode || '';
   }
   return 'Cá nhân';
+}
+
+function canExportMemberOrgRecord(viewer: UserAccount | null | undefined, m: Member): boolean {
+  if (!viewer || isAdminRole(viewer.role)) return true;
+  const ownMemberId = viewer.memberId || `m-${viewer.id}`;
+  if (m.id === ownMemberId || m.id === viewer.id) return true;
+  if (viewer.role === 'MANAGER') {
+    return isMemberInManagerCluster(viewer, m) || canManageOrgRecord(viewer, m);
+  }
+  if (viewer.role === 'MEMBER') {
+    return false;
+  }
+  return canManageOrgRecord(viewer, m) || canViewMemberDetail(viewer, m);
 }
 
 /**
@@ -91,15 +120,36 @@ export function exportSystemConfigExcel(
 }
 
 /**
- * 2. Xuất file Hồ sơ Cá nhân & Nhân sự Thi đua theo cấu trúc mới (.xlsx)
+ * 2. Xuất file Hồ sơ Cá nhân & Nhân sự Thi đua theo phân quyền 7 cấp (.xlsx)
  * Đối chiếu members + usersList + disciples (Đội/Uni, Vai trò 7 cấp, 7 chỉ số Báo cáo hằng ngày, Thống kê MĐ)
  */
 export function exportMembersAndTargetsExcel(
   members: Member[],
   usersList: UserAccount[] = [],
-  disciples: DiscipleRecord[] = []
+  disciples: DiscipleRecord[] = [],
+  opts?: {
+    viewer?: UserAccount | null;
+    companyCode?: string;
+    areaCode?: string;
+  }
 ): { membersCount: number; fileName: string } {
   const wb = XLSX.utils.book_new();
+  const viewer = opts?.viewer;
+
+  const scopedMembers = members.filter((m) => {
+    if (viewer && !canExportMemberOrgRecord(viewer, m)) return false;
+    if (opts?.companyCode && opts.companyCode !== 'ALL') {
+      if (normalizeOrgCode(m.companyCode) !== normalizeOrgCode(opts.companyCode)) return false;
+    }
+    if (opts?.areaCode && opts.areaCode !== 'ALL') {
+      if (normalizeOrgCode(m.areaCode) !== normalizeOrgCode(opts.areaCode)) return false;
+    }
+    return true;
+  });
+
+  const scopedDisciples = viewer && !isAdminRole(viewer.role)
+    ? disciples.filter((d) => canModifyDiscipleRecord(viewer, d))
+    : disciples;
 
   const userByMemberId = new Map<string, UserAccount>();
   const userByName = new Map<string, UserAccount>();
@@ -111,9 +161,10 @@ export function exportMembersAndTargetsExcel(
 
   // Thống kê MĐ theo ownerMemberId hoặc ownerUid
   const discipleCountMap = new Map<string, { total: number; active: number; stopped: number }>();
-  disciples.forEach((d) => {
+  scopedDisciples.forEach((d) => {
     const keys = [d.ownerMemberId, d.ownerUid ? `m-${d.ownerUid}` : ''].filter(Boolean);
-    const isStopped = Boolean(d.isStopped || d.progress.includes('Dừng'));
+    const progressArr = Array.isArray(d.progress) ? d.progress : [];
+    const isStopped = Boolean(d.isStopped || progressArr.includes('Dừng'));
     keys.forEach((k) => {
       const cur = discipleCountMap.get(k) || { total: 0, active: 0, stopped: 0 };
       cur.total += 1;
@@ -123,7 +174,7 @@ export function exportMembersAndTargetsExcel(
     });
   });
 
-  const sortedMembers = [...members].sort((a, b) => (b.score || 0) - (a.score || 0));
+  const sortedMembers = [...scopedMembers].sort((a, b) => (b.score || 0) - (a.score || 0));
 
   // Sheet 1: Hồ Sơ & Thi Đua TV
   const memberRows = sortedMembers.map((m, i) => {
@@ -160,7 +211,13 @@ export function exportMembersAndTargetsExcel(
       'Ngày Tham Gia': m.createdAt || '',
     };
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(memberRows), 'Hồ Sơ & Thi Đua TV');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      memberRows.length ? memberRows : [{ 'Thông báo': 'Chưa có nhân sự trong phạm vi phân quyền' }]
+    ),
+    'Hồ Sơ & Thi Đua TV'
+  );
 
   // Sheet 2: Tổng hợp theo Sion & Khu vực
   const areaGroupMap = new Map<
@@ -234,32 +291,58 @@ export function exportMembersAndTargetsExcel(
       'MĐ Đang Theo': g.activeMd,
       'Tổng MĐ': g.totalMd,
     }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Tổng Hợp Sion & KV');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      summaryRows.length ? summaryRows : [{ 'Thông báo': 'Chưa có dữ liệu tổng hợp theo khu vực' }]
+    ),
+    'Tổng Hợp Sion & KV'
+  );
 
-  const fileName = `HanhThucLuc_HoSo_NhanSu_${getDateStamp()}.xlsx`;
+  const badgeSuffix = viewer && !isAdminRole(viewer.role) ? `_${getSafeRoleBadge(viewer)}` : '';
+  const fileName = `HanhThucLuc_HoSo_NhanSu${badgeSuffix}_${getDateStamp()}.xlsx`;
   XLSX.writeFile(wb, fileName);
   return { membersCount: sortedMembers.length, fileName };
 }
 
 /**
- * 3. Xuất Danh sách MĐ toàn hệ thống (.xlsx)
+ * 3. Xuất Danh sách MĐ theo phân quyền 7 cấp (.xlsx)
  * Bao gồm 2 Sheets: Tổng Hợp MĐ (theo Sion/KV/TĐ) và Chi Tiết Danh Sách MĐ (9 bước tiến độ)
  */
 export function exportDisciplesExcel(
   disciples: DiscipleRecord[],
   opts?: {
+    viewer?: UserAccount | null;
     companyCode?: string;
+    areaCode?: string;
     status?: 'ALL' | 'ACTIVE' | 'STOPPED';
   }
 ): { count: number; fileName: string } {
   const wb = XLSX.utils.book_new();
+  const viewer = opts?.viewer;
   const compFilter = opts?.companyCode || 'ALL';
+  const areaFilter = opts?.areaCode || 'ALL';
   const statusFilter = opts?.status || 'ALL';
 
   const filtered = disciples
     .filter((d) => {
-      if (compFilter !== 'ALL' && d.companyCode !== compFilter) return false;
-      const stopped = Boolean(d.isStopped || d.progress.includes('Dừng'));
+      if (viewer && !isAdminRole(viewer.role) && !canModifyDiscipleRecord(viewer, d)) {
+        return false;
+      }
+      if (
+        compFilter !== 'ALL' &&
+        normalizeOrgCode(d.companyCode) !== normalizeOrgCode(compFilter)
+      ) {
+        return false;
+      }
+      if (
+        areaFilter !== 'ALL' &&
+        normalizeOrgCode(d.areaCode) !== normalizeOrgCode(areaFilter)
+      ) {
+        return false;
+      }
+      const progressArr = Array.isArray(d.progress) ? d.progress : [];
+      const stopped = Boolean(d.isStopped || progressArr.includes('Dừng'));
       if (statusFilter === 'ACTIVE' && stopped) return false;
       if (statusFilter === 'STOPPED' && !stopped) return false;
       return true;
@@ -295,8 +378,9 @@ export function exportDisciplesExcel(
   >();
 
   filtered.forEach((d) => {
+    const progressArr = Array.isArray(d.progress) ? d.progress : [];
     const key = `${d.companyCode}__${d.areaCode}__${d.ownerUid || d.ownerName}`;
-    const stopped = Boolean(d.isStopped || d.progress.includes('Dừng'));
+    const stopped = Boolean(d.isStopped || progressArr.includes('Dừng'));
     const cur = ownerMap.get(key) || {
       companyCode: d.companyCode || '',
       areaCode: d.areaCode || '',
@@ -317,14 +401,14 @@ export function exportDisciplesExcel(
     cur.total += 1;
     if (stopped) cur.stopped += 1;
     else cur.active += 1;
-    if (d.progress.includes('KN')) cur.kn += 1;
-    if (d.progress.includes('Thăm')) cur.tham += 1;
-    if (d.progress.includes('Ăn Cơm')) cur.com += 1;
-    if (d.progress.includes('GM')) cur.gm += 1;
-    if (d.progress.includes('ĐT')) cur.dt += 1;
-    if (d.progress.includes('HH')) cur.hh += 1;
-    if (d.progress.includes('KT')) cur.kt += 1;
-    if (d.progress.includes('WS')) cur.ws += 1;
+    if (progressArr.includes('KN')) cur.kn += 1;
+    if (progressArr.includes('Thăm')) cur.tham += 1;
+    if (progressArr.includes('Ăn Cơm')) cur.com += 1;
+    if (progressArr.includes('GM')) cur.gm += 1;
+    if (progressArr.includes('ĐT')) cur.dt += 1;
+    if (progressArr.includes('HH')) cur.hh += 1;
+    if (progressArr.includes('KT')) cur.kt += 1;
+    if (progressArr.includes('WS')) cur.ws += 1;
     ownerMap.set(key, cur);
   });
 
@@ -346,18 +430,27 @@ export function exportDisciplesExcel(
     KT: g.kt,
     WS: g.ws,
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Tổng Hợp MĐ');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      summaryRows.length
+        ? summaryRows
+        : [{ 'Thông báo': 'Chưa có danh sách MĐ trong phạm vi / bộ lọc đã chọn' }]
+    ),
+    'Tổng Hợp MĐ'
+  );
 
   // Sheet 2: Chi tiết Danh sách MĐ
   const detailRows = filtered.map((d, idx) => {
-    const stopped = Boolean(d.isStopped || d.progress.includes('Dừng'));
+    const progressArr = Array.isArray(d.progress) ? d.progress : [];
+    const stopped = Boolean(d.isStopped || progressArr.includes('Dừng'));
     const ageLabel =
       d.ageMode === 'EXACT' && d.exactAge
         ? `${d.exactAge} tuổi (${d.ageRange})`
         : `Khoảng ${d.ageRange}`;
 
     const activeSteps = DISCIPLE_PROGRESS_STEPS.filter(
-      (st) => !st.isStop && d.progress.includes(st.key)
+      (st) => !st.isStop && progressArr.includes(st.key)
     ).map((st) => st.label);
     const highestStep = activeSteps.length ? activeSteps[activeSteps.length - 1] : 'Chưa có';
 
@@ -369,14 +462,14 @@ export function exportDisciplesExcel(
       'Đặc Điểm': d.traits || '',
       'Trạng Thái': stopped ? 'Đã dừng' : 'Đang theo',
       'Bước Cao Nhất': highestStep,
-      KN: d.progress.includes('KN') ? 'X' : '',
-      Thăm: d.progress.includes('Thăm') ? 'X' : '',
-      'Ăn Cơm': d.progress.includes('Ăn Cơm') ? 'X' : '',
-      GM: d.progress.includes('GM') ? 'X' : '',
-      ĐT: d.progress.includes('ĐT') ? 'X' : '',
-      HH: d.progress.includes('HH') ? 'X' : '',
-      KT: d.progress.includes('KT') ? 'X' : '',
-      WS: d.progress.includes('WS') ? 'X' : '',
+      KN: progressArr.includes('KN') ? 'X' : '',
+      Thăm: progressArr.includes('Thăm') ? 'X' : '',
+      'Ăn Cơm': progressArr.includes('Ăn Cơm') ? 'X' : '',
+      GM: progressArr.includes('GM') ? 'X' : '',
+      ĐT: progressArr.includes('ĐT') ? 'X' : '',
+      HH: progressArr.includes('HH') ? 'X' : '',
+      KT: progressArr.includes('KT') ? 'X' : '',
+      WS: progressArr.includes('WS') ? 'X' : '',
       Dừng: stopped ? 'X' : '',
       'Ghi Chú Chăm Sóc': d.statusNote || '',
       'Người Phụ Trách': d.ownerName || '',
@@ -386,38 +479,89 @@ export function exportDisciplesExcel(
       'Ngày Cập Nhật': (d.updatedAt || d.createdAt || '').slice(0, 10),
     };
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), 'Chi Tiết Danh Sách MĐ');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      detailRows.length
+        ? detailRows
+        : [{ 'Thông báo': 'Chưa có hồ sơ MĐ trong phạm vi / bộ lọc đã chọn' }]
+    ),
+    'Chi Tiết Danh Sách MĐ'
+  );
 
-  const suffixComp = compFilter === 'ALL' ? 'ToanHT' : compFilter;
+  const suffixComp =
+    compFilter !== 'ALL'
+      ? compFilter
+      : viewer && !isAdminRole(viewer.role)
+      ? viewer.role === 'MEMBER'
+        ? 'CaNhan'
+        : getSafeRoleBadge(viewer)
+      : 'ToanHT';
+  const suffixArea = areaFilter !== 'ALL' ? `_KV${areaFilter}` : '';
   const suffixStatus =
     statusFilter === 'ACTIVE' ? '_DangTheo' : statusFilter === 'STOPPED' ? '_DaDung' : '';
-  const fileName = `HanhThucLuc_DanhSach_MD_${suffixComp}${suffixStatus}_${getDateStamp()}.xlsx`;
+  const fileName = `HanhThucLuc_DanhSach_MD_${suffixComp}${suffixArea}${suffixStatus}_${getDateStamp()}.xlsx`;
   XLSX.writeFile(wb, fileName);
   return { count: filtered.length, fileName };
 }
 
 /**
- * 4. Xuất dữ liệu Edu (LMS Chủ đề tuần & Phân công + CMS Lộ trình & NGV) (.xlsx)
+ * 4. Xuất dữ liệu Edu (LMS Chủ đề tuần & Phân công + CMS Lộ trình & NGV) theo phân quyền 7 cấp (.xlsx)
  */
 export function exportEduDataExcel(
   topics: EduWeeklyTopic[],
   assignments: EduTopicAssignment[],
   cmsProfiles: EduCmsProfile[],
-  opts?: { companyCode?: string }
+  opts?: { viewer?: UserAccount | null; companyCode?: string }
 ): { topicsCount: number; assignmentsCount: number; cmsCount: number; fileName: string } {
   const wb = XLSX.utils.book_new();
+  const viewer = opts?.viewer;
   const compFilter = opts?.companyCode || 'ALL';
 
+  const canAccessTopic = (t: EduWeeklyTopic): boolean => {
+    if (!viewer || isAdminRole(viewer.role)) return true;
+    if (t.companyCode === 'ALL') return true;
+    if (t.areaCode === 'ALL' || !t.areaCode) {
+      return canManageOrgRecord(viewer, { companyCode: t.companyCode, areaCode: viewer.areaCode });
+    }
+    return canViewEduRecord(viewer, { companyCode: t.companyCode, areaCode: t.areaCode });
+  };
+
   const filteredTopics = topics
-    .filter((t) => compFilter === 'ALL' || t.companyCode === 'ALL' || t.companyCode === compFilter)
+    .filter(
+      (t) =>
+        canAccessTopic(t) &&
+        (compFilter === 'ALL' ||
+          t.companyCode === 'ALL' ||
+          normalizeOrgCode(t.companyCode) === normalizeOrgCode(compFilter))
+    )
     .sort((a, b) => b.year - a.year || b.weekNumber - a.weekNumber);
 
   const filteredAssignments = assignments
-    .filter((a) => compFilter === 'ALL' || a.companyCode === compFilter)
+    .filter(
+      (a) =>
+        (!viewer ||
+          canViewEduRecord(viewer, {
+            companyCode: a.companyCode,
+            areaCode: a.areaCode,
+            assignedByUid: a.assignedByUid,
+            memberId: a.memberId,
+          })) &&
+        (compFilter === 'ALL' || normalizeOrgCode(a.companyCode) === normalizeOrgCode(compFilter))
+    )
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
   const filteredCms = cmsProfiles
-    .filter((c) => compFilter === 'ALL' || c.companyCode === compFilter)
+    .filter(
+      (c) =>
+        (!viewer ||
+          canViewEduRecord(viewer, {
+            companyCode: c.companyCode,
+            areaCode: c.areaCode,
+            ownerUid: c.ownerUid,
+          })) &&
+        (compFilter === 'ALL' || normalizeOrgCode(c.companyCode) === normalizeOrgCode(compFilter))
+    )
     .sort((a, b) => (a.companyCode || '').localeCompare(b.companyCode || ''));
 
   // Sheet 1: LMS Chủ Đề Tuần
@@ -437,7 +581,13 @@ export function exportEduDataExcel(
     'Người Tạo': t.createdBy || '',
     'Cập Nhật': (t.updatedAt || '').slice(0, 10),
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(topicRows), 'LMS Chủ Đề Tuần');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      topicRows.length ? topicRows : [{ 'Thông báo': 'Chưa có chủ đề tuần trong phạm vi đã chọn' }]
+    ),
+    'LMS Chủ Đề Tuần'
+  );
 
   // Sheet 2: LMS Phân Công TĐ
   const assignRows = filteredAssignments.map((a, idx) => ({
@@ -453,7 +603,13 @@ export function exportEduDataExcel(
     'Ghi Chú': a.note || '',
     'Cập Nhật': (a.updatedAt || '').slice(0, 10),
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(assignRows), 'LMS Phân Công TĐ');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      assignRows.length ? assignRows : [{ 'Thông báo': 'Chưa có dữ liệu phân công TĐ trong phạm vi' }]
+    ),
+    'LMS Phân Công TĐ'
+  );
 
   // Sheet 3: CMS Lộ Trình & NGV
   const cmsRows = filteredCms.map((c, idx) => ({
@@ -468,9 +624,20 @@ export function exportEduDataExcel(
     'Ghi Chú': c.note || '',
     'Cập Nhật': (c.updatedAt || '').slice(0, 10),
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cmsRows), 'CMS Lộ Trình & NGV');
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      cmsRows.length ? cmsRows : [{ 'Thông báo': 'Chưa có hồ sơ CMS trong phạm vi đã chọn' }]
+    ),
+    'CMS Lộ Trình & NGV'
+  );
 
-  const suffix = compFilter === 'ALL' ? 'ToanHT' : compFilter;
+  const suffix =
+    compFilter !== 'ALL'
+      ? compFilter
+      : viewer && !isAdminRole(viewer.role)
+      ? getSafeRoleBadge(viewer)
+      : 'ToanHT';
   const fileName = `HanhThucLuc_Edu_LMS_CMS_${suffix}_${getDateStamp()}.xlsx`;
   XLSX.writeFile(wb, fileName);
 

@@ -57,8 +57,16 @@ import {
   resolveUserApprovalStatus,
   DEFAULT_EVENT_WEIGHTS,
   getRoleLevel,
+  ROLE_DISPLAY_META,
 } from '../types/edulms';
-import { canManageOrgRecord, isAdminRole, normalizeOrgCode } from '../utils/rbac';
+import {
+  canManageOrgRecord,
+  canModifyDiscipleRecord,
+  canViewEduRecord,
+  isAdminRole,
+  isMemberInManagerCluster,
+  normalizeOrgCode,
+} from '../utils/rbac';
 import {
   exportSystemConfigExcel,
   exportMembersAndTargetsExcel,
@@ -243,7 +251,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const isAdmin = isAdminRole(currentUser?.role);
   const actorRoleLevel = getRoleLevel(currentUser?.role);
   const supervisorAllowedTabs: AdminSectionId[] = React.useMemo(
-    () => ['COMPANIES', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES'],
+    () => ['COMPANIES', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC'],
     []
   );
 
@@ -359,8 +367,93 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const scopedMembers = React.useMemo(() => {
     if (isAdmin) return members;
-    return members.filter((m) => canManageOrgRecord(currentUser || null, m));
+    const ownMemberId = currentUser?.memberId || (currentUser ? `m-${currentUser.id}` : '');
+    return members.filter(
+      (m) =>
+        m.id === ownMemberId ||
+        m.id === currentUser?.id ||
+        canManageOrgRecord(currentUser || null, m) ||
+        (currentUser?.role === 'MANAGER' && isMemberInManagerCluster(currentUser, m))
+    );
   }, [isAdmin, members, currentUser]);
+
+  const scopedUsers = React.useMemo(() => {
+    const list = usersList || [];
+    if (isAdmin) return list;
+    return list.filter(
+      (u) => u.id === currentUser?.id || canManageOrgRecord(currentUser || null, u)
+    );
+  }, [isAdmin, usersList, currentUser]);
+
+  const scopedDisciples = React.useMemo(() => {
+    if (isAdmin) return disciples;
+    return disciples.filter((d) => canModifyDiscipleRecord(currentUser || null, d));
+  }, [isAdmin, disciples, currentUser]);
+
+  const scopedDailyReports = React.useMemo(() => {
+    if (isAdmin) return dailyReports;
+    const scopedMemberIds = new Set(scopedMembers.map((m) => m.id));
+    const ownMemberId = currentUser?.memberId || (currentUser ? `m-${currentUser.id}` : '');
+    return dailyReports.filter((r) => {
+      const mId = r.memberId || `m-${r.uid}`;
+      return r.uid === currentUser?.id || mId === ownMemberId || scopedMemberIds.has(mId);
+    });
+  }, [isAdmin, dailyReports, scopedMembers, currentUser]);
+
+  const scopedEduTopics = React.useMemo(() => {
+    if (isAdmin) return eduTopics;
+    return eduTopics.filter((t) => {
+      if (t.companyCode === 'ALL') return true;
+      if (t.areaCode === 'ALL' || !t.areaCode) {
+        return canManageOrgRecord(currentUser || null, {
+          companyCode: t.companyCode,
+          areaCode: currentUser?.areaCode,
+        });
+      }
+      return canViewEduRecord(currentUser || null, {
+        companyCode: t.companyCode,
+        areaCode: t.areaCode,
+      });
+    });
+  }, [isAdmin, eduTopics, currentUser]);
+
+  const scopedEduAssignments = React.useMemo(() => {
+    if (isAdmin) return eduAssignments;
+    return eduAssignments.filter((a) =>
+      canViewEduRecord(currentUser || null, {
+        companyCode: a.companyCode,
+        areaCode: a.areaCode,
+        assignedByUid: a.assignedByUid,
+        memberId: a.memberId,
+      })
+    );
+  }, [isAdmin, eduAssignments, currentUser]);
+
+  const scopedEduCms = React.useMemo(() => {
+    if (isAdmin) return eduCmsProfiles;
+    return eduCmsProfiles.filter((c) =>
+      canViewEduRecord(currentUser || null, {
+        companyCode: c.companyCode,
+        areaCode: c.areaCode,
+        ownerUid: c.ownerUid,
+      })
+    );
+  }, [isAdmin, eduCmsProfiles, currentUser]);
+
+  const scopedWorkSchedules = React.useMemo(() => {
+    if (isAdmin) return workSchedules;
+    const ownMemberId = currentUser?.memberId || (currentUser ? `m-${currentUser.id}` : '');
+    return workSchedules.filter(
+      (w) =>
+        w.ownerUid === currentUser?.id ||
+        (w.ownerMemberId && w.ownerMemberId === ownMemberId) ||
+        canManageOrgRecord(currentUser || null, {
+          companyCode: w.companyCode,
+          areaCode: w.areaCode,
+          unitCode: w.ownerUnitCode,
+        })
+    );
+  }, [isAdmin, workSchedules, currentUser]);
 
   const canCreateCompany = isAdmin;
   const canDeleteCompany = isAdmin;
@@ -769,8 +862,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             },
             {
               groupKey: 'SYSTEM',
-              groupTitle: isAdmin ? '4. Hệ thống & Dữ liệu' : '2. Phân quyền cấp dưới',
-              shortTitle: isAdmin ? 'Hệ thống' : 'Phân quyền',
+              groupTitle: isAdmin ? '4. Hệ thống & Dữ liệu' : '2. Phân quyền & Báo cáo',
+              shortTitle: isAdmin ? 'Hệ thống' : 'PQ & Báo cáo',
               groupIcon: Crown,
               alertCount: isAdmin ? pendingApprovalCount : 0,
               items: [
@@ -786,9 +879,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       : undefined,
                   isAlert: isAdmin && pendingApprovalCount > 0,
                 },
-                ...(isAdmin
-                  ? [{ id: 'EXCEL_SYNC' as AdminSectionId, label: 'Nhập / Xuất Excel', icon: FileSpreadsheet }]
-                  : []),
+                {
+                  id: 'EXCEL_SYNC' as AdminSectionId,
+                  label: isAdmin ? 'Nhập / Xuất Excel' : 'Xuất Báo cáo',
+                  icon: FileSpreadsheet,
+                  badge: isAdmin ? undefined : '5 loại',
+                },
               ],
             },
           ];
@@ -1817,7 +1913,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* TAB: TRUNG TÂM NHẬP & XUẤT EXCEL */}
+        {/* TAB: TRUNG TÂM NHẬP & XUẤT EXCEL / XUẤT BÁO CÁO PHÂN QUYỀN */}
         {activeTab === 'EXCEL_SYNC' && (
           <div className="space-y-5 animate-in fade-in">
             {/* Intro Banner */}
@@ -1828,107 +1924,127 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base text-emerald-950 dark:text-white">
-                    Trung Tâm Nhập &amp; Xuất Dữ Liệu Excel
+                    {isAdmin
+                      ? 'Trung Tâm Nhập & Xuất Dữ Liệu Excel'
+                      : 'Trung Tâm Xuất Báo Cáo Theo Phân Quyền'}
                   </h3>
                   <p className="hidden sm:block text-xs text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
-                    Đồng bộ danh mục hệ thống, hồ sơ nhân sự mới, danh sách MĐ, báo cáo hằng ngày và dữ liệu Edu.
+                    {isAdmin
+                      ? 'Đồng bộ danh mục hệ thống, hồ sơ nhân sự mới, danh sách MĐ, báo cáo hằng ngày và dữ liệu Edu.'
+                      : `Xuất 5 loại báo cáo chi tiết (bao gồm đủ 7 chỉ số: KN, Thăm, GM, ĐT, HH, KT, WS New) đúng phạm vi ${
+                          (currentUser && ROLE_DISPLAY_META[currentUser.role]?.label) || 'quản lý'
+                        }.`}
                   </p>
                 </div>
               </div>
 
               <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200 bg-white/80 dark:bg-slate-900/80 px-2.5 py-1 rounded-xl border border-emerald-200/60 dark:border-emerald-700/60 shrink-0">
-                Hỗ trợ: <strong>.xlsx, .xls</strong>
+                {isAdmin ? (
+                  <>
+                    Hỗ trợ: <strong>.xlsx, .xls</strong>
+                  </>
+                ) : (
+                  <>
+                    Phạm vi:{' '}
+                    <strong>
+                      {(currentUser && ROLE_DISPLAY_META[currentUser.role]?.codeBadge) || 'Đơn vị'}
+                    </strong>{' '}
+                    · .xlsx
+                  </>
+                )}
               </div>
             </div>
 
             {/* Grid Cards */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
-              {/* BLOCK 1: CẤU HÌNH DANH MỤC HỆ THỐNG */}
-              <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0">
-                      <Building2 className="w-4 h-4" />
+              {/* BLOCK 1: CẤU HÌNH DANH MỤC HỆ THỐNG (Chỉ Cấp 6-7 Admin) */}
+              {isAdmin && (
+                <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0">
+                        <Building2 className="w-4 h-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                          1. Danh Mục Tổ Chức
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          Sion / Công ty, Khu vực và Ban ngành
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className="text-[11px] font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md shrink-0">
+                      3 Sheets
                     </span>
-                    <div className="min-w-0">
-                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                        1. Danh Mục Tổ Chức
-                      </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        Sion / Công ty, Khu vực và Ban ngành
-                      </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Sion</div>
+                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                        {companies.length}
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Khu vực</div>
+                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                        {areas.length}
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[10px] text-slate-400 font-semibold uppercase">Ban ngành</div>
+                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                        {departments.length}
+                      </div>
                     </div>
                   </div>
 
-                  <span className="text-[11px] font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md shrink-0">
-                    3 Sheets
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Sion</div>
-                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {companies.length}
+                  <div className="p-3 bg-white dark:bg-slate-900/70 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                    <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1">
+                      <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span>Cấu trúc file:</span>
                     </div>
+                    <ul className="list-disc pl-4 space-y-0.5 text-slate-500 dark:text-slate-400">
+                      <li><strong>Sion - Công Ty:</strong> Mã Sion, Tên Sion, Mô Tả, Trạng Thái.</li>
+                      <li><strong>Khu Vực:</strong> Mã Khu Vực, Tên Khu Vực, Mã Sion Trực Thuộc.</li>
+                      <li><strong>Ban Ngành:</strong> Mã Ban Ngành, Tên Ban Ngành, Trạng Thái.</li>
+                    </ul>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Khu vực</div>
-                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {areas.length}
-                    </div>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Ban ngành</div>
-                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {departments.length}
-                    </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadConfigTemplateExcel()}
+                      className="py-2 px-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Tải mẫu</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => exportSystemConfigExcel(companies, areas, departments)}
+                      className="py-2 px-3 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>Xuất Excel</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => configFileRef.current?.click()}
+                      className="py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <FileUp className="w-3.5 h-3.5" />
+                      <span>Nhập Excel</span>
+                    </button>
                   </div>
                 </div>
+              )}
 
-                <div className="p-3 bg-white dark:bg-slate-900/70 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
-                  <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1">
-                    <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                    <span>Cấu trúc file:</span>
-                  </div>
-                  <ul className="list-disc pl-4 space-y-0.5 text-slate-500 dark:text-slate-400">
-                    <li><strong>Sion - Công Ty:</strong> Mã Sion, Tên Sion, Mô Tả, Trạng Thái.</li>
-                    <li><strong>Khu Vực:</strong> Mã Khu Vực, Tên Khu Vực, Mã Sion Trực Thuộc.</li>
-                    <li><strong>Ban Ngành:</strong> Mã Ban Ngành, Tên Ban Ngành, Trạng Thái.</li>
-                  </ul>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => downloadConfigTemplateExcel()}
-                    className="py-2 px-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Tải mẫu</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => exportSystemConfigExcel(companies, areas, departments)}
-                    className="py-2 px-3 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                    <span>Xuất Excel</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => configFileRef.current?.click()}
-                    className="py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <FileUp className="w-3.5 h-3.5" />
-                    <span>Nhập Excel</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* BLOCK 2: HỒ SƠ CÁ NHÂN & NHÂN SỰ THI ĐUA (CẤU TRÚC MỚI) */}
+              {/* BLOCK 2: HỒ SƠ CÁ NHÂN & NHÂN SỰ THI ĐUA (7 CHỈ SỐ) */}
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -1937,10 +2053,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </span>
                     <div className="min-w-0">
                       <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                        2. Hồ Sơ Cá Nhân &amp; Thi Đua
+                        {isAdmin ? '2' : '1'}. Hồ Sơ Cá Nhân &amp; Thi Đua
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        Cấu trúc mới: Đội/Uni, Vai trò 7 cấp &amp; 7 chỉ số
+                        Đội/Uni, Vai trò 7 cấp &amp; đủ 7 chỉ số chi tiết
                       </p>
                     </div>
                   </div>
@@ -1952,15 +2068,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 <div className="grid grid-cols-2 gap-2 text-center text-xs">
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Thành viên</div>
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">
+                      {isAdmin ? 'Thành viên' : 'Nhân sự trong phạm vi'}
+                    </div>
                     <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {members.length} người
+                      {scopedMembers.length} người
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] text-slate-400 font-semibold uppercase">Tài khoản đối chiếu</div>
                     <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {usersList?.length || 0} TK
+                      {scopedUsers.length} TK
                     </div>
                   </div>
                 </div>
@@ -1968,11 +2086,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="p-3 bg-white dark:bg-slate-900/70 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
                   <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1">
                     <Info className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>Cấu trúc cập nhật mới:</span>
+                    <span>Nội dung file xuất:</span>
                   </div>
                   <ul className="list-disc pl-4 space-y-0.5 text-slate-500 dark:text-slate-400">
                     <li>
-                      <strong>Hồ Sơ &amp; Thi Đua TV:</strong> Mã TV, Họ Tên, Username, Email, Vai trò, Phạm vi, Sion, KV, Ban, Đội/Uni, 7 chỉ số (KN..WS New) &amp; số MĐ.
+                      <strong>Hồ Sơ &amp; Thi Đua TV:</strong> Mã TV, Họ Tên, Username, Vai trò, Phạm vi, Sion, KV, Đội/Uni, 7 chỉ số (KN..WS New) &amp; số MĐ.
                     </li>
                     <li>
                       <strong>Tổng Hợp Sion &amp; KV:</strong> Điểm TB, tổng 7 chỉ số và MĐ theo từng Khu vực.
@@ -1980,43 +2098,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </ul>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => downloadMembersTemplateExcel()}
-                    className="py-2 px-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Tải mẫu mới</span>
-                  </button>
+                {isAdmin ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadMembersTemplateExcel()}
+                      className="py-2 px-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Tải mẫu mới</span>
+                    </button>
 
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const res = exportMembersAndTargetsExcel(
+                          members,
+                          usersList || [],
+                          disciples,
+                          { viewer: currentUser }
+                        );
+                        onShowNotification(
+                          `Đã xuất ${res.fileName} (${res.membersCount} thành viên).`
+                        );
+                      }}
+                      className="py-2 px-3 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <FileDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Xuất Hồ sơ TV</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => memberFileRef.current?.click()}
+                      className="py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <FileUp className="w-3.5 h-3.5" />
+                      <span>Nhập Excel</span>
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
                     onClick={() => {
                       const res = exportMembersAndTargetsExcel(
                         members,
                         usersList || [],
-                        disciples
+                        disciples,
+                        { viewer: currentUser }
                       );
                       onShowNotification(
-                        `Đã xuất ${res.fileName} (${res.membersCount} thành viên).`
+                        `Đã xuất ${res.fileName} (${res.membersCount} thành viên trong phạm vi).`
                       );
                     }}
-                    className="py-2 px-3 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                   >
-                    <FileDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Xuất Hồ sơ TV</span>
+                    <FileDown className="w-4 h-4" />
+                    <span>Xuất Excel Hồ sơ &amp; 7 Chỉ số</span>
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => memberFileRef.current?.click()}
-                    className="py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <FileUp className="w-3.5 h-3.5" />
-                    <span>Nhập Excel</span>
-                  </button>
-                </div>
+                )}
               </div>
 
               {/* BLOCK 3: XUẤT DANH SÁCH MĐ */}
@@ -2028,7 +2168,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </span>
                     <div className="min-w-0">
                       <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                        3. Danh Sách MĐ Toàn Hệ Thống
+                        {isAdmin ? '3. Danh Sách MĐ Toàn Hệ Thống' : '2. Danh Sách MĐ (Sổ tay MĐ)'}
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                         9 bước tiến độ (KN → WS / Dừng) &amp; người phụ trách
@@ -2042,16 +2182,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 {(() => {
-                  const activeMdCount = disciples.filter(
-                    (d) => !d.isStopped && !d.progress.includes('Dừng')
+                  const activeMdCount = scopedDisciples.filter(
+                    (d) => !d.isStopped && !(d.progress || []).includes('Dừng')
                   ).length;
-                  const stoppedMdCount = disciples.length - activeMdCount;
+                  const stoppedMdCount = scopedDisciples.length - activeMdCount;
                   return (
                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
                       <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                         <div className="text-[10px] text-slate-400 font-semibold uppercase">Tổng MĐ</div>
                         <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                          {disciples.length}
+                          {scopedDisciples.length}
                         </div>
                       </div>
                       <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -2078,8 +2218,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       value={mdExportCompany}
                       onChange={setMdExportCompany}
                       options={[
-                        { value: 'ALL', label: 'Tất cả Sion' },
-                        ...companies.map((c) => ({ value: c.code, label: c.name })),
+                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                        ...(isAdmin ? companies : scopedCompanies).map((c) => ({
+                          value: c.code,
+                          label: c.name,
+                        })),
                       ]}
                     />
                   </div>
@@ -2102,6 +2245,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   type="button"
                   onClick={() => {
                     const res = exportDisciplesExcel(disciples, {
+                      viewer: currentUser,
                       companyCode: mdExportCompany,
                       status: mdExportStatus,
                     });
@@ -2114,7 +2258,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
               </div>
 
-              {/* BLOCK 4: XUẤT BÁO CÁO HẰNG NGÀY TOÀN HỆ THỐNG */}
+              {/* BLOCK 4: XUẤT BÁO CÁO HẰNG NGÀY (7 CHỈ SỐ CHI TIẾT) */}
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -2123,10 +2267,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </span>
                     <div className="min-w-0">
                       <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                        4. Báo Cáo Hằng Ngày Toàn Hệ Thống
+                        {isAdmin
+                          ? '4. Báo Cáo Hằng Ngày Toàn Hệ Thống'
+                          : '3. Báo Cáo Hằng Ngày & 7 Chỉ Số'}
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        Tổng hợp TV, Khu vực &amp; Nhật ký theo từng ngày
+                        Tổng hợp TV, Khu vực &amp; Nhật ký đủ 7 chỉ số chi tiết
                       </p>
                     </div>
                   </div>
@@ -2138,9 +2284,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 <div className="grid grid-cols-2 gap-2 text-center text-xs">
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Tổng phiếu báo cáo</div>
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">
+                      {isAdmin ? 'Tổng phiếu báo cáo' : 'Phiếu báo cáo (phạm vi)'}
+                    </div>
                     <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {dailyReports.length}
+                      {scopedDailyReports.length}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -2158,6 +2306,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   ).padStart(2, '0')}`;
                   const monthStr = todayStr.slice(0, 7);
                   const yearStr = todayStr.slice(0, 4);
+                  const selectableCompanies = isAdmin ? companies : scopedCompanies;
+                  const selectableAreas = isAdmin ? areas : scopedAreas;
 
                   return (
                     <>
@@ -2186,8 +2336,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setAdminReportArea('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: 'Tất cả Sion' },
-                              ...companies.map((c) => ({ value: c.code, label: c.name })),
+                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                              ...selectableCompanies.map((c) => ({ value: c.code, label: c.name })),
                             ]}
                           />
                         </div>
@@ -2198,8 +2348,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={adminReportArea}
                             onChange={setAdminReportArea}
                             options={[
-                              { value: 'ALL', label: 'Tất cả KV' },
-                              ...areas
+                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (phạm vi)' },
+                              ...selectableAreas
                                 .filter((a) => adminReportCompany === 'ALL' || a.companyCode === adminReportCompany)
                                 .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
                             ]}
@@ -2226,7 +2376,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             filterAreaCode: adminReportArea,
                           });
                           onShowNotification(
-                            `Đã xuất ${res.fileName} (${res.reportsCount} báo cáo).`
+                            `Đã xuất ${res.fileName} (${res.reportsCount} báo cáo · ${res.membersCount} nhân sự).`
                           );
                         }}
                         className="w-full py-2.5 px-4 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
@@ -2248,7 +2398,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </span>
                     <div className="min-w-0">
                       <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                        5. Dữ Liệu Đào Tạo Edu (LMS &amp; CMS)
+                        {isAdmin ? '5' : '4'}. Dữ Liệu Đào Tạo Edu (LMS &amp; CMS)
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                         Chủ đề tuần, Giáo trình, Phân công TĐ và Lộ trình CMS / NGV
@@ -2265,19 +2415,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] text-slate-400 font-semibold uppercase">Chủ đề LMS</div>
                     <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {eduTopics.length}
+                      {scopedEduTopics.length}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] text-slate-400 font-semibold uppercase">Phân công TĐ</div>
                     <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {eduAssignments.length}
+                      {scopedEduAssignments.length}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] text-slate-400 font-semibold uppercase">Hồ sơ CMS</div>
                     <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {eduCmsProfiles.length}
+                      {scopedEduCms.length}
                     </div>
                   </div>
                 </div>
@@ -2289,8 +2439,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     value={eduExportCompany}
                     onChange={setEduExportCompany}
                     options={[
-                      { value: 'ALL', label: 'Tất cả Sion' },
-                      ...companies.map((c) => ({ value: c.code, label: c.name })),
+                      { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                      ...(isAdmin ? companies : scopedCompanies).map((c) => ({
+                        value: c.code,
+                        label: c.name,
+                      })),
                     ]}
                   />
                 </div>
@@ -2299,6 +2452,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   type="button"
                   onClick={() => {
                     const res = exportEduDataExcel(eduTopics, eduAssignments, eduCmsProfiles, {
+                      viewer: currentUser,
                       companyCode: eduExportCompany,
                     });
                     onShowNotification(
@@ -2321,10 +2475,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </span>
                     <div className="min-w-0">
                       <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                        6. Lịch Làm Việc Tuần (3 Buổi &amp; WS)
+                        {isAdmin ? '6' : '5'}. Lịch Làm Việc Tuần (3 Buổi &amp; WS)
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        Xuất lịch theo tuần, tháng, toàn hệ thống hoặc cá nhân
+                        Xuất lịch theo tuần, tháng, phạm vi quản lý hoặc từng nhân sự
                       </p>
                     </div>
                   </div>
@@ -2336,7 +2490,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 {(() => {
                   const uniquePeopleCount = new Set(
-                    workSchedules.map((w) => w.ownerUid || w.ownerMemberId || w.ownerName)
+                    scopedWorkSchedules.map((w) => w.ownerUid || w.ownerMemberId || w.ownerName)
                   ).size;
 
                   const parsedDate = (() => {
@@ -2361,7 +2515,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   const monthStr = wsExportDate.slice(0, 7);
 
                   const ownerOptionsMap = new Map<string, string>();
-                  members
+                  scopedMembers
                     .filter((m) => m.active)
                     .filter(
                       (m) => wsExportCompany === 'ALL' || m.companyCode === wsExportCompany
@@ -2370,7 +2524,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     .forEach((m) => {
                       ownerOptionsMap.set(m.id, `${m.fullName} (${m.companyCode} · ${m.areaCode})`);
                     });
-                  workSchedules.forEach((w) => {
+                  scopedWorkSchedules.forEach((w) => {
                     const key = w.ownerMemberId || w.ownerUid;
                     if (!ownerOptionsMap.has(key)) {
                       ownerOptionsMap.set(
@@ -2383,6 +2537,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   const ownerOptions = Array.from(ownerOptionsMap.entries())
                     .sort((a, b) => a[1].localeCompare(b[1], 'vi'))
                     .map(([value, label]) => ({ value, label }));
+                  const selectableWsCompanies = isAdmin ? companies : scopedCompanies;
+                  const selectableWsAreas = isAdmin ? areas : scopedAreas;
 
                   return (
                     <>
@@ -2392,7 +2548,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             Bản ghi tuần
                           </div>
                           <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                            {workSchedules.length}
+                            {scopedWorkSchedules.length}
                           </div>
                         </div>
                         <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -2460,8 +2616,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setWsExportOwnerKey('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: 'Tất cả Sion' },
-                              ...companies.map((c) => ({ value: c.code, label: c.name })),
+                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                              ...selectableWsCompanies.map((c) => ({ value: c.code, label: c.name })),
                             ]}
                           />
                         </div>
@@ -2475,8 +2631,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setWsExportOwnerKey('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: 'Tất cả KV' },
-                              ...areas
+                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (phạm vi)' },
+                              ...selectableWsAreas
                                 .filter(
                                   (a) =>
                                     wsExportCompany === 'ALL' ||

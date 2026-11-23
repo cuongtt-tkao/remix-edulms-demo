@@ -15,6 +15,7 @@ import {
   Clock,
   PauseCircle,
   Loader2,
+  FileDown,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -30,6 +31,7 @@ import {
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
 import { isAdminRole, isSupervisorRole } from '../utils/rbac';
+import { exportDisciplesExcel } from '../utils/excelManager';
 
 interface DisciplesPageProps {
   currentUser: UserAccount | null;
@@ -372,14 +374,41 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="px-3 sm:px-4 h-9 sm:h-10 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Thêm MĐ</span>
-          </button>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (!currentUser) return;
+                const statusOpt =
+                  progressFilter === 'ACTIVE' || progressFilter === 'STOPPED'
+                    ? progressFilter
+                    : 'ALL';
+                const res = exportDisciplesExcel(filteredDisciples, {
+                  viewer: currentUser,
+                  areaCode: areaFilter,
+                  status: statusOpt,
+                });
+                onShowNotification(
+                  `Đã xuất ${res.fileName} (${res.count} MĐ theo phạm vi phân quyền).`
+                );
+              }}
+              title="Xuất Excel Sổ tay MĐ theo phân quyền hiện tại"
+              className="px-2.5 sm:px-3.5 h-9 sm:h-10 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
+            >
+              <FileDown className="w-4 h-4 shrink-0" />
+              <span className="hidden xs:inline sm:inline">Xuất Excel</span>
+              <span className="xs:hidden">Excel</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="px-3 sm:px-4 h-9 sm:h-10 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Thêm MĐ</span>
+            </button>
+          </div>
         </div>
 
         {/* 4 Compact KPI Metrics in 1 Horizontal Row */}

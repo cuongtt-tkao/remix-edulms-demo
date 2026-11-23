@@ -304,17 +304,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const reportSummary = useMemo(() => {
     const weights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
     let matchedReports: DailyReportRecord[] = [];
-    let goals: DailyReportMetrics = { ...DEFAULT_DAILY_GOALS };
+    let goals: DailyReportMetrics = { ...EMPTY_DAILY_METRICS };
 
     if (reportPeriodMode === 'DAY') {
       matchedReports = myDailyReports.filter((r) => r.date === todayStr);
       const todayReport = matchedReports[0];
-      if (todayReport) {
-        goals = { ...EMPTY_DAILY_METRICS, ...todayReport.goals };
-      } else {
-        const latest = [...myDailyReports].sort((a, b) => b.date.localeCompare(a.date))[0];
-        goals = latest ? { ...DEFAULT_DAILY_GOALS, ...latest.goals } : { ...DEFAULT_DAILY_GOALS };
-      }
+      goals = todayReport
+        ? { ...EMPTY_DAILY_METRICS, ...todayReport.goals }
+        : { ...EMPTY_DAILY_METRICS };
     } else if (reportPeriodMode === 'MONTH') {
       matchedReports = myDailyReports.filter(
         (r) => r.month === currentMonthStr || r.date.startsWith(currentMonthStr)
@@ -327,15 +324,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       );
       goals = monthGoal
         ? { ...EMPTY_DAILY_METRICS, ...monthGoal.goals }
-        : {
-            kn: DEFAULT_DAILY_GOALS.kn * 25,
-            tham: DEFAULT_DAILY_GOALS.tham * 20,
-            gm: DEFAULT_DAILY_GOALS.gm * 15,
-            dt: DEFAULT_DAILY_GOALS.dt * 20,
-            hh: DEFAULT_DAILY_GOALS.hh * 20,
-            kt: DEFAULT_DAILY_GOALS.kt * 25,
-            wsNew: DEFAULT_DAILY_GOALS.wsNew * 4,
-          };
+        : { ...EMPTY_DAILY_METRICS };
     } else {
       matchedReports = myDailyReports.filter(
         (r) => r.year === currentYearStr || r.date.startsWith(currentYearStr)
@@ -348,15 +337,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       );
       goals = yearGoal
         ? { ...EMPTY_DAILY_METRICS, ...yearGoal.goals }
-        : {
-            kn: DEFAULT_DAILY_GOALS.kn * 300,
-            tham: DEFAULT_DAILY_GOALS.tham * 240,
-            gm: DEFAULT_DAILY_GOALS.gm * 180,
-            dt: DEFAULT_DAILY_GOALS.dt * 240,
-            hh: DEFAULT_DAILY_GOALS.hh * 240,
-            kt: DEFAULT_DAILY_GOALS.kt * 300,
-            wsNew: DEFAULT_DAILY_GOALS.wsNew * 48,
-          };
+        : { ...EMPTY_DAILY_METRICS };
     }
 
     const results = sumDailyReportMetrics(matchedReports);
@@ -1531,7 +1512,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 <div
                   className={`grid gap-2 ${
-                    isAdminRole(currentUser.role)
+                    isAdminRole(currentUser.role) || currentUser.role === 'MANAGER'
                       ? 'grid-cols-2 sm:grid-cols-4'
                       : currentUser.role === 'SION_LEADER'
                       ? 'grid-cols-2 sm:grid-cols-3'
@@ -1553,7 +1534,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     />
                   </div>
 
-                  {isAdminRole(currentUser.role) && (
+                  {(isAdminRole(currentUser.role) || currentUser.role === 'MANAGER') && (
                     <div className="min-w-0">
                       <CustomSelect
                         size="sm"
@@ -1564,14 +1545,24 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           setExportAreaFilter('ALL');
                         }}
                         options={[
-                          { value: 'ALL', label: 'Tất cả Sion' },
-                          ...companies.map((c) => ({ value: c.code, label: c.name })),
+                          { value: 'ALL', label: isAdminRole(currentUser.role) ? 'Tất cả Sion' : 'Tất cả Sion (cụm)' },
+                          ...companies
+                            .filter((c) => {
+                              if (isAdminRole(currentUser.role)) return true;
+                              const comps = currentUser.managedCompanyCodes?.length
+                                ? currentUser.managedCompanyCodes
+                                : [currentUser.companyCode];
+                              return comps.includes(c.code);
+                            })
+                            .map((c) => ({ value: c.code, label: c.name })),
                         ]}
                       />
                     </div>
                   )}
 
-                  {(isAdminRole(currentUser.role) || currentUser.role === 'SION_LEADER') && (
+                  {(isAdminRole(currentUser.role) ||
+                    currentUser.role === 'MANAGER' ||
+                    currentUser.role === 'SION_LEADER') && (
                     <div className="min-w-0">
                       <CustomSelect
                         size="sm"
@@ -1588,6 +1579,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                               const comps = currentUser.managedCompanyCodes?.length
                                 ? currentUser.managedCompanyCodes
                                 : [currentUser.companyCode];
+                              const areaList = currentUser.managedAreaCodes || [];
+                              if (currentUser.role === 'MANAGER') {
+                                const inScope = comps.includes(a.companyCode) || areaList.includes(a.code);
+                                return inScope && (exportCompanyFilter === 'ALL' || a.companyCode === exportCompanyFilter);
+                              }
                               return comps.includes(a.companyCode);
                             })
                             .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
@@ -1609,9 +1605,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         periodDate: todayStr,
                         periodMonth: currentMonthStr,
                         periodYear: currentYearStr,
-                        filterCompanyCode: isAdminRole(currentUser.role) ? exportCompanyFilter : undefined,
+                        filterCompanyCode:
+                          isAdminRole(currentUser.role) || currentUser.role === 'MANAGER'
+                            ? exportCompanyFilter
+                            : undefined,
                         filterAreaCode:
-                          isAdminRole(currentUser.role) || currentUser.role === 'SION_LEADER'
+                          isAdminRole(currentUser.role) ||
+                          currentUser.role === 'MANAGER' ||
+                          currentUser.role === 'SION_LEADER'
                             ? exportAreaFilter
                             : undefined,
                       });

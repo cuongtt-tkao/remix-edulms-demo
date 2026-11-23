@@ -10,7 +10,13 @@ import {
   ROLE_DISPLAY_META,
 } from '../types/edulms';
 import { computeDailyMetricsScore, sumDailyReportMetrics } from './scoringEngine';
-import { canViewMemberDetail, isAdminRole, isMemberInManagerCluster, normalizeOrgCode } from './rbac';
+import {
+  canManageOrgRecord,
+  canViewMemberDetail,
+  isAdminRole,
+  isMemberInManagerCluster,
+  normalizeOrgCode,
+} from './rbac';
 
 export type DailyReportExportPeriod = 'DAY' | 'MONTH' | 'YEAR' | 'ALL';
 
@@ -46,14 +52,25 @@ function matchesPeriod(rep: DailyReportRecord, opts: DailyReportExportOptions): 
   return true;
 }
 
+function canExportMemberReport(viewer: UserAccount, target: Member): boolean {
+  if (isAdminRole(viewer.role)) return true;
+  const ownMemberId = viewer.memberId || `m-${viewer.id}`;
+  if (target.id === ownMemberId || target.id === viewer.id) return true;
+  if (viewer.role === 'MANAGER') {
+    return isMemberInManagerCluster(viewer, target) || canManageOrgRecord(viewer, target);
+  }
+  return canViewMemberDetail(viewer, target);
+}
+
 /**
- * Xuất Excel Báo cáo hằng ngày tuân thủ chặt chẽ phân quyền 7 cấp:
- * - HT (SUPER_ADMIN / ADMIN): Toàn hệ thống (tùy chọn lọc Sion/KV)
- * - QL Cụm (MANAGER): Tổng hợp các Sion & Khu vực trong cụm + Chi tiết cá nhân bản thân
- * - TS, NQ (SION_LEADER): Thành viên & khu vực thuộc Sion phụ trách
- * - Gru (AREA_LEADER): Các Uni & thành viên thuộc Khu vực quản lý
- * - Uni (UNI_LEADER): Thành viên thuộc đội Uni của mình
- * - TĐ (MEMBER): Chỉ báo cáo cá nhân của chính mình
+ * Xuất Excel Báo cáo hằng ngày với đầy đủ 7 chỉ số chi tiết (KN, Thăm, GM, ĐT, HH, KT, WS New),
+ * tuân thủ chặt chẽ phân quyền 7 cấp:
+ * - Cấp 6-7 (ADMIN / SUPER_ADMIN): Toàn hệ thống (tùy chọn lọc Sion/KV)
+ * - Cấp 5 (MANAGER / QL Cụm): Toàn bộ thành viên, Sion & Khu vực thuộc cụm phụ trách + 7 chỉ số chi tiết
+ * - Cấp 4 (SION_LEADER / TS, NQ): Thành viên & khu vực thuộc Sion phụ trách
+ * - Cấp 3 (AREA_LEADER / Gru): Các Uni & thành viên thuộc Khu vực quản lý
+ * - Cấp 2 (UNI_LEADER / Uni): Thành viên thuộc đội Uni của mình
+ * - Cấp 1 (MEMBER / TĐ): Chỉ báo cáo cá nhân & 7 chỉ số chi tiết của chính mình
  */
 export function exportDailyReportsByRbacExcel(
   opts: DailyReportExportOptions
@@ -87,107 +104,9 @@ export function exportDailyReportsByRbacExcel(
     return true;
   };
 
-  // CASE 1: QL Cụm (MANAGER) -> Tổng hợp Sion & Khu vực thuộc cụm + báo cáo cá nhân bản thân
-  if (viewer.role === 'MANAGER') {
-    const clusterMembers = members.filter(
-      (m) =>
-        isMemberInManagerCluster(viewer, m) && isMatchedOrgFilter(m.companyCode, m.areaCode)
-    );
-    const clusterMemberIds = new Set(clusterMembers.map((m) => m.id));
-    const clusterReports = periodReports.filter((r) => {
-      const mId = r.memberId || `m-${r.uid}`;
-      return clusterMemberIds.has(mId);
-    });
-
-    // Sheet 1: Tổng hợp theo Sion & Khu vực
-    const areaGroupMap = new Map<
-      string,
-      {
-        companyCode: string;
-        areaCode: string;
-        memberSet: Set<string>;
-        reports: DailyReportRecord[];
-      }
-    >();
-    clusterReports.forEach((r) => {
-      const mId = r.memberId || `m-${r.uid}`;
-      const mem = memberById.get(mId);
-      const comp = mem?.companyCode || '';
-      const area = mem?.areaCode || '';
-      const groupKey = `${comp}__${area}`;
-      const bucket = areaGroupMap.get(groupKey) || {
-        companyCode: comp,
-        areaCode: area,
-        memberSet: new Set<string>(),
-        reports: [],
-      };
-      bucket.memberSet.add(mId);
-      bucket.reports.push(r);
-      areaGroupMap.set(groupKey, bucket);
-    });
-
-    const summaryRows = Array.from(areaGroupMap.values())
-      .sort((a, b) => `${a.companyCode}-${a.areaCode}`.localeCompare(`${b.companyCode}-${b.areaCode}`))
-      .map((g, idx) => {
-        const sums = sumDailyReportMetrics(g.reports);
-        const totalScore = computeDailyMetricsScore(sums, weights);
-        return {
-          STT: idx + 1,
-          Sion: g.companyCode,
-          'Khu vực': g.areaCode,
-          'Số thành viên báo cáo': g.memberSet.size,
-          'Tổng lượt ngày nhập': g.reports.length,
-          ...Object.fromEntries(DAILY_METRIC_DEFINITIONS.map((m) => [m.label, sums[m.key]])),
-          'Tổng điểm quy đổi': totalScore,
-        };
-      });
-
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(
-        summaryRows.length
-          ? summaryRows
-          : [{ 'Thông báo': 'Chưa có dữ liệu báo cáo trong cụm ở kỳ đã chọn' }]
-      ),
-      'Tổng hợp Cụm'
-    );
-
-    // Sheet 2: Chi tiết cá nhân của chính Manager
-    const ownReports = periodReports
-      .filter((r) => r.uid === viewer.id || r.memberId === ownMemberId)
-      .sort((a, b) => b.date.localeCompare(a.date));
-
-    const ownRows = ownReports.map((r) => ({
-      Ngày: r.date,
-      ...Object.fromEntries(
-        DAILY_METRIC_DEFINITIONS.map((m) => [`KQ ${m.label}`, r.results?.[m.key] || 0])
-      ),
-      ...Object.fromEntries(
-        DAILY_METRIC_DEFINITIONS.map((m) => [`MT ${m.label}`, r.goals?.[m.key] || 0])
-      ),
-      'Điểm ngày': computeDailyMetricsScore(r.results, weights),
-    }));
-
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(
-        ownRows.length ? ownRows : [{ 'Thông báo': 'Chưa có báo cáo cá nhân trong kỳ đã chọn' }]
-      ),
-      'Báo cáo cá nhân'
-    );
-
-    const fileName = `BaoCao_HangNgay_QLCum_${periodSuffix}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-    return {
-      reportsCount: clusterReports.length,
-      membersCount: clusterMembers.length,
-      fileName,
-    };
-  }
-
-  // CASE 2: HT / Ts,nq / Gru / Uni / TĐ -> Lọc chính xác theo canViewMemberDetail
+  // Lọc chính xác thành viên theo phân quyền 7 cấp (bao gồm đầy đủ 7 chỉ số chi tiết)
   const allowedMembers = members.filter(
-    (m) => canViewMemberDetail(viewer, m) && isMatchedOrgFilter(m.companyCode, m.areaCode)
+    (m) => canExportMemberReport(viewer, m) && isMatchedOrgFilter(m.companyCode, m.areaCode)
   );
   const allowedMemberIds = new Set(allowedMembers.map((m) => m.id));
 
@@ -198,7 +117,8 @@ export function exportDailyReportsByRbacExcel(
       return isMatchedOrgFilter(viewer.companyCode, viewer.areaCode);
     }
     if (isAdminRole(viewer.role) && allowedMemberIds.size === 0) {
-      return true;
+      const mem = memberById.get(mId);
+      return isMatchedOrgFilter(mem?.companyCode, mem?.areaCode);
     }
     return allowedMemberIds.has(mId);
   });
@@ -212,7 +132,7 @@ export function exportDailyReportsByRbacExcel(
     reportsByMem.set(mId, list);
   });
 
-  // Sheet 1: Tổng hợp theo Thành viên
+  // Sheet 1: Tổng hợp theo Thành viên (đầy đủ 7 chỉ số chi tiết)
   const memberSummarySource =
     allowedMembers.length > 0
       ? allowedMembers
