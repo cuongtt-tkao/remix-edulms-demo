@@ -130,6 +130,54 @@ export function canViewMemberDetail(viewer: UserAccount | null, target: Member):
   return false;
 }
 
+/**
+ * Kiểm tra quyền xem & xuất Tổng quan Báo cáo hằng ngày (7 chỉ số) theo phân quyền 7 cấp:
+ * - Cấp 6-7 (ADMIN / SUPER_ADMIN): Toàn hệ thống
+ * - Cấp 5 (MANAGER): Các Sion & Khu vực trong cụm phụ trách + bản thân
+ * - Cấp 4 (SION_LEADER): Thành viên trong Sion phụ trách + bản thân
+ * - Cấp 3 (AREA_LEADER): Thành viên trong Khu vực phụ trách + bản thân
+ * - Cấp 2 (UNI_LEADER): Thành viên trong Đội/Uni phụ trách + bản thân
+ * - Cấp 1 (MEMBER): Chỉ báo cáo của chính mình
+ */
+export function canAccessMemberReportOverview(
+  viewer: UserAccount | null,
+  target: Member
+): boolean {
+  if (!viewer) return false;
+  if (isAdminRole(viewer.role)) return true;
+  if (isSelfMember(viewer, target)) return true;
+  if (viewer.role === 'MANAGER') {
+    return isMemberInManagerCluster(viewer, target) || canManageOrgRecord(viewer, target);
+  }
+  return canViewMemberDetail(viewer, target) || canManageOrgRecord(viewer, target);
+}
+
+export function getRbacScopeDescription(viewer: UserAccount | null): string {
+  if (!viewer) return 'Chưa đăng nhập';
+  if (isAdminRole(viewer.role)) return 'Toàn hệ thống';
+  if (viewer.role === 'MANAGER') {
+    const comps = Array.from(resolveViewerCompanyScope(viewer));
+    const areas = (viewer.managedAreaCodes || []).filter(Boolean);
+    const parts: string[] = [];
+    if (comps.length) parts.push(`Sion ${comps.join(', ')}`);
+    if (areas.length) parts.push(`KV ${areas.join(', ')}`);
+    return parts.join(' · ') || 'Cụm phụ trách';
+  }
+  if (viewer.role === 'SION_LEADER') {
+    const comps = Array.from(resolveViewerCompanyScope(viewer));
+    return comps.length ? `Sion ${comps.join(', ')}` : `Sion ${viewer.companyCode}`;
+  }
+  if (viewer.role === 'AREA_LEADER') {
+    const areas = Array.from(resolveViewerAreaScope(viewer));
+    return areas.length ? `Khu vực ${areas.join(', ')}` : `Khu vực ${viewer.areaCode}`;
+  }
+  if (viewer.role === 'UNI_LEADER') {
+    const units = Array.from(resolveViewerUnitScope(viewer));
+    return units.length ? `Đội / Uni ${units.join(', ')}` : `KV ${viewer.areaCode}`;
+  }
+  return `Cá nhân · ${viewer.companyCode || '—'} / KV ${viewer.areaCode || '—'}`;
+}
+
 export interface RbacFilteredLeaderboard {
   visibleMembers: Member[];
   visibleCompanies: CompanyRankItem[];

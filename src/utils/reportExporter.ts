@@ -11,10 +11,8 @@ import {
 } from '../types/edulms';
 import { computeDailyMetricsScore, sumDailyReportMetrics } from './scoringEngine';
 import {
-  canManageOrgRecord,
-  canViewMemberDetail,
+  canAccessMemberReportOverview,
   isAdminRole,
-  isMemberInManagerCluster,
   normalizeOrgCode,
 } from './rbac';
 
@@ -50,16 +48,6 @@ function matchesPeriod(rep: DailyReportRecord, opts: DailyReportExportOptions): 
     return rep.year === opts.periodYear || rep.date.startsWith(opts.periodYear);
   }
   return true;
-}
-
-function canExportMemberReport(viewer: UserAccount, target: Member): boolean {
-  if (isAdminRole(viewer.role)) return true;
-  const ownMemberId = viewer.memberId || `m-${viewer.id}`;
-  if (target.id === ownMemberId || target.id === viewer.id) return true;
-  if (viewer.role === 'MANAGER') {
-    return isMemberInManagerCluster(viewer, target) || canManageOrgRecord(viewer, target);
-  }
-  return canViewMemberDetail(viewer, target);
 }
 
 /**
@@ -106,7 +94,7 @@ export function exportDailyReportsByRbacExcel(
 
   // Lọc chính xác thành viên theo phân quyền 7 cấp (bao gồm đầy đủ 7 chỉ số chi tiết)
   const allowedMembers = members.filter(
-    (m) => canExportMemberReport(viewer, m) && isMatchedOrgFilter(m.companyCode, m.areaCode)
+    (m) => canAccessMemberReportOverview(viewer, m) && isMatchedOrgFilter(m.companyCode, m.areaCode)
   );
   const allowedMemberIds = new Set(allowedMembers.map((m) => m.id));
 

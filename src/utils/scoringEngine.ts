@@ -305,8 +305,8 @@ export function sumDailyReportMetrics(
  * Tính điểm lễ hội trực tiếp từ kết quả báo cáo hằng ngày theo bảng trọng số (của Event hoặc mặc định).
  */
 export function computeDailyMetricsScore(
-  results: import('../types/edulms').DailyReportMetrics,
-  weights: import('../types/edulms').DailyReportMetrics = {
+  results?: Partial<import('../types/edulms').DailyReportMetrics> | null,
+  weights: Partial<import('../types/edulms').DailyReportMetrics> = {
     kn: 5,
     tham: 50,
     gm: 200,
@@ -316,14 +316,15 @@ export function computeDailyMetricsScore(
     wsNew: 300,
   }
 ): number {
+  if (!results) return 0;
   return (
-    (Number(results.kn) || 0) * (Number(weights.kn) || 0) +
-    (Number(results.tham) || 0) * (Number(weights.tham) || 0) +
-    (Number(results.gm) || 0) * (Number(weights.gm) || 0) +
-    (Number(results.dt) || 0) * (Number(weights.dt) || 0) +
-    (Number(results.hh) || 0) * (Number(weights.hh) || 0) +
-    (Number(results.kt) || 0) * (Number(weights.kt) || 0) +
-    (Number(results.wsNew) || 0) * (Number(weights.wsNew) || 0)
+    (Number(results.kn) || 0) * (Number(weights?.kn) || 0) +
+    (Number(results.tham) || 0) * (Number(weights?.tham) || 0) +
+    (Number(results.gm) || 0) * (Number(weights?.gm) || 0) +
+    (Number(results.dt) || 0) * (Number(weights?.dt) || 0) +
+    (Number(results.hh) || 0) * (Number(weights?.hh) || 0) +
+    (Number(results.kt) || 0) * (Number(weights?.kt) || 0) +
+    (Number(results.wsNew) || 0) * (Number(weights?.wsNew) || 0)
   );
 }
 

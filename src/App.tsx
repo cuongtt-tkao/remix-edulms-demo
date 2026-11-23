@@ -97,6 +97,7 @@ import { PodiumTop3 } from './components/PodiumTop3';
 import { RegionalStats } from './components/RegionalStats';
 import { DailyReportSection } from './components/DailyReportSection';
 import { DisciplesPage } from './components/DisciplesPage';
+import { DailyReportOverviewPage } from './components/DailyReportOverviewPage';
 import { EventHubPage } from './components/EventHubPage';
 import { EduLmsPage } from './components/EduLmsPage';
 import { EduCmsPage } from './components/EduCmsPage';
@@ -3537,6 +3538,24 @@ export default function App() {
                 onUpdateDiscipleFull={handleUpdateDiscipleFull}
                 onUpdateDiscipleProgressNote={handleUpdateDiscipleProgressNote}
                 onDeleteDisciple={handleDeleteDisciple}
+                onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
+                onShowNotification={showNotification}
+              />
+            </main>
+          )}
+
+          {/* TAB: TỔNG QUAN BÁO CÁO (Mục Turbo - Thẻ thứ 4) */}
+          {activeTab === 'REPORT_OVERVIEW' && (
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
+              <DailyReportOverviewPage
+                currentUser={effectiveCurrentUser}
+                members={allMembersRanked}
+                companies={effectiveCompanies}
+                areas={effectiveAreas}
+                dailyReports={dailyReports}
+                activeEvent={activeEvent}
+                defaultWeights={effectiveDefaultWeights}
+                onNavigateToEntry={() => setActiveTab('ENTRY')}
                 onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
                 onShowNotification={showNotification}
               />

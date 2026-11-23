@@ -23,6 +23,7 @@ import {
   Clock,
   CheckCircle2,
   ChevronDown,
+  BarChart3,
 } from 'lucide-react';
 import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel } from '../types/edulms';
 
@@ -30,6 +31,7 @@ export type AppTab =
   | 'ENTRY'
   | 'HONORS'
   | 'DISCIPLES'
+  | 'REPORT_OVERVIEW'
   | 'PROFILE'
   | 'WORK_SCHEDULE'
   | 'EVENT_HUB'
@@ -580,6 +582,14 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
           subLabel: 'Sổ tay & Tiến độ MĐ',
           icon: Users,
           accent: 'text-teal-400',
+          visible: true,
+        },
+        {
+          id: 'REPORT_OVERVIEW',
+          label: 'Tổng quan Báo cáo',
+          subLabel: 'Kết quả 7 cấp & 7 chỉ số',
+          icon: BarChart3,
+          accent: 'text-sky-400',
           visible: true,
         },
       ],
