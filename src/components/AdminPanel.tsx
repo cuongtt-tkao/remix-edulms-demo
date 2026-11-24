@@ -33,6 +33,7 @@ import {
   BarChart3,
   GraduationCap,
   CalendarDays,
+  BookOpenCheck,
 } from 'lucide-react';
 import {
   Company,
@@ -63,6 +64,9 @@ import {
   canManageOrgRecord,
   canModifyDiscipleRecord,
   canViewEduRecord,
+  getScopedAreaOptions,
+  getScopedCompanyOptions,
+  getScopedMemberOptions,
   isAdminRole,
   isMemberInManagerCluster,
   normalizeOrgCode,
@@ -85,9 +89,14 @@ import {
   exportWorkSchedulesByRbacExcel,
   WorkScheduleExportPeriod,
 } from '../utils/workScheduleExporter';
+import {
+  DEFAULT_VOCABULARY_CONFIG,
+  SystemVocabularyConfig,
+} from '../utils/wordEncoder';
 import { RoleManagementTab } from './RoleManagementTab';
 import { AdminBannerEventTab } from './AdminBannerEventTab';
 import { AdminScoringAppearanceTab } from './AdminScoringAppearanceTab';
+import { AdminVocabularyTab } from './AdminVocabularyTab';
 import { CustomSelect } from './CustomSelect';
 
 export type AdminSectionId =
@@ -103,6 +112,7 @@ export type AdminSectionId =
   | 'DEPARTMENTS'
   | 'MEMBERS'
   | 'ROLES'
+  | 'VOCABULARY'
   | 'EXCEL_SYNC';
 
 interface AdminPanelProps {
@@ -184,9 +194,11 @@ interface AdminPanelProps {
   onDeleteEvent?: (eventId: string) => Promise<void>;
   scoringConfig?: SystemScoringConfig | null;
   appearanceConfig?: SystemAppearanceConfig | null;
+  vocabularyConfig?: SystemVocabularyConfig | null;
   activeEvent?: FestivalEvent | null;
   onSaveScoringConfig?: (weights: DailyReportMetrics) => Promise<void>;
   onSaveAppearanceConfig?: (config: SystemAppearanceConfig) => Promise<void>;
+  onSaveVocabularyConfig?: (config: SystemVocabularyConfig) => Promise<void>;
   disciples?: DiscipleRecord[];
   dailyReports?: DailyReportRecord[];
   eduTopics?: EduWeeklyTopic[];
@@ -239,9 +251,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onDeleteEvent,
   scoringConfig = null,
   appearanceConfig = null,
+  vocabularyConfig = null,
   activeEvent = null,
   onSaveScoringConfig,
   onSaveAppearanceConfig,
+  onSaveVocabularyConfig,
   disciples = [],
   dailyReports = [],
   eduTopics = [],
@@ -509,13 +523,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const [importMode, setImportMode] = useState<'MERGE' | 'REPLACE'>('MERGE');
 
-  // Bộ lọc cho Trung tâm Xuất Excel Admin
+  // Bộ lọc cho Trung tâm Xuất Excel Admin (3 tầng Sion -> Khu vực -> Cá nhân)
+  const [memExportCompany, setMemExportCompany] = useState<string>('ALL');
+  const [memExportArea, setMemExportArea] = useState<string>('ALL');
+  const [memExportMemberId, setMemExportMemberId] = useState<string>('ALL');
+
   const [mdExportCompany, setMdExportCompany] = useState<string>('ALL');
+  const [mdExportArea, setMdExportArea] = useState<string>('ALL');
+  const [mdExportOwnerKey, setMdExportOwnerKey] = useState<string>('ALL');
   const [mdExportStatus, setMdExportStatus] = useState<'ALL' | 'ACTIVE' | 'STOPPED'>('ALL');
+
   const [adminReportPeriod, setAdminReportPeriod] = useState<DailyReportExportPeriod>('MONTH');
   const [adminReportCompany, setAdminReportCompany] = useState<string>('ALL');
   const [adminReportArea, setAdminReportArea] = useState<string>('ALL');
+  const [adminReportMemberId, setAdminReportMemberId] = useState<string>('ALL');
+
   const [eduExportCompany, setEduExportCompany] = useState<string>('ALL');
+  const [eduExportArea, setEduExportArea] = useState<string>('ALL');
+
   const [wsExportPeriod, setWsExportPeriod] = useState<WorkScheduleExportPeriod>('WEEK');
   const [wsExportDate, setWsExportDate] = useState<string>(() => {
     const now = new Date();
@@ -887,6 +912,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   icon: FileSpreadsheet,
                   badge: isAdmin ? undefined : '5 loại',
                 },
+                ...(isAdmin
+                  ? [
+                      {
+                        id: 'VOCABULARY' as AdminSectionId,
+                        label: 'Từ điển mã hóa',
+                        icon: BookOpenCheck,
+                        badge: `${vocabularyConfig?.rules?.length || DEFAULT_VOCABULARY_CONFIG.rules.length}`,
+                      },
+                    ]
+                  : []),
               ],
             },
           ];
@@ -2047,6 +2082,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               )}
 
               {/* BLOCK 2: HỒ SƠ CÁ NHÂN & NHÂN SỰ THI ĐUA (7 CHỈ SỐ) */}
+              {(() => {
+                const memCompanies = getScopedCompanyOptions(currentUser || null, companies, scopedMembers);
+                const memAreas = getScopedAreaOptions(
+                  currentUser || null,
+                  areas,
+                  memExportCompany,
+                  scopedMembers
+                );
+                const memPersonOptions = getScopedMemberOptions(
+                  scopedMembers,
+                  memExportCompany,
+                  memExportArea
+                );
+                return (
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -2074,7 +2123,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {isAdmin ? 'Thành viên' : 'Nhân sự trong phạm vi'}
                     </div>
                     <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                      {scopedMembers.length} người
+                      {memPersonOptions.length} người
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -2085,19 +2134,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
 
-                <div className="p-3 bg-white dark:bg-slate-900/70 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
-                  <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1">
-                    <Info className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>Nội dung file xuất:</span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={memExportCompany}
+                      onChange={(val) => {
+                        setMemExportCompany(val);
+                        setMemExportArea('ALL');
+                        setMemExportMemberId('ALL');
+                      }}
+                      options={[
+                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                        ...memCompanies.map((c) => ({ value: c.code, label: c.name })),
+                      ]}
+                    />
                   </div>
-                  <ul className="list-disc pl-4 space-y-0.5 text-slate-500 dark:text-slate-400">
-                    <li>
-                      <strong>Hồ Sơ &amp; Thi Đua TV:</strong> Mã TV, Họ Tên, Username, Vai trò, Phạm vi, Sion, KV, Đội/Uni, 7 chỉ số (KN..WS New) &amp; số MĐ.
-                    </li>
-                    <li>
-                      <strong>Tổng Hợp Sion &amp; KV:</strong> Điểm TB, tổng 7 chỉ số và MĐ theo từng Khu vực.
-                    </li>
-                  </ul>
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={memExportArea}
+                      onChange={(val) => {
+                        setMemExportArea(val);
+                        setMemExportMemberId('ALL');
+                      }}
+                      options={[
+                        { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (phạm vi)' },
+                        ...memAreas.map((a) => ({
+                          value: a.code,
+                          label: memExportCompany === 'ALL' ? `KV ${a.code} (${a.companyCode})` : `KV ${a.code}`,
+                        })),
+                      ]}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable
+                      value={memExportMemberId}
+                      onChange={setMemExportMemberId}
+                      options={[
+                        { value: 'ALL', label: 'Tất cả cá nhân' },
+                        ...memPersonOptions.map((m) => ({
+                          value: m.id,
+                          label: `${m.fullName} (${m.companyCode}·${m.areaCode})`,
+                        })),
+                      ]}
+                    />
+                  </div>
                 </div>
 
                 {isAdmin ? (
@@ -2118,7 +2204,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           members,
                           usersList || [],
                           disciples,
-                          { viewer: currentUser }
+                          {
+                            viewer: currentUser,
+                            companyCode: memExportCompany,
+                            areaCode: memExportArea,
+                            memberId: memExportMemberId,
+                          }
                         );
                         onShowNotification(
                           `Đã xuất ${res.fileName} (${res.membersCount} thành viên).`
@@ -2147,7 +2238,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         members,
                         usersList || [],
                         disciples,
-                        { viewer: currentUser }
+                        {
+                          viewer: currentUser,
+                          companyCode: memExportCompany,
+                          areaCode: memExportArea,
+                          memberId: memExportMemberId,
+                        }
                       );
                       onShowNotification(
                         `Đã xuất ${res.fileName} (${res.membersCount} thành viên trong phạm vi).`
@@ -2160,8 +2256,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </button>
                 )}
               </div>
+                );
+              })()}
 
               {/* BLOCK 3: XUẤT DANH SÁCH MĐ */}
+              {(() => {
+                const mdCompanies = getScopedCompanyOptions(currentUser || null, companies, scopedMembers);
+                const mdAreas = getScopedAreaOptions(
+                  currentUser || null,
+                  areas,
+                  mdExportCompany,
+                  scopedMembers
+                );
+                const mdOwnerMap = new Map<string, string>();
+                getScopedMemberOptions(scopedMembers, mdExportCompany, mdExportArea).forEach((m) => {
+                  mdOwnerMap.set(m.id, `${m.fullName} (${m.companyCode}·${m.areaCode})`);
+                });
+                scopedDisciples
+                  .filter(
+                    (d) =>
+                      mdExportCompany === 'ALL' ||
+                      normalizeOrgCode(d.companyCode) === normalizeOrgCode(mdExportCompany)
+                  )
+                  .filter(
+                    (d) =>
+                      mdExportArea === 'ALL' ||
+                      normalizeOrgCode(d.areaCode) === normalizeOrgCode(mdExportArea)
+                  )
+                  .forEach((d) => {
+                    const key = d.ownerMemberId || d.ownerUid;
+                    if (key && !mdOwnerMap.has(key)) {
+                      mdOwnerMap.set(key, `${d.ownerName || key} (${d.companyCode}·${d.areaCode})`);
+                    }
+                  });
+                const mdOwnerOptions = Array.from(mdOwnerMap.entries())
+                  .sort((a, b) => a[1].localeCompare(b[1], 'vi'))
+                  .map(([value, label]) => ({ value, label }));
+
+                const activeMdCount = scopedDisciples.filter(
+                  (d) => !d.isStopped && !(d.progress || []).includes('Dừng')
+                ).length;
+                const stoppedMdCount = scopedDisciples.length - activeMdCount;
+
+                return (
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -2183,48 +2320,71 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </span>
                 </div>
 
-                {(() => {
-                  const activeMdCount = scopedDisciples.filter(
-                    (d) => !d.isStopped && !(d.progress || []).includes('Dừng')
-                  ).length;
-                  const stoppedMdCount = scopedDisciples.length - activeMdCount;
-                  return (
-                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                        <div className="text-[10px] text-slate-400 font-semibold uppercase">Tổng MĐ</div>
-                        <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
-                          {scopedDisciples.length}
-                        </div>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                        <div className="text-[10px] text-emerald-600 font-semibold uppercase">Đang theo</div>
-                        <div className="text-base font-black text-emerald-700 dark:text-emerald-400 mt-0.5 tabular-nums">
-                          {activeMdCount}
-                        </div>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                        <div className="text-[10px] text-rose-500 font-semibold uppercase">Đã dừng</div>
-                        <div className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5 tabular-nums">
-                          {stoppedMdCount}
-                        </div>
-                      </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase">Tổng MĐ</div>
+                    <div className="text-base font-black text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {scopedDisciples.length}
                     </div>
-                  );
-                })()}
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-emerald-600 font-semibold uppercase">Đang theo</div>
+                    <div className="text-base font-black text-emerald-700 dark:text-emerald-400 mt-0.5 tabular-nums">
+                      {activeMdCount}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] text-rose-500 font-semibold uppercase">Đã dừng</div>
+                    <div className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5 tabular-nums">
+                      {stoppedMdCount}
+                    </div>
+                  </div>
+                </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                   <div className="min-w-0">
                     <CustomSelect
                       size="sm"
                       searchable={false}
                       value={mdExportCompany}
-                      onChange={setMdExportCompany}
+                      onChange={(val) => {
+                        setMdExportCompany(val);
+                        setMdExportArea('ALL');
+                        setMdExportOwnerKey('ALL');
+                      }}
                       options={[
-                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
-                        ...(isAdmin ? companies : scopedCompanies).map((c) => ({
-                          value: c.code,
-                          label: c.name,
+                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
+                        ...mdCompanies.map((c) => ({ value: c.code, label: c.name })),
+                      ]}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={mdExportArea}
+                      onChange={(val) => {
+                        setMdExportArea(val);
+                        setMdExportOwnerKey('ALL');
+                      }}
+                      options={[
+                        { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                        ...mdAreas.map((a) => ({
+                          value: a.code,
+                          label: mdExportCompany === 'ALL' ? `KV ${a.code} (${a.companyCode})` : `KV ${a.code}`,
                         })),
+                      ]}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable
+                      value={mdExportOwnerKey}
+                      onChange={setMdExportOwnerKey}
+                      options={[
+                        { value: 'ALL', label: 'Tất cả cá nhân' },
+                        ...mdOwnerOptions,
                       ]}
                     />
                   </div>
@@ -2249,6 +2409,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     const res = exportDisciplesExcel(disciples, {
                       viewer: currentUser,
                       companyCode: mdExportCompany,
+                      areaCode: mdExportArea,
+                      ownerKey: mdExportOwnerKey,
                       status: mdExportStatus,
                     });
                     onShowNotification(`Đã xuất ${res.fileName} (${res.count} MĐ).`);
@@ -2259,6 +2421,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <span>Xuất Excel Danh sách MĐ</span>
                 </button>
               </div>
+                );
+              })()}
 
               {/* BLOCK 4: XUẤT BÁO CÁO HẰNG NGÀY (7 CHỈ SỐ CHI TIẾT) */}
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
@@ -2308,12 +2472,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   ).padStart(2, '0')}`;
                   const monthStr = todayStr.slice(0, 7);
                   const yearStr = todayStr.slice(0, 4);
-                  const selectableCompanies = isAdmin ? companies : scopedCompanies;
-                  const selectableAreas = isAdmin ? areas : scopedAreas;
+                  const selectableCompanies = getScopedCompanyOptions(
+                    currentUser || null,
+                    companies,
+                    scopedMembers
+                  );
+                  const selectableAreas = getScopedAreaOptions(
+                    currentUser || null,
+                    areas,
+                    adminReportCompany,
+                    scopedMembers
+                  );
+                  const selectableMembers = getScopedMemberOptions(
+                    scopedMembers,
+                    adminReportCompany,
+                    adminReportArea
+                  );
 
                   return (
                     <>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                         <div className="min-w-0">
                           <CustomSelect
                             size="sm"
@@ -2336,9 +2514,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             onChange={(val) => {
                               setAdminReportCompany(val);
                               setAdminReportArea('ALL');
+                              setAdminReportMemberId('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
                               ...selectableCompanies.map((c) => ({ value: c.code, label: c.name })),
                             ]}
                           />
@@ -2348,12 +2527,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             size="sm"
                             searchable={false}
                             value={adminReportArea}
-                            onChange={setAdminReportArea}
+                            onChange={(val) => {
+                              setAdminReportArea(val);
+                              setAdminReportMemberId('ALL');
+                            }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (phạm vi)' },
-                              ...selectableAreas
-                                .filter((a) => adminReportCompany === 'ALL' || a.companyCode === adminReportCompany)
-                                .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
+                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                              ...selectableAreas.map((a) => ({
+                                value: a.code,
+                                label:
+                                  adminReportCompany === 'ALL'
+                                    ? `KV ${a.code} (${a.companyCode})`
+                                    : `KV ${a.code}`,
+                              })),
+                            ]}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable
+                            value={adminReportMemberId}
+                            onChange={setAdminReportMemberId}
+                            options={[
+                              { value: 'ALL', label: 'Tất cả cá nhân' },
+                              ...selectableMembers.map((m) => ({
+                                value: m.id,
+                                label: `${m.fullName} (${m.companyCode}·${m.areaCode})`,
+                              })),
                             ]}
                           />
                         </div>
@@ -2376,6 +2577,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             periodYear: yearStr,
                             filterCompanyCode: adminReportCompany,
                             filterAreaCode: adminReportArea,
+                            filterMemberId: adminReportMemberId,
                           });
                           onShowNotification(
                             `Đã xuất ${res.fileName} (${res.reportsCount} báo cáo · ${res.membersCount} nhân sự).`
@@ -2392,6 +2594,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {/* BLOCK 5: XUẤT DỮ LIỆU EDU (LMS & CMS) */}
+              {(() => {
+                const eduCompanies = getScopedCompanyOptions(currentUser || null, companies, scopedMembers);
+                const eduAreas = getScopedAreaOptions(
+                  currentUser || null,
+                  areas,
+                  eduExportCompany,
+                  scopedMembers
+                );
+                return (
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -2434,20 +2645,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
 
-                <div className="min-w-0">
-                  <CustomSelect
-                    size="sm"
-                    searchable={false}
-                    value={eduExportCompany}
-                    onChange={setEduExportCompany}
-                    options={[
-                      { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
-                      ...(isAdmin ? companies : scopedCompanies).map((c) => ({
-                        value: c.code,
-                        label: c.name,
-                      })),
-                    ]}
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={eduExportCompany}
+                      onChange={(val) => {
+                        setEduExportCompany(val);
+                        setEduExportArea('ALL');
+                      }}
+                      options={[
+                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
+                        ...eduCompanies.map((c) => ({ value: c.code, label: c.name })),
+                      ]}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={eduExportArea}
+                      onChange={setEduExportArea}
+                      options={[
+                        { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                        ...eduAreas.map((a) => ({
+                          value: a.code,
+                          label: eduExportCompany === 'ALL' ? `KV ${a.code} (${a.companyCode})` : `KV ${a.code}`,
+                        })),
+                      ]}
+                    />
+                  </div>
                 </div>
 
                 <button
@@ -2456,6 +2684,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     const res = exportEduDataExcel(eduTopics, eduAssignments, eduCmsProfiles, {
                       viewer: currentUser,
                       companyCode: eduExportCompany,
+                      areaCode: eduExportArea,
                     });
                     onShowNotification(
                       `Đã xuất ${res.fileName} (${res.topicsCount} chủ đề, ${res.assignmentsCount} phân công, ${res.cmsCount} CMS).`
@@ -2467,6 +2696,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <span>Xuất Excel Edu</span>
                 </button>
               </div>
+                );
+              })()}
 
               {/* BLOCK 6: XUẤT LỊCH LÀM VIỆC TUẦN (3 BUỔI & WS) */}
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
@@ -2517,30 +2748,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   const monthStr = wsExportDate.slice(0, 7);
 
                   const ownerOptionsMap = new Map<string, string>();
-                  scopedMembers
-                    .filter((m) => m.active)
-                    .filter(
-                      (m) => wsExportCompany === 'ALL' || m.companyCode === wsExportCompany
-                    )
-                    .filter((m) => wsExportArea === 'ALL' || m.areaCode === wsExportArea)
-                    .forEach((m) => {
-                      ownerOptionsMap.set(m.id, `${m.fullName} (${m.companyCode} · ${m.areaCode})`);
-                    });
-                  scopedWorkSchedules.forEach((w) => {
-                    const key = w.ownerMemberId || w.ownerUid;
-                    if (!ownerOptionsMap.has(key)) {
-                      ownerOptionsMap.set(
-                        key,
-                        `${w.ownerName} (${w.companyCode || '—'} · ${w.areaCode || '—'})`
-                      );
-                    }
+                  getScopedMemberOptions(scopedMembers, wsExportCompany, wsExportArea).forEach((m) => {
+                    ownerOptionsMap.set(m.id, `${m.fullName} (${m.companyCode} · ${m.areaCode})`);
                   });
+                  scopedWorkSchedules
+                    .filter(
+                      (w) =>
+                        wsExportCompany === 'ALL' ||
+                        normalizeOrgCode(w.companyCode) === normalizeOrgCode(wsExportCompany)
+                    )
+                    .filter(
+                      (w) =>
+                        wsExportArea === 'ALL' ||
+                        normalizeOrgCode(w.areaCode) === normalizeOrgCode(wsExportArea)
+                    )
+                    .forEach((w) => {
+                      const key = w.ownerMemberId || w.ownerUid;
+                      if (key && !ownerOptionsMap.has(key)) {
+                        ownerOptionsMap.set(
+                          key,
+                          `${w.ownerName} (${w.companyCode || '—'} · ${w.areaCode || '—'})`
+                        );
+                      }
+                    });
 
                   const ownerOptions = Array.from(ownerOptionsMap.entries())
                     .sort((a, b) => a[1].localeCompare(b[1], 'vi'))
                     .map(([value, label]) => ({ value, label }));
-                  const selectableWsCompanies = isAdmin ? companies : scopedCompanies;
-                  const selectableWsAreas = isAdmin ? areas : scopedAreas;
+                  const selectableWsCompanies = getScopedCompanyOptions(
+                    currentUser || null,
+                    companies,
+                    scopedMembers
+                  );
+                  const selectableWsAreas = getScopedAreaOptions(
+                    currentUser || null,
+                    areas,
+                    wsExportCompany,
+                    scopedMembers
+                  );
 
                   return (
                     <>
@@ -2563,7 +2808,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className={`grid grid-cols-1 ${wsExportPeriod === 'WEEK' ? 'sm:grid-cols-2' : ''} gap-2`}>
                         <div className="min-w-0">
                           <CustomSelect
                             size="sm"
@@ -2582,7 +2827,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             ]}
                           />
                         </div>
-                        {wsExportPeriod === 'WEEK' ? (
+                        {wsExportPeriod === 'WEEK' && (
                           <input
                             type="date"
                             value={wsExportDate}
@@ -2590,19 +2835,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             aria-label="Chọn ngày thuộc tuần cần xuất"
                             className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:border-teal-500"
                           />
-                        ) : (
-                          <div className="min-w-0">
-                            <CustomSelect
-                              size="sm"
-                              searchable
-                              value={wsExportOwnerKey}
-                              onChange={setWsExportOwnerKey}
-                              options={[
-                                { value: 'ALL', label: 'Tất cả nhân sự' },
-                                ...ownerOptions,
-                              ]}
-                            />
-                          </div>
                         )}
                       </div>
 
@@ -2618,7 +2850,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setWsExportOwnerKey('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
                               ...selectableWsCompanies.map((c) => ({ value: c.code, label: c.name })),
                             ]}
                           />
@@ -2633,35 +2865,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setWsExportOwnerKey('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (phạm vi)' },
-                              ...selectableWsAreas
-                                .filter(
-                                  (a) =>
-                                    wsExportCompany === 'ALL' ||
-                                    a.companyCode === wsExportCompany
-                                )
-                                .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
+                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                              ...selectableWsAreas.map((a) => ({
+                                value: a.code,
+                                label:
+                                  wsExportCompany === 'ALL'
+                                    ? `KV ${a.code} (${a.companyCode})`
+                                    : `KV ${a.code}`,
+                              })),
                             ]}
                           />
                         </div>
-                        {wsExportPeriod === 'WEEK' ? (
-                          <div className="min-w-0">
-                            <CustomSelect
-                              size="sm"
-                              searchable
-                              value={wsExportOwnerKey}
-                              onChange={setWsExportOwnerKey}
-                              options={[
-                                { value: 'ALL', label: 'Tất cả cá nhân' },
-                                ...ownerOptions,
-                              ]}
-                            />
-                          </div>
-                        ) : (
-                          <div className="hidden sm:flex items-center justify-center text-[11px] text-slate-400 dark:text-slate-500 font-semibold">
-                            Đúng phân quyền
-                          </div>
-                        )}
+                        <div className="min-w-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable
+                            value={wsExportOwnerKey}
+                            onChange={setWsExportOwnerKey}
+                            options={[
+                              { value: 'ALL', label: 'Tất cả cá nhân' },
+                              ...ownerOptions,
+                            ]}
+                          />
+                        </div>
                       </div>
 
                       <button
@@ -3064,6 +3290,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             activeEvent={activeEvent}
             onSaveScoringConfig={onSaveScoringConfig || (async () => {})}
             onSaveAppearanceConfig={onSaveAppearanceConfig || (async () => {})}
+            onShowNotification={onShowNotification}
+          />
+        )}
+
+        {/* TAB: TỪ ĐIỂN MÃ HÓA NGÔN TỪ (NHÓM 4) */}
+        {activeTab === 'VOCABULARY' && isAdmin && (
+          <AdminVocabularyTab
+            vocabularyConfig={vocabularyConfig || DEFAULT_VOCABULARY_CONFIG}
+            onSaveVocabularyConfig={onSaveVocabularyConfig || (async () => {})}
             onShowNotification={onShowNotification}
           />
         )}

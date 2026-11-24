@@ -141,6 +141,8 @@
         "visibility": { "type": "object" },
         "requireRegistrationApproval": { "type": "boolean" },
         "autoApprovePreAssigned": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "rules": { "type": "array" },
         "updatedAt": { "type": "string", "maxLength": 50 },
         "updatedBy": { "type": "string", "maxLength": 100 }
       }
@@ -233,6 +235,62 @@
         "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["ownerUid", "ownerName", "companyCode", "areaCode", "weekStart", "weekEnd", "sessions", "wsActiveDays", "ws", "createdAt", "updatedAt"]
+    },
+    "HuongKhi": {
+      "title": "HuongKhi",
+      "description": "Public 24-hour gratitude diary & legacy testimony entries",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 30 },
+        "title": { "type": "string", "maxLength": 300 },
+        "content": { "type": "string", "maxLength": 4000 },
+        "category": { "type": "string" },
+        "journalType": { "type": "string", "enum": ["GRATITUDE", "TURBO"] },
+        "date": { "type": "string", "maxLength": 30 },
+        "createdAtIso": { "type": "string", "maxLength": 50 },
+        "expiresAtIso": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["authorId", "authorName", "title", "content", "category", "date"]
+    },
+    "TurboJournal": {
+      "title": "TurboJournal",
+      "description": "Private personal Turbo diary saved on the user's own profile wall",
+      "type": "object",
+      "properties": {
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "authorMemberId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 30 },
+        "title": { "type": "string", "maxLength": 300 },
+        "content": { "type": "string", "maxLength": 5000 },
+        "date": { "type": "string", "maxLength": 30 },
+        "createdAtIso": { "type": "string", "maxLength": 50 },
+        "updatedAtIso": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["authorUid", "authorName", "title", "content", "date", "createdAtIso"]
+    },
+    "PersonalPlanner": {
+      "title": "PersonalPlanner",
+      "description": "Private weekly personal planner (CN -> T7: morning, afternoon, evening)",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "ownerName": { "type": "string", "maxLength": 100 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "areaCode": { "type": "string", "maxLength": 30 },
+        "weekStart": { "type": "string", "maxLength": 15 },
+        "weekEnd": { "type": "string", "maxLength": 15 },
+        "sessions": { "type": "object" },
+        "reflectionNote": { "type": "string", "maxLength": 800 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["ownerUid", "ownerName", "weekStart", "weekEnd", "sessions", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -246,7 +304,7 @@
     },
     "/system_config/{id}": {
       "schema": "SystemConfig",
-      "description": "System-wide configuration (roles, banner, scoring, appearance)"
+      "description": "System-wide configuration (roles, banner, scoring, appearance, security, vocabulary)"
     },
     "/disciples/{discipleId}": {
       "schema": "Disciple",
@@ -279,6 +337,18 @@
     "/work_schedules/{scheduleId}": {
       "schema": "WorkSchedule",
       "description": "Weekly activity schedules (CN -> T7) scoped by owner and RBAC supervisors"
+    },
+    "/huongKhi/{id}": {
+      "schema": "HuongKhi",
+      "description": "Public 24h Gratitude diary & encouragement posts"
+    },
+    "/turbo_journals/{journalId}": {
+      "schema": "TurboJournal",
+      "description": "Private personal Turbo journal entries"
+    },
+    "/personal_planners/{plannerId}": {
+      "schema": "PersonalPlanner",
+      "description": "Private weekly personal planner records"
     }
   }
 }

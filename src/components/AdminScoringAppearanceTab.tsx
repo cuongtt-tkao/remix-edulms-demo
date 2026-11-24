@@ -93,8 +93,8 @@ const HOME_WIDGET_ITEMS: Array<{
   },
   {
     key: 'showCheerTicker',
-    title: 'Thanh Tin nhắn cổ vũ (Hương khí)',
-    desc: 'Hiển thị lời khích lệ mới nhất cùng nút thả cảm xúc nhanh trên Trang chủ.',
+    title: 'Thanh Tin nhắn cổ vũ',
+    desc: 'Hiển thị Nhật ký cảm tạ mới nhất và nút cổ vũ trên Trang chủ.',
   },
   {
     key: 'showProgressShowcase',
@@ -814,7 +814,7 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
         </div>
       )}
 
-      {/* SUB-TAB 4: HONORS PAGE DRAG-AND-DROP WIDGETS (1 -> 8) */}
+      {/* SUB-TAB 4: HONORS PAGE DRAG-AND-DROP WIDGETS (1 -> 7) */}
       {subTab === 'HONORS_LAYOUT' && (
         <div className="rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-5 sm:p-6 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -824,11 +824,8 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
                 <span>Trang Bảng Xếp hạng &amp; Vinh danh</span>
               </div>
               <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-                Kéo thả sắp xếp thứ tự 1 → 8 &amp; Bật / Tắt Widget
+                Sắp xếp thứ tự 1 → 7 &amp; Bật / Tắt Widget
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Trang Vinh danh tự động gom hàng theo đúng thứ tự 1 → 8 bạn kéo. Kéo biểu tượng ⋮⋮ hoặc dùng nút ↑ ↓.
-              </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <button
@@ -836,14 +833,14 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
                 onClick={() => setHiddenWidgets([])}
                 className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer whitespace-nowrap"
               >
-                Hiện tất cả 8
+                Hiện tất cả 7
               </button>
               <button
                 type="button"
                 onClick={() => setWidgetOrder([...DEFAULT_HONORS_WIDGET_ORDER])}
                 className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold hover:bg-slate-100 cursor-pointer whitespace-nowrap"
               >
-                Thứ tự 1 → 8
+                Thứ tự 1 → 7
               </button>
             </div>
           </div>

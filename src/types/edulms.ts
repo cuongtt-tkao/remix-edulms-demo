@@ -336,6 +336,7 @@ export interface HuongKhiComment {
 export interface HuongKhiItem {
   id: string;
   authorId: string;
+  authorUid?: string;
   authorName: string;
   authorAvatar?: string;
   companyCode: string;
@@ -343,8 +344,11 @@ export interface HuongKhiItem {
   departmentCode?: string;
   title: string;
   content: string;
-  category: 'THAM_VIENG' | 'LAM_CHUNG' | 'BAP_TEM' | 'COM_YEU_THUONG' | 'CAU_NGUYEN' | 'GIUP_DO';
+  category: 'THAM_VIENG' | 'LAM_CHUNG' | 'BAP_TEM' | 'COM_YEU_THUONG' | 'CAU_NGUYEN' | 'GIUP_DO' | 'GRATITUDE';
+  journalType?: 'GRATITUDE' | 'TURBO';
   date: string;
+  createdAtIso?: string;
+  expiresAtIso?: string;
   likesCount: number;
   reactions?: ReactionCounts;
   userReaction?: ReactionType; // chỉ dùng để hiển thị (tính từ userReactions của người đang đăng nhập)
@@ -352,6 +356,21 @@ export interface HuongKhiItem {
   comments?: HuongKhiComment[];
   imageUrl?: string;
   isFeatured?: boolean;
+}
+
+export interface TurboJournalItem {
+  id: string;
+  authorUid: string;
+  authorMemberId?: string;
+  authorName: string;
+  authorAvatar?: string;
+  companyCode: string;
+  areaCode: string;
+  title: string;
+  content: string;
+  date: string; // YYYY-MM-DD hoặc dd/mm/yyyy hiển thị
+  createdAtIso: string;
+  updatedAtIso?: string;
 }
 
 export interface InAppNotification {
@@ -707,8 +726,7 @@ export type HonorsWidgetId =
   | 'LEADERBOARD'
   | 'PODIUM'
   | 'REGIONAL'
-  | 'QUICK_ACTIONS'
-  | 'NEWS';
+  | 'QUICK_ACTIONS';
 
 export interface HonorsWidgetMeta {
   id: HonorsWidgetId;
@@ -720,9 +738,9 @@ export interface HonorsWidgetMeta {
 export const HONORS_WIDGET_DEFINITIONS: HonorsWidgetMeta[] = [
   {
     id: 'BANNER',
-    label: 'Banner Chiến dịch Trang chủ',
+    label: 'Banner Chiến dịch',
     zone: 'FULL',
-    description: 'Ảnh bìa lớn đầu trang cùng tiêu đề chiến dịch thi đua.',
+    description: 'Ảnh bìa đầu trang và tiêu đề chiến dịch thi đua.',
   },
   {
     id: 'KPI',
@@ -740,13 +758,7 @@ export const HONORS_WIDGET_DEFINITIONS: HonorsWidgetMeta[] = [
     id: 'LEADERBOARD',
     label: 'Bảng Xếp hạng Cá nhân',
     zone: 'MAIN',
-    description: 'Bảng chi tiết điểm số, xếp hạng và thống kê 7 chỉ số.',
-  },
-  {
-    id: 'NEWS',
-    label: 'Bảng tin Hương Khí & Lời chứng',
-    zone: 'MAIN',
-    description: 'Các bài chia sẻ, tương tác cảm xúc và bình luận khích lệ.',
+    description: 'Bảng điểm số, xếp hạng và thống kê 7 chỉ số.',
   },
   {
     id: 'PODIUM',
@@ -764,7 +776,7 @@ export const HONORS_WIDGET_DEFINITIONS: HonorsWidgetMeta[] = [
     id: 'QUICK_ACTIONS',
     label: 'Khối Thao tác nhanh',
     zone: 'SIDE',
-    description: 'Lối tắt mở nhanh Báo cáo hằng ngày & Hồ sơ cá nhân.',
+    description: 'Lối tắt Báo cáo hằng ngày & Hồ sơ cá nhân.',
   },
 ];
 
@@ -776,7 +788,6 @@ export const DEFAULT_HONORS_WIDGET_ORDER: HonorsWidgetId[] = [
   'PODIUM',
   'REGIONAL',
   'QUICK_ACTIONS',
-  'NEWS',
 ];
 
 export interface HomeWidgetVisibilityConfig {
@@ -963,3 +974,19 @@ export function createEmptyWeekSessionsMap(): Record<WeekDayKey, DayThreeSession
     sat: createEmptyDaySessions(),
   };
 }
+
+// ---------- Kế hoạch LLV cá nhân theo tuần (CN -> T7: Sáng, Chiều, Tối) ----------
+export interface PersonalPlannerRecord {
+  id: string; // `${ownerUid}_${weekStart}`
+  ownerUid: string;
+  ownerName: string;
+  companyCode: string;
+  areaCode: string;
+  weekStart: string; // YYYY-MM-DD (Chủ Nhật)
+  weekEnd: string;   // YYYY-MM-DD (Thứ Bảy)
+  sessions: Record<WeekDayKey, DayThreeSessions>;
+  reflectionNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+

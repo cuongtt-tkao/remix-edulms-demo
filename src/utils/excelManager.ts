@@ -131,6 +131,7 @@ export function exportMembersAndTargetsExcel(
     viewer?: UserAccount | null;
     companyCode?: string;
     areaCode?: string;
+    memberId?: string;
   }
 ): { membersCount: number; fileName: string } {
   const wb = XLSX.utils.book_new();
@@ -143,6 +144,10 @@ export function exportMembersAndTargetsExcel(
     }
     if (opts?.areaCode && opts.areaCode !== 'ALL') {
       if (normalizeOrgCode(m.areaCode) !== normalizeOrgCode(opts.areaCode)) return false;
+    }
+    if (opts?.memberId && opts.memberId !== 'ALL') {
+      const targetId = opts.memberId;
+      if (m.id !== targetId && m.id !== `m-${targetId}`) return false;
     }
     return true;
   });
@@ -315,6 +320,7 @@ export function exportDisciplesExcel(
     viewer?: UserAccount | null;
     companyCode?: string;
     areaCode?: string;
+    ownerKey?: string;
     status?: 'ALL' | 'ACTIVE' | 'STOPPED';
   }
 ): { count: number; fileName: string } {
@@ -322,6 +328,7 @@ export function exportDisciplesExcel(
   const viewer = opts?.viewer;
   const compFilter = opts?.companyCode || 'ALL';
   const areaFilter = opts?.areaCode || 'ALL';
+  const ownerFilter = opts?.ownerKey || 'ALL';
   const statusFilter = opts?.status || 'ALL';
 
   const filtered = disciples
@@ -340,6 +347,13 @@ export function exportDisciplesExcel(
         normalizeOrgCode(d.areaCode) !== normalizeOrgCode(areaFilter)
       ) {
         return false;
+      }
+      if (ownerFilter !== 'ALL') {
+        const matchesOwner =
+          d.ownerUid === ownerFilter ||
+          d.ownerMemberId === ownerFilter ||
+          (d.ownerUid && `m-${d.ownerUid}` === ownerFilter);
+        if (!matchesOwner) return false;
       }
       const progressArr = Array.isArray(d.progress) ? d.progress : [];
       const stopped = Boolean(d.isStopped || progressArr.includes('Dừng'));
@@ -512,11 +526,12 @@ export function exportEduDataExcel(
   topics: EduWeeklyTopic[],
   assignments: EduTopicAssignment[],
   cmsProfiles: EduCmsProfile[],
-  opts?: { viewer?: UserAccount | null; companyCode?: string }
+  opts?: { viewer?: UserAccount | null; companyCode?: string; areaCode?: string }
 ): { topicsCount: number; assignmentsCount: number; cmsCount: number; fileName: string } {
   const wb = XLSX.utils.book_new();
   const viewer = opts?.viewer;
   const compFilter = opts?.companyCode || 'ALL';
+  const areaFilter = opts?.areaCode || 'ALL';
 
   const canAccessTopic = (t: EduWeeklyTopic): boolean => {
     if (!viewer || isAdminRole(viewer.role)) return true;
@@ -533,7 +548,11 @@ export function exportEduDataExcel(
         canAccessTopic(t) &&
         (compFilter === 'ALL' ||
           t.companyCode === 'ALL' ||
-          normalizeOrgCode(t.companyCode) === normalizeOrgCode(compFilter))
+          normalizeOrgCode(t.companyCode) === normalizeOrgCode(compFilter)) &&
+        (areaFilter === 'ALL' ||
+          !t.areaCode ||
+          t.areaCode === 'ALL' ||
+          normalizeOrgCode(t.areaCode) === normalizeOrgCode(areaFilter))
     )
     .sort((a, b) => b.year - a.year || b.weekNumber - a.weekNumber);
 
@@ -547,7 +566,8 @@ export function exportEduDataExcel(
             assignedByUid: a.assignedByUid,
             memberId: a.memberId,
           })) &&
-        (compFilter === 'ALL' || normalizeOrgCode(a.companyCode) === normalizeOrgCode(compFilter))
+        (compFilter === 'ALL' || normalizeOrgCode(a.companyCode) === normalizeOrgCode(compFilter)) &&
+        (areaFilter === 'ALL' || normalizeOrgCode(a.areaCode) === normalizeOrgCode(areaFilter))
     )
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
@@ -560,7 +580,8 @@ export function exportEduDataExcel(
             areaCode: c.areaCode,
             ownerUid: c.ownerUid,
           })) &&
-        (compFilter === 'ALL' || normalizeOrgCode(c.companyCode) === normalizeOrgCode(compFilter))
+        (compFilter === 'ALL' || normalizeOrgCode(c.companyCode) === normalizeOrgCode(compFilter)) &&
+        (areaFilter === 'ALL' || normalizeOrgCode(c.areaCode) === normalizeOrgCode(areaFilter))
     )
     .sort((a, b) => (a.companyCode || '').localeCompare(b.companyCode || ''));
 

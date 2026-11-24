@@ -29,6 +29,7 @@ export interface DailyReportExportOptions {
   periodYear?: string; // YYYY
   filterCompanyCode?: string;
   filterAreaCode?: string;
+  filterMemberId?: string;
 }
 
 export interface DailyReportExportSummary {
@@ -53,7 +54,7 @@ function matchesPeriod(rep: DailyReportRecord, opts: DailyReportExportOptions): 
 /**
  * Xuất Excel Báo cáo hằng ngày với đầy đủ 7 chỉ số chi tiết (KN, Thăm, GM, ĐT, HH, KT, WS New),
  * tuân thủ chặt chẽ phân quyền 7 cấp:
- * - Cấp 6-7 (ADMIN / SUPER_ADMIN): Toàn hệ thống (tùy chọn lọc Sion/KV)
+ * - Cấp 6-7 (ADMIN / SUPER_ADMIN): Toàn hệ thống (tùy chọn lọc Sion/KV/Cá nhân)
  * - Cấp 5 (MANAGER / QL Cụm): Toàn bộ thành viên, Sion & Khu vực thuộc cụm phụ trách + 7 chỉ số chi tiết
  * - Cấp 4 (SION_LEADER / TS, NQ): Thành viên & khu vực thuộc Sion phụ trách
  * - Cấp 3 (AREA_LEADER / Gru): Các Uni & thành viên thuộc Khu vực quản lý
@@ -92,19 +93,36 @@ export function exportDailyReportsByRbacExcel(
     return true;
   };
 
-  // Lọc chính xác thành viên theo phân quyền 7 cấp (bao gồm đầy đủ 7 chỉ số chi tiết)
+  const targetMemberKey =
+    opts.filterMemberId && opts.filterMemberId !== 'ALL' ? opts.filterMemberId : '';
+
+  const matchesMemberFilter = (mId?: string, uid?: string): boolean => {
+    if (!targetMemberKey) return true;
+    return (
+      mId === targetMemberKey ||
+      uid === targetMemberKey ||
+      (uid ? `m-${uid}` === targetMemberKey : false) ||
+      `m-${targetMemberKey}` === mId
+    );
+  };
+
+  // Lọc chính xác thành viên theo phân quyền 7 cấp + 3 tầng Sion -> Khu vực -> Cá nhân
   const allowedMembers = members.filter(
-    (m) => canAccessMemberReportOverview(viewer, m) && isMatchedOrgFilter(m.companyCode, m.areaCode)
+    (m) =>
+      canAccessMemberReportOverview(viewer, m) &&
+      isMatchedOrgFilter(m.companyCode, m.areaCode) &&
+      matchesMemberFilter(m.id)
   );
   const allowedMemberIds = new Set(allowedMembers.map((m) => m.id));
 
   // Đảm bảo bản thân luôn nằm trong phạm vi nếu chưa có bản ghi Member đồng bộ
   const scopedReports = periodReports.filter((r) => {
     const mId = r.memberId || `m-${r.uid}`;
+    if (!matchesMemberFilter(mId, r.uid)) return false;
     if (r.uid === viewer.id || mId === ownMemberId) {
       return isMatchedOrgFilter(viewer.companyCode, viewer.areaCode);
     }
-    if (isAdminRole(viewer.role) && allowedMemberIds.size === 0) {
+    if (isAdminRole(viewer.role) && allowedMemberIds.size === 0 && !targetMemberKey) {
       const mem = memberById.get(mId);
       return isMatchedOrgFilter(mem?.companyCode, mem?.areaCode);
     }
@@ -124,7 +142,8 @@ export function exportDailyReportsByRbacExcel(
   const memberSummarySource =
     allowedMembers.length > 0
       ? allowedMembers
-      : [
+      : !targetMemberKey || matchesMemberFilter(ownMemberId, viewer.id)
+      ? [
           {
             id: ownMemberId,
             code: viewer.username,
@@ -134,7 +153,8 @@ export function exportDailyReportsByRbacExcel(
             departmentCode: viewer.departmentCode,
             unitCode: viewer.unitCode,
           } as Member,
-        ];
+        ]
+      : [];
 
   const memberSummaryRows = memberSummarySource
     .map((m) => {

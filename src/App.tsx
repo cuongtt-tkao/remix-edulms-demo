@@ -57,12 +57,21 @@ import {
   EduTopicAssignment,
   EduCmsProfile,
   WorkScheduleRecord,
+  TurboJournalItem,
+  PersonalPlannerRecord,
   SystemSecurityConfig,
   DEFAULT_SECURITY_CONFIG,
   resolveUserApprovalStatus,
   canAccessAdminPanel,
   getRoleLevel,
 } from './types/edulms';
+import {
+  DEFAULT_VOCABULARY_CONFIG,
+  SystemVocabularyConfig,
+  GRATITUDE_TTL_MS,
+  encodeSensitiveText,
+  isGratitudePostActive,
+} from './utils/wordEncoder';
 import {
   rankMembers,
   computeCompanyRankings,
@@ -109,7 +118,7 @@ import { AuthModal, RegistrationData } from './components/AuthModal';
 import { DetailModal } from './components/DetailModal';
 import { RegionalDetailModal } from './components/RegionalDetailModal';
 import { RulesModal } from './components/RulesModal';
-import { NewsSection } from './components/NewsSection';
+import { GratitudeCheerPage } from './components/GratitudeCheerPage';
 import { Footer } from './components/Footer';
 import { Shield, Lock, ArrowRight, Calendar, Award, Users, Sliders } from 'lucide-react';
 import {
@@ -233,11 +242,15 @@ export default function App() {
     testFirestoreConnection();
   }, []);
 
-  // Banner, Điểm mặc định, Giao diện & Chế độ Phê duyệt đăng ký toàn hệ thống (công khai đọc)
+  // Banner, Điểm mặc định, Giao diện, Bảo mật & Từ điển mã hóa toàn hệ thống
   const [bannerConfig, setBannerConfig] = useState<SystemBannerConfig | null>(null);
   const [scoringConfig, setScoringConfig] = useState<SystemScoringConfig | null>(null);
   const [appearanceConfig, setAppearanceConfig] = useState<SystemAppearanceConfig | null>(null);
   const [securityConfig, setSecurityConfig] = useState<SystemSecurityConfig | null>(null);
+  const [vocabularyConfig, setVocabularyConfig] = useState<SystemVocabularyConfig>(
+    DEFAULT_VOCABULARY_CONFIG
+  );
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   const effectiveSecurityConfig = useMemo<SystemSecurityConfig>(
     () => ({
@@ -298,11 +311,35 @@ export default function App() {
       },
       (err) => console.warn('[Firestore] Lỗi đọc system_config/security:', err)
     );
+    const unsubVocabulary = onSnapshot(
+      doc(db, 'system_config', 'vocabulary'),
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data() as SystemVocabularyConfig;
+          setVocabularyConfig({
+            id: snap.id,
+            enabled: raw.enabled !== false,
+            rules:
+              Array.isArray(raw.rules) && raw.rules.length > 0
+                ? raw.rules
+                : DEFAULT_VOCABULARY_CONFIG.rules,
+            updatedAt: raw.updatedAt,
+            updatedBy: raw.updatedBy,
+          });
+        } else {
+          setVocabularyConfig(DEFAULT_VOCABULARY_CONFIG);
+        }
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc system_config/vocabulary:', err)
+    );
+    const expiryTimer = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => {
+      clearInterval(expiryTimer);
       unsubBanner();
       unsubScoring();
       unsubAppearance();
       unsubSecurity();
+      unsubVocabulary();
     };
   }, []);
 
@@ -351,6 +388,48 @@ export default function App() {
         setPeriodGoals(list);
       },
       (err) => console.warn('[Firestore] Lỗi đọc periodGoals:', err)
+    );
+    return unsubscribe;
+  }, [dataUnlocked, firebaseUser?.uid]);
+
+  // Nhật ký Turbo cá nhân (turbo_journals) - riêng tư theo authorUid
+  const [turboJournals, setTurboJournals] = useState<TurboJournalItem[]>([]);
+  useEffect(() => {
+    if (!dataUnlocked || !firebaseUser?.uid) {
+      setTurboJournals([]);
+      return;
+    }
+    const q = query(collection(db, 'turbo_journals'), where('authorUid', '==', firebaseUser.uid));
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const list: TurboJournalItem[] = snap.docs
+          .map((d) => ({ ...(d.data() as Omit<TurboJournalItem, 'id'>), id: d.id }))
+          .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''));
+        setTurboJournals(list);
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc turbo_journals:', err)
+    );
+    return unsubscribe;
+  }, [dataUnlocked, firebaseUser?.uid]);
+
+  // Kế hoạch LLV cá nhân theo tuần (personal_planners) - riêng tư theo ownerUid
+  const [personalPlanners, setPersonalPlanners] = useState<PersonalPlannerRecord[]>([]);
+  useEffect(() => {
+    if (!dataUnlocked || !firebaseUser?.uid) {
+      setPersonalPlanners([]);
+      return;
+    }
+    const q = query(collection(db, 'personal_planners'), where('ownerUid', '==', firebaseUser.uid));
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const list: PersonalPlannerRecord[] = snap.docs
+          .map((d) => ({ ...(d.data() as Omit<PersonalPlannerRecord, 'id'>), id: d.id }))
+          .sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
+        setPersonalPlanners(list);
+      },
+      (err) => console.warn('[Firestore] Lỗi đọc personal_planners:', err)
     );
     return unsubscribe;
   }, [dataUnlocked, firebaseUser?.uid]);
@@ -1689,16 +1768,20 @@ export default function App() {
 
   const huongKhiView = useMemo<HuongKhiItem[]>(
     () =>
-      huongKhiList.map((hk) => ({
-        ...hk,
-        userReaction: currentUser ? hk.userReactions?.[currentUser.id] : undefined,
-      })),
-    [huongKhiList, currentUser?.id]
+      huongKhiList
+        .filter((hk) => isGratitudePostActive(hk, nowMs))
+        .map((hk) => ({
+          ...hk,
+          userReaction: currentUser ? hk.userReactions?.[currentUser.id] : undefined,
+        })),
+    [huongKhiList, currentUser?.id, nowMs]
   );
 
   const myHuongKhiList = useMemo(() => {
     if (!currentUser) return [];
-    return huongKhiView.filter((h) => h.authorId === currentUser.memberId);
+    return huongKhiView.filter(
+      (h) => h.authorUid === currentUser.id || h.authorId === currentUser.memberId
+    );
   }, [huongKhiView, currentUser]);
 
   const kpiData = useMemo(() => {
@@ -2044,6 +2127,18 @@ export default function App() {
       })
     );
     await setDoc(doc(db, 'system_config', 'security'), clean);
+  };
+
+  const handleSaveVocabularyConfig = async (nextConfig: SystemVocabularyConfig) => {
+    const clean = JSON.parse(
+      JSON.stringify({
+        enabled: nextConfig.enabled !== false,
+        rules: nextConfig.rules,
+        updatedBy: effectiveCurrentUser?.fullName || 'Admin',
+        updatedAt: new Date().toISOString(),
+      })
+    );
+    await setDoc(doc(db, 'system_config', 'vocabulary'), clean);
   };
 
   const handleApproveUser = async (
@@ -2848,16 +2943,37 @@ export default function App() {
     return true;
   };
 
-  // ---------- Hương Khí Handlers ----------
+  // ---------- Nhật ký Cảm tạ (24h công khai) & Nhật ký Turbo (cá nhân) & Kế hoạch LLV ----------
   const handleAddHuongKhi = (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => {
     if (!currentUser) {
-      showNotification('Vui lòng đăng nhập để đăng bài hương khí.');
+      showNotification('Vui lòng đăng nhập để đăng Nhật ký cảm tạ.');
       return;
     }
+    const createdMs = Date.now();
+    const createdAtIso = new Date(createdMs).toISOString();
+    const expiresAtIso = new Date(createdMs + GRATITUDE_TTL_MS).toISOString();
+    const encodedTitle = encodeSensitiveText(
+      item.title,
+      vocabularyConfig.rules,
+      vocabularyConfig.enabled
+    ).slice(0, 300);
+    const encodedContent = encodeSensitiveText(
+      item.content,
+      vocabularyConfig.rules,
+      vocabularyConfig.enabled
+    ).slice(0, 4000);
+
     const newItem: HuongKhiItem = {
       ...item,
+      title: encodedTitle,
+      content: encodedContent,
       authorId: currentUser.memberId || item.authorId,
-      id: `hk-${Date.now()}`,
+      authorUid: currentUser.id,
+      journalType: 'GRATITUDE',
+      category: 'GRATITUDE',
+      createdAtIso,
+      expiresAtIso,
+      id: `hk-${createdMs}`,
       likesCount: 1,
       reactions: item.reactions || {
         heart: 1,
@@ -2870,6 +2986,105 @@ export default function App() {
       comments: item.comments || [],
     };
     setHuongKhiList((prev) => [newItem, ...prev]);
+  };
+
+  const handleDeleteHuongKhi = async (id: string) => {
+    setHuongKhiList((prev) => prev.filter((item) => item.id !== id));
+    showNotification('Đã xóa bài Nhật ký cảm tạ.');
+  };
+
+  const handleAddTurboJournal = async (payload: { title: string; content: string }) => {
+    if (!firebaseUser || !currentUser) return;
+    const nowIso = new Date().toISOString();
+    const journalId = `tj_${firebaseUser.uid}_${Date.now()}`;
+    const encodedTitle = encodeSensitiveText(
+      payload.title.trim(),
+      vocabularyConfig.rules,
+      vocabularyConfig.enabled
+    ).slice(0, 300);
+    const encodedContent = encodeSensitiveText(
+      payload.content.trim(),
+      vocabularyConfig.rules,
+      vocabularyConfig.enabled
+    ).slice(0, 5000);
+
+    const docBody = JSON.parse(
+      JSON.stringify({
+        authorUid: firebaseUser.uid,
+        authorMemberId: currentUser.memberId || `m-${firebaseUser.uid}`,
+        authorName: currentUser.fullName.slice(0, 100),
+        ...(currentUser.avatarUrl && currentUser.avatarUrl.length <= 200000
+          ? { authorAvatar: currentUser.avatarUrl }
+          : {}),
+        companyCode: (currentUser.companyCode || '').slice(0, 30),
+        areaCode: (currentUser.areaCode || '').slice(0, 30),
+        title: encodedTitle || 'Nhật ký turbo',
+        content: encodedContent,
+        date: getCurrentFormattedTime(),
+        createdAtIso: nowIso,
+        updatedAtIso: nowIso,
+      })
+    );
+    try {
+      await setDoc(doc(db, 'turbo_journals', journalId), docBody);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `turbo_journals/${journalId}`);
+      throw err;
+    }
+  };
+
+  const handleDeleteTurboJournal = async (journalId: string) => {
+    try {
+      await deleteDoc(doc(db, 'turbo_journals', journalId));
+      showNotification('Đã xóa trang Nhật ký turbo.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `turbo_journals/${journalId}`);
+      throw err;
+    }
+  };
+
+  const handleUpdateTurboJournal = async (
+    journalId: string,
+    payload: { title: string; content: string }
+  ) => {
+    if (!firebaseUser || !currentUser) return;
+    const encodedTitle = encodeSensitiveText(
+      payload.title.trim(),
+      vocabularyConfig.rules,
+      vocabularyConfig.enabled
+    ).slice(0, 300);
+    const encodedContent = encodeSensitiveText(
+      payload.content.trim(),
+      vocabularyConfig.rules,
+      vocabularyConfig.enabled
+    ).slice(0, 5000);
+    try {
+      await updateDoc(doc(db, 'turbo_journals', journalId), {
+        title: encodedTitle || 'Nhật ký turbo',
+        content: encodedContent,
+        updatedAtIso: new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `turbo_journals/${journalId}`);
+      throw err;
+    }
+  };
+
+  const handleSavePersonalPlanner = async (planner: PersonalPlannerRecord) => {
+    if (!firebaseUser) return;
+    const { id, ...rest } = planner;
+    const clean = JSON.parse(
+      JSON.stringify({
+        ...rest,
+        ownerUid: firebaseUser.uid,
+      })
+    );
+    try {
+      await setDoc(doc(db, 'personal_planners', id), clean);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `personal_planners/${id}`);
+      throw err;
+    }
   };
 
   const handleReactHuongKhi = (id: string, reaction: ReactionType) => {
@@ -3218,7 +3433,7 @@ export default function App() {
             const hiddenSet = new Set<HonorsWidgetId>(appearanceConfig?.hiddenWidgets || []);
             const visibleOrdered = orderedIds.filter((id) => !hiddenSet.has(id));
             const fullIds: HonorsWidgetId[] = ['BANNER', 'KPI', 'EVENTS_STRIP'];
-            const mainIds: HonorsWidgetId[] = ['LEADERBOARD', 'NEWS'];
+            const mainIds: HonorsWidgetId[] = ['LEADERBOARD'];
 
             type HonorsRowBatch =
               | { kind: 'FULL'; id: HonorsWidgetId; overlapBanner: boolean }
@@ -3349,17 +3564,6 @@ export default function App() {
                       currentMemberId={effectiveCurrentUser?.memberId}
                     />
                   );
-                case 'NEWS':
-                  return (
-                    <NewsSection
-                      key="NEWS"
-                      huongKhiList={huongKhiView}
-                      currentUser={effectiveCurrentUser}
-                      onReactHuongKhi={handleReactHuongKhi}
-                      onAddComment={handleAddComment}
-                      onOpenRules={() => setIsRulesModalOpen(true)}
-                    />
-                  );
                 case 'PODIUM':
                   return (
                     <PodiumTop3
@@ -3386,16 +3590,8 @@ export default function App() {
                       key="QUICK_ACTIONS"
                       className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-3xl p-5 text-white shadow-md border border-slate-800 space-y-3"
                     >
-                      <div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
-                          <span>⚡ Thao tác nhanh</span>
-                        </div>
-                        <h4 className="font-extrabold text-sm text-white mb-1">
-                          Nhập Báo cáo hằng ngày
-                        </h4>
-                        <p className="text-xs text-slate-300 leading-relaxed">
-                          Ghi nhận kết quả ngày để tự động tổng hợp báo cáo tháng, năm và tính điểm thi đua lễ hội.
-                        </p>
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
+                        <span>⚡ Thao tác nhanh</span>
                       </div>
 
                       <div className="grid grid-cols-1 gap-2 pt-1">
@@ -3642,6 +3838,9 @@ export default function App() {
                   memberData={currentMemberData}
                   members={allMembersRanked}
                   myHuongKhiList={myHuongKhiList}
+                  turboJournals={turboJournals}
+                  personalPlanners={personalPlanners}
+                  vocabularyConfig={vocabularyConfig}
                   dailyReports={dailyReports}
                   periodGoals={periodGoals}
                   activeEvent={activeEvent}
@@ -3653,9 +3852,15 @@ export default function App() {
                   onNavigateToEntry={() => setActiveTab('ENTRY')}
                   onNavigateToDisciples={() => setActiveTab('DISCIPLES')}
                   onNavigateToHonors={() => setActiveTab('HONORS')}
+                  onNavigateToJournalCheer={() => setActiveTab('JOURNAL_CHEER')}
                   onLogout={handleLogout}
                   onOpenRules={() => setIsRulesModalOpen(true)}
                   onAddHuongKhi={handleAddHuongKhi}
+                  onDeleteHuongKhi={handleDeleteHuongKhi}
+                  onAddTurboJournal={handleAddTurboJournal}
+                  onUpdateTurboJournal={handleUpdateTurboJournal}
+                  onDeleteTurboJournal={handleDeleteTurboJournal}
+                  onSavePersonalPlanner={handleSavePersonalPlanner}
                   onReactHuongKhi={handleReactHuongKhi}
                   onAddComment={handleAddComment}
                   onUpdateProfile={handleUpdateProfile}
@@ -3681,6 +3886,27 @@ export default function App() {
                   </button>
                 </div>
               )}
+            </main>
+          )}
+
+          {/* TAB: NHẬT KÝ & CỔ VŨ (Mục Công Việc) */}
+          {activeTab === 'JOURNAL_CHEER' && (
+            <main className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full py-2.5 sm:py-4 flex-1">
+              <GratitudeCheerPage
+                huongKhiList={huongKhiView}
+                currentUser={effectiveCurrentUser}
+                companies={effectiveCompanies}
+                areas={effectiveAreas}
+                vocabularyConfig={vocabularyConfig}
+                onAddHuongKhi={handleAddHuongKhi}
+                onDeleteHuongKhi={handleDeleteHuongKhi}
+                onAddTurboJournal={effectiveCurrentUser ? handleAddTurboJournal : undefined}
+                onReactHuongKhi={handleReactHuongKhi}
+                onAddComment={handleAddComment}
+                onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
+                onNavigateProfile={() => setActiveTab('PROFILE')}
+                onShowNotification={showNotification}
+              />
             </main>
           )}
 
@@ -3755,9 +3981,11 @@ export default function App() {
                   onDeleteEvent={handleDeleteEvent}
                   scoringConfig={scoringConfig}
                   appearanceConfig={appearanceConfig}
+                  vocabularyConfig={vocabularyConfig}
                   activeEvent={activeEvent}
                   onSaveScoringConfig={handleSaveScoringConfig}
                   onSaveAppearanceConfig={handleSaveAppearanceConfig}
+                  onSaveVocabularyConfig={handleSaveVocabularyConfig}
                   disciples={disciples}
                   dailyReports={dailyReports}
                   eduTopics={eduTopics}

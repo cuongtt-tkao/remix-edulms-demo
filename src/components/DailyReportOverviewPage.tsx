@@ -38,6 +38,9 @@ import {
   canAccessMemberReportOverview,
   getMemberUnitCode,
   getRbacScopeDescription,
+  getScopedAreaOptions,
+  getScopedCompanyOptions,
+  getScopedMemberOptions,
   isAdminRole,
   normalizeOrgCode,
 } from '../utils/rbac';
@@ -174,6 +177,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
 
   const [companyFilter, setCompanyFilter] = useState<string>('ALL');
   const [areaFilter, setAreaFilter] = useState<string>('ALL');
+  const [memberFilter, setMemberFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewTab, setViewTab] = useState<OverviewViewTab>('MEMBERS');
   const [submissionFilter, setSubmissionFilter] = useState<SubmissionFilter>('ALL');
@@ -215,66 +219,27 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
     return list;
   }, [currentUser, members, todayStr]);
 
-  // Danh sách Sion & KV hợp lệ theo phân quyền để hiển thị bộ lọc
+  // Danh sách Sion -> Khu vực -> Cá nhân liên hoàn 3 tầng theo phân quyền
   const selectableCompanies = useMemo(() => {
     if (!currentUser || isPersonalOnly) return [];
-    if (isAdmin) return companies;
-
-    const allowedCodes = new Set<string>();
-    rbacMembers.forEach((m) => {
-      const c = normalizeOrgCode(m.companyCode);
-      if (c) allowedCodes.add(c);
-    });
-    (currentUser.managedCompanyCodes || []).forEach((c) => {
-      const nc = normalizeOrgCode(c);
-      if (nc) allowedCodes.add(nc);
-    });
-    if (currentUser.companyCode) allowedCodes.add(normalizeOrgCode(currentUser.companyCode));
-
-    return companies.filter((c) => allowedCodes.has(normalizeOrgCode(c.code)));
-  }, [currentUser, isPersonalOnly, isAdmin, companies, rbacMembers]);
+    return getScopedCompanyOptions(currentUser, companies, rbacMembers);
+  }, [currentUser, isPersonalOnly, companies, rbacMembers]);
 
   const selectableAreas = useMemo(() => {
     if (!currentUser || isPersonalOnly) return [];
-    const source = isAdmin
-      ? areas
-      : areas.filter((a) => {
-          const aComp = normalizeOrgCode(a.companyCode);
-          const aCode = normalizeOrgCode(a.code);
-          if (currentUser.role === 'MANAGER' || currentUser.role === 'SION_LEADER') {
-            const comps = new Set(
-              (currentUser.managedCompanyCodes?.length
-                ? currentUser.managedCompanyCodes
-                : [currentUser.companyCode]
-              ).map(normalizeOrgCode)
-            );
-            const mgrAreas = new Set(
-              (currentUser.managedAreaCodes || []).map(normalizeOrgCode)
-            );
-            return comps.has(aComp) || (currentUser.role === 'MANAGER' && mgrAreas.has(aCode));
-          }
-          if (currentUser.role === 'AREA_LEADER') {
-            const areaSet = new Set(
-              (currentUser.managedAreaCodes?.length
-                ? currentUser.managedAreaCodes
-                : [currentUser.areaCode]
-              ).map(normalizeOrgCode)
-            );
-            return areaSet.has(aCode);
-          }
-          return aCode === normalizeOrgCode(currentUser.areaCode);
-        });
+    return getScopedAreaOptions(currentUser, areas, companyFilter, rbacMembers);
+  }, [currentUser, isPersonalOnly, areas, companyFilter, rbacMembers]);
 
-    return source.filter(
-      (a) =>
-        companyFilter === 'ALL' || normalizeOrgCode(a.companyCode) === normalizeOrgCode(companyFilter)
-    );
-  }, [currentUser, isPersonalOnly, isAdmin, areas, companyFilter]);
+  const selectableMembers = useMemo(() => {
+    if (!currentUser || isPersonalOnly) return [];
+    return getScopedMemberOptions(rbacMembers, companyFilter, areaFilter);
+  }, [currentUser, isPersonalOnly, rbacMembers, companyFilter, areaFilter]);
 
   const showCompanySelector = !isPersonalOnly && (isAdmin || currentUser?.role === 'MANAGER' || selectableCompanies.length > 1);
-  const showAreaSelector = !isPersonalOnly && (isAdmin || currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER' || selectableAreas.length > 1);
+  const showAreaSelector = !isPersonalOnly && (isAdmin || currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER' || currentUser?.role === 'AREA_LEADER' || selectableAreas.length > 1);
+  const showMemberSelector = !isPersonalOnly && selectableMembers.length > 0;
 
-  // Thành viên sau khi lọc bộ lọc Sion / Khu vực / Tìm kiếm
+  // Thành viên sau khi lọc bộ lọc Sion / Khu vực / Cá nhân / Tìm kiếm
   const filteredMembers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return rbacMembers.filter((m) => {
@@ -285,6 +250,9 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
         return false;
       }
       if (areaFilter !== 'ALL' && normalizeOrgCode(m.areaCode) !== normalizeOrgCode(areaFilter)) {
+        return false;
+      }
+      if (memberFilter !== 'ALL' && m.id !== memberFilter) {
         return false;
       }
       if (q) {
@@ -303,7 +271,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
       }
       return true;
     });
-  }, [rbacMembers, companyFilter, areaFilter, searchQuery]);
+  }, [rbacMembers, companyFilter, areaFilter, memberFilter, searchQuery]);
 
   const filteredMemberIds = useMemo(
     () => new Set(filteredMembers.map((m) => m.id)),
@@ -528,6 +496,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
       periodYear: selectedYear,
       filterCompanyCode: isPersonalOnly ? undefined : companyFilter,
       filterAreaCode: isPersonalOnly ? undefined : areaFilter,
+      filterMemberId: isPersonalOnly ? undefined : memberFilter,
     });
     onShowNotification(
       `Đã xuất ${summary.fileName} (${summary.reportsCount} báo cáo · ${summary.membersCount} nhân sự).`
@@ -736,16 +705,18 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
             </div>
           </div>
 
-          {/* Scope Filter Row (only for Cấp 2-7) */}
+          {/* Scope Filter Row: 3 tầng liên hoàn Sion -> Khu vực -> Cá nhân (only for Cấp 2-7) */}
           {!isPersonalOnly && (
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2">
               <div
                 className={`relative ${
-                  showCompanySelector && showAreaSelector
-                    ? 'sm:col-span-6'
-                    : showCompanySelector || showAreaSelector
-                    ? 'sm:col-span-8'
-                    : 'sm:col-span-12'
+                  showCompanySelector && showAreaSelector && showMemberSelector
+                    ? 'lg:col-span-4'
+                    : (showCompanySelector || showAreaSelector) && showMemberSelector
+                    ? 'lg:col-span-6'
+                    : showCompanySelector || showAreaSelector || showMemberSelector
+                    ? 'lg:col-span-8'
+                    : 'sm:col-span-2 lg:col-span-12'
                 }`}
               >
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -759,7 +730,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
               </div>
 
               {showCompanySelector && (
-                <div className="sm:col-span-3">
+                <div className="lg:col-span-2">
                   <CustomSelect
                     size="sm"
                     searchable={false}
@@ -767,25 +738,51 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
                     onChange={(val) => {
                       setCompanyFilter(val);
                       setAreaFilter('ALL');
+                      setMemberFilter('ALL');
                     }}
                     options={[
                       { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
-                      ...selectableCompanies.map((c) => ({ value: c.code, label: c.name })),
+                      ...selectableCompanies.map((c) => ({ value: c.code, label: c.name || c.code })),
                     ]}
                   />
                 </div>
               )}
 
               {showAreaSelector && (
-                <div className={showCompanySelector ? 'sm:col-span-3' : 'sm:col-span-4'}>
+                <div className="lg:col-span-3">
                   <CustomSelect
                     size="sm"
                     searchable={false}
                     value={areaFilter}
-                    onChange={setAreaFilter}
+                    onChange={(val) => {
+                      setAreaFilter(val);
+                      setMemberFilter('ALL');
+                    }}
                     options={[
                       { value: 'ALL', label: isAdmin ? 'Tất cả Khu vực' : 'Tất cả KV (phạm vi)' },
                       ...selectableAreas.map((a) => ({ value: a.code, label: `KV ${a.code}` })),
+                    ]}
+                  />
+                </div>
+              )}
+
+              {showMemberSelector && (
+                <div className="lg:col-span-3">
+                  <CustomSelect
+                    size="sm"
+                    searchable
+                    value={memberFilter}
+                    onChange={setMemberFilter}
+                    options={[
+                      {
+                        value: 'ALL',
+                        label: `Tất cả cá nhân (${selectableMembers.length})`,
+                      },
+                      ...selectableMembers.map((m) => ({
+                        value: m.id,
+                        label: m.fullName,
+                        badge: m.areaCode ? `KV ${m.areaCode}` : m.companyCode,
+                      })),
                     ]}
                   />
                 </div>
@@ -995,6 +992,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
                     onClick={() => {
                       setCompanyFilter('ALL');
                       setAreaFilter('ALL');
+                      setMemberFilter('ALL');
                       setSearchQuery('');
                       setSubmissionFilter('ALL');
                     }}

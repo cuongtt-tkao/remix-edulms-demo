@@ -33,11 +33,18 @@ import {
   Lock,
   Eye,
   EyeOff,
+  CalendarDays,
+  Clock,
+  Trash2,
+  AlertTriangle,
+  NotebookPen,
 } from 'lucide-react';
 import {
   UserAccount,
   Member,
   HuongKhiItem,
+  TurboJournalItem,
+  PersonalPlannerRecord,
   Company,
   Area,
   Department,
@@ -51,26 +58,42 @@ import {
   DAILY_METRIC_DEFINITIONS,
   DailyReportMetrics,
   EMPTY_DAILY_METRICS,
-  DEFAULT_DAILY_GOALS,
   DEFAULT_EVENT_WEIGHTS,
   ROLE_DISPLAY_META,
 } from '../types/edulms';
-import { REACTION_CONFIG } from './NewsSection';
+import { REACTION_CONFIG } from './GratitudeCheerPage';
 import { SPOTLIGHT_COVERS } from './HeroBanner';
 import { sumDailyReportMetrics, computeDailyMetricsScore } from '../utils/scoringEngine';
 import { CustomSelect } from './CustomSelect';
-import { isAdminRole, isSupervisorRole } from '../utils/rbac';
+import { PersonalPlannerSection } from './PersonalPlannerSection';
+import {
+  canAccessMemberReportOverview,
+  getScopedAreaOptions,
+  getScopedCompanyOptions,
+  getScopedMemberOptions,
+  isAdminRole,
+} from '../utils/rbac';
 import { isValidPersonalPin, sanitizePinInput } from '../utils/pinSecurity';
 import {
   exportDailyReportsByRbacExcel,
   DailyReportExportPeriod,
 } from '../utils/reportExporter';
+import {
+  DEFAULT_VOCABULARY_CONFIG,
+  SystemVocabularyConfig,
+  encodeSensitiveText,
+  findSensitiveMatches,
+  formatRemainingExpiry,
+} from '../utils/wordEncoder';
 
 interface ProfilePageProps {
   currentUser: UserAccount;
   memberData: Member | null;
   members?: Member[];
   myHuongKhiList: HuongKhiItem[];
+  turboJournals?: TurboJournalItem[];
+  personalPlanners?: PersonalPlannerRecord[];
+  vocabularyConfig?: SystemVocabularyConfig;
   dailyReports: DailyReportRecord[];
   periodGoals: PeriodGoalRecord[];
   activeEvent: FestivalEvent | null;
@@ -82,9 +105,18 @@ interface ProfilePageProps {
   onNavigateToEntry: () => void;
   onNavigateToDisciples: () => void;
   onNavigateToHonors: () => void;
+  onNavigateToJournalCheer?: () => void;
   onLogout: () => void;
   onOpenRules: () => void;
   onAddHuongKhi: (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => void;
+  onDeleteHuongKhi?: (id: string) => Promise<void> | void;
+  onAddTurboJournal?: (payload: { title: string; content: string }) => Promise<void> | void;
+  onUpdateTurboJournal?: (
+    journalId: string,
+    payload: { title: string; content: string }
+  ) => Promise<void> | void;
+  onDeleteTurboJournal?: (journalId: string) => Promise<void> | void;
+  onSavePersonalPlanner?: (planner: PersonalPlannerRecord) => Promise<void>;
   onReactHuongKhi?: (id: string, reaction: ReactionType) => void;
   onAddComment?: (huongKhiId: string, content: string) => void;
   onUpdateProfile: (updatedData: {
@@ -157,6 +189,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   memberData,
   members = [],
   myHuongKhiList,
+  turboJournals = [],
+  personalPlanners = [],
+  vocabularyConfig = DEFAULT_VOCABULARY_CONFIG,
   dailyReports,
   periodGoals,
   activeEvent,
@@ -167,9 +202,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   departments,
   onNavigateToEntry,
   onNavigateToDisciples,
+  onNavigateToJournalCheer,
   onLogout,
   onOpenRules,
   onAddHuongKhi,
+  onDeleteHuongKhi,
+  onAddTurboJournal,
+  onUpdateTurboJournal,
+  onDeleteTurboJournal,
+  onSavePersonalPlanner,
   onReactHuongKhi,
   onAddComment,
   onUpdateProfile,
@@ -183,8 +224,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isAddHuongKhiModalOpen, setIsAddHuongKhiModalOpen] = useState(false);
   const [activeProfileTab, setActiveProfileTab] = useState<
-    'POSTS' | 'DISCIPLES' | 'REPORTS' | 'ABOUT'
+    'POSTS' | 'PLANNER' | 'DISCIPLES' | 'REPORTS' | 'ABOUT'
   >('POSTS');
+
+  // Bộ lọc bài viết trên tường cá nhân (Cảm tạ vs Turbo)
+  const [journalFeedFilter, setJournalFeedFilter] = useState<'ALL' | 'GRATITUDE' | 'TURBO'>('ALL');
+  const [journalSearch, setJournalSearch] = useState('');
+  const [journalMonthFilter, setJournalMonthFilter] = useState<string>('ALL');
+  const [editingTurboJournal, setEditingTurboJournal] = useState<TurboJournalItem | null>(null);
+  const [isSavingJournal, setIsSavingJournal] = useState(false);
+  const [confirmDeletePost, setConfirmDeletePost] = useState<{
+    kind: 'GRATITUDE' | 'TURBO';
+    id: string;
+    title: string;
+  } | null>(null);
 
   // Bộ lọc trong tab Danh mục MĐ của tôi
   const [discipleSearch, setDiscipleSearch] = useState('');
@@ -193,10 +246,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   // Bộ chuyển kỳ trong tab Tiến độ Báo cáo
   const [reportPeriodMode, setReportPeriodMode] = useState<'DAY' | 'MONTH' | 'YEAR'>('MONTH');
 
-  // Cấu hình Xuất Excel Báo cáo hằng ngày theo phân quyền 7 cấp
+  // Cấu hình Xuất Excel Báo cáo hằng ngày theo phân quyền 7 cấp & 3 tầng liên hoàn
   const [exportPeriod, setExportPeriod] = useState<DailyReportExportPeriod>('MONTH');
   const [exportCompanyFilter, setExportCompanyFilter] = useState<string>('ALL');
   const [exportAreaFilter, setExportAreaFilter] = useState<string>('ALL');
+  const [exportMemberFilter, setExportMemberFilter] = useState<string>('ALL');
 
   const avatarFileInputRef = React.useRef<HTMLInputElement | null>(null);
   const coverFileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -231,10 +285,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [pinError, setPinError] = useState('');
   const [isSavingPin, setIsSavingPin] = useState(false);
 
-  // Quick In-page Add Huong Khi Form State
+  // Quick Journal Modal State (2 loại: Nhật ký cảm tạ 24h & Nhật ký turbo cá nhân)
+  const [quickJournalKind, setQuickJournalKind] = useState<'GRATITUDE' | 'TURBO'>('GRATITUDE');
   const [quickHkTitle, setQuickHkTitle] = useState('');
-  const [quickHkCategory, setQuickHkCategory] =
-    useState<HuongKhiItem['category']>('COM_YEU_THUONG');
   const [quickHkContent, setQuickHkContent] = useState('');
 
   // Đồng bộ form mỗi khi mở modal Sửa hồ sơ hoặc thông tin tài khoản thay đổi
@@ -592,40 +645,153 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   };
 
-  const handlePostQuickHuongKhi = (e: React.FormEvent) => {
+  // ---------- Bộ lọc Xuất Excel 3 tầng liên hoàn (Sion -> KV -> Cá nhân) ----------
+  const exportRbacMembers = useMemo(() => {
+    const list = members.filter((m) => canAccessMemberReportOverview(currentUser, m));
+    const ownMemberId = currentUser.memberId || `m-${currentUser.id}`;
+    if (!list.some((m) => m.id === ownMemberId || m.id === currentUser.id)) {
+      list.unshift({
+        id: ownMemberId,
+        code: currentUser.username,
+        fullName: currentUser.fullName,
+        companyCode: currentUser.companyCode || '',
+        areaCode: currentUser.areaCode || '',
+        departmentCode: currentUser.departmentCode || '',
+        unitCode: currentUser.unitCode || '',
+        active: true,
+        goals: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+        results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+        score: 0,
+        targets: [],
+        createdAt: currentUser.createdAt || todayStr,
+      });
+    }
+    return list;
+  }, [members, currentUser, todayStr]);
+
+  const exportScopedCompanies = useMemo(
+    () => getScopedCompanyOptions(currentUser, companies, exportRbacMembers),
+    [currentUser, companies, exportRbacMembers]
+  );
+
+  const exportScopedAreas = useMemo(
+    () => getScopedAreaOptions(currentUser, areas, exportCompanyFilter, exportRbacMembers),
+    [currentUser, areas, exportCompanyFilter, exportRbacMembers]
+  );
+
+  const exportScopedMembers = useMemo(
+    () => getScopedMemberOptions(exportRbacMembers, exportCompanyFilter, exportAreaFilter),
+    [exportRbacMembers, exportCompanyFilter, exportAreaFilter]
+  );
+
+  const journalMatches = useMemo(
+    () =>
+      findSensitiveMatches(
+        `${quickHkTitle}\n${quickHkContent}`,
+        vocabularyConfig?.rules
+      ),
+    [quickHkTitle, quickHkContent, vocabularyConfig?.rules]
+  );
+
+  const encodedPreviewContent = useMemo(
+    () =>
+      encodeSensitiveText(
+        quickHkContent,
+        vocabularyConfig?.rules,
+        vocabularyConfig?.enabled !== false
+      ),
+    [quickHkContent, vocabularyConfig?.rules, vocabularyConfig?.enabled]
+  );
+
+  const openNewJournalModal = (kind: 'GRATITUDE' | 'TURBO') => {
+    setEditingTurboJournal(null);
+    setQuickJournalKind(kind);
+    setQuickHkTitle('');
+    setQuickHkContent('');
+    setIsAddHuongKhiModalOpen(true);
+  };
+
+  const openEditTurboModal = (journal: TurboJournalItem) => {
+    setEditingTurboJournal(journal);
+    setQuickJournalKind('TURBO');
+    setQuickHkTitle(journal.title);
+    setQuickHkContent(journal.content);
+    setIsAddHuongKhiModalOpen(true);
+  };
+
+  const handlePostQuickHuongKhi = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickHkTitle.trim() || !quickHkContent.trim()) {
-      onShowNotification('Vui lòng điền đủ tiêu đề và nội dung hương khí.');
+      onShowNotification('Vui lòng điền đủ tiêu đề và nội dung.');
       return;
     }
 
-    onAddHuongKhi({
-      authorId: memberData?.id || currentUser.id,
-      authorName: currentUser.fullName,
-      authorAvatar: currentUser.avatarUrl,
-      companyCode: currentUser.companyCode,
-      areaCode: currentUser.areaCode,
-      departmentCode: currentUser.departmentCode,
-      title: quickHkTitle.trim(),
-      content: quickHkContent.trim(),
-      category: quickHkCategory,
-      date: new Date().toLocaleDateString('vi-VN'),
-      isFeatured: true,
-      reactions: {
-        heart: 1,
-        pray: 1,
-        praise: 0,
-        fire: 0,
-        blessing: 0,
-        like: 0,
-      },
-      comments: [],
-    });
+    setIsSavingJournal(true);
+    try {
+      if (editingTurboJournal && onUpdateTurboJournal) {
+        await onUpdateTurboJournal(editingTurboJournal.id, {
+          title: quickHkTitle.trim(),
+          content: quickHkContent.trim(),
+        });
+        setEditingTurboJournal(null);
+        setQuickHkTitle('');
+        setQuickHkContent('');
+        setIsAddHuongKhiModalOpen(false);
+        onShowNotification('Đã cập nhật Nhật ký turbo!');
+      } else if (quickJournalKind === 'TURBO') {
+        if (onAddTurboJournal) {
+          await onAddTurboJournal({
+            title: quickHkTitle.trim(),
+            content: quickHkContent.trim(),
+          });
+        }
+        setQuickHkTitle('');
+        setQuickHkContent('');
+        setIsAddHuongKhiModalOpen(false);
+        onShowNotification('Đã lưu Nhật ký turbo lên tường cá nhân!');
+      } else {
+        onAddHuongKhi({
+          authorId: memberData?.id || currentUser.id,
+          authorUid: currentUser.id,
+          authorName: currentUser.fullName,
+          authorAvatar: currentUser.avatarUrl,
+          companyCode: currentUser.companyCode,
+          areaCode: currentUser.areaCode,
+          departmentCode: currentUser.departmentCode,
+          title: quickHkTitle.trim(),
+          content: quickHkContent.trim(),
+          category: 'GRATITUDE',
+          journalType: 'GRATITUDE',
+          date: new Date().toLocaleDateString('vi-VN'),
+          isFeatured: true,
+          reactions: {
+            heart: 1,
+            pray: 1,
+            praise: 0,
+            fire: 0,
+            blessing: 0,
+            like: 0,
+          },
+          comments: [],
+        });
+        setQuickHkTitle('');
+        setQuickHkContent('');
+        setIsAddHuongKhiModalOpen(false);
+        onShowNotification('Đã đăng Nhật ký cảm tạ (tự ẩn sau 24 giờ)!');
+      }
+    } finally {
+      setIsSavingJournal(false);
+    }
+  };
 
-    setQuickHkTitle('');
-    setQuickHkContent('');
-    setIsAddHuongKhiModalOpen(false);
-    onShowNotification('Đã đăng câu chuyện hương khí! Bài viết đã xuất hiện trên Bản tin.');
+  const handleConfirmDeleteJournal = async () => {
+    if (!confirmDeletePost) return;
+    if (confirmDeletePost.kind === 'TURBO' && onDeleteTurboJournal) {
+      await onDeleteTurboJournal(confirmDeletePost.id);
+    } else if (confirmDeletePost.kind === 'GRATITUDE' && onDeleteHuongKhi) {
+      await onDeleteHuongKhi(confirmDeletePost.id);
+    }
+    setConfirmDeletePost(null);
   };
 
   const handleCommentSubmit = (storyId: string) => {
@@ -652,9 +818,82 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   };
 
   const coverImage = currentUser.coverUrl || SPOTLIGHT_COVERS[0].url;
+  const totalPostsCount = myHuongKhiList.length + turboJournals.length;
+
+  const availableJournalMonths = useMemo(() => {
+    const months = new Set<string>();
+    turboJournals.forEach((t) => {
+      if (t.createdAtIso && t.createdAtIso.length >= 7) {
+        months.add(t.createdAtIso.slice(0, 7));
+      }
+    });
+    myHuongKhiList.forEach((h) => {
+      if (h.createdAtIso && h.createdAtIso.length >= 7) {
+        months.add(h.createdAtIso.slice(0, 7));
+      }
+    });
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+  }, [turboJournals, myHuongKhiList]);
+
+  type UnifiedFeedEntry =
+    | { kind: 'TURBO'; sortKey: string; item: TurboJournalItem }
+    | { kind: 'GRATITUDE'; sortKey: string; item: HuongKhiItem };
+
+  const unifiedFeedEntries = useMemo<UnifiedFeedEntry[]>(() => {
+    const kw = journalSearch.trim().toLowerCase();
+    const list: UnifiedFeedEntry[] = [];
+
+    if (journalFeedFilter === 'ALL' || journalFeedFilter === 'TURBO') {
+      turboJournals.forEach((tj) => {
+        if (journalMonthFilter !== 'ALL') {
+          const ym = tj.createdAtIso?.slice(0, 7) || '';
+          if (ym !== journalMonthFilter) return;
+        }
+        if (
+          kw &&
+          !tj.title.toLowerCase().includes(kw) &&
+          !tj.content.toLowerCase().includes(kw)
+        ) {
+          return;
+        }
+        list.push({
+          kind: 'TURBO',
+          sortKey: tj.createdAtIso || tj.id || '',
+          item: tj,
+        });
+      });
+    }
+
+    if (journalFeedFilter === 'ALL' || journalFeedFilter === 'GRATITUDE') {
+      myHuongKhiList.forEach((hk) => {
+        if (journalMonthFilter !== 'ALL') {
+          const ym = hk.createdAtIso?.slice(0, 7) || '';
+          if (ym !== journalMonthFilter) return;
+        }
+        if (
+          kw &&
+          !hk.title.toLowerCase().includes(kw) &&
+          !hk.content.toLowerCase().includes(kw)
+        ) {
+          return;
+        }
+        list.push({
+          kind: 'GRATITUDE',
+          sortKey: hk.createdAtIso || hk.id || '',
+          item: hk,
+        });
+      });
+    }
+
+    return list.sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+  }, [turboJournals, myHuongKhiList, journalFeedFilter, journalSearch, journalMonthFilter]);
 
   return (
-    <div className="max-w-5xl mx-auto animate-in fade-in space-y-3 sm:space-y-4">
+    <div
+      className={`${
+        activeProfileTab === 'PLANNER' ? 'max-w-6xl' : 'max-w-5xl'
+      } mx-auto animate-in fade-in space-y-3 sm:space-y-4`}
+    >
       {/* ========================================================
           1. PROFILE HEADER CARD
           ======================================================== */}
@@ -785,11 +1024,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <div className="flex items-center justify-center md:justify-end gap-1.5 sm:gap-2 flex-wrap pt-1 md:pt-0">
               <button
                 type="button"
-                onClick={() => setIsAddHuongKhiModalOpen(true)}
+                onClick={() => openNewJournalModal('GRATITUDE')}
                 className="h-9 px-3 sm:px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Đăng Hương Khí</span>
+                <span>Viết bài</span>
               </button>
 
               <button
@@ -835,28 +1074,42 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
           </div>
 
-          {/* Profile Navigation Tabs: Always 1 single horizontal row (4 cols) */}
-          <div className="grid grid-cols-4 gap-1 sm:gap-1.5 pt-2 sm:pt-3 text-[11px] sm:text-xs font-bold text-slate-600 dark:text-slate-300">
+          {/* Profile Navigation Tabs: 5 tabs */}
+          <div className="grid grid-cols-5 gap-1 sm:gap-1.5 pt-2 sm:pt-3 text-[11px] sm:text-xs font-bold text-slate-600 dark:text-slate-300">
             <button
               type="button"
               onClick={() => setActiveProfileTab('POSTS')}
-              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
+              className={`px-1 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'POSTS'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
-              <span className="truncate">Bài viết</span>
-              <span className="px-1 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
-                {myHuongKhiList.length}
+              <span className="truncate">Bài Viết</span>
+              <span className="hidden sm:inline-flex px-1 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
+                {totalPostsCount}
               </span>
             </button>
 
             <button
               type="button"
+              onClick={() => setActiveProfileTab('PLANNER')}
+              className={`px-1 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
+                activeProfileTab === 'PLANNER'
+                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
+                  : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <CalendarDays className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+              <span className="truncate sm:hidden">KH LLV</span>
+              <span className="truncate hidden sm:inline">Kế hoạch LLV</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveProfileTab('DISCIPLES')}
-              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
+              className={`px-1 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'DISCIPLES'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -865,7 +1118,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <BookOpen className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate sm:hidden">MĐ</span>
               <span className="truncate hidden sm:inline">MĐ của tôi</span>
-              <span className="px-1 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
+              <span className="hidden sm:inline-flex px-1 py-0.5 rounded-md text-[10px] bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 tabular-nums shrink-0">
                 {myDisciples.length}
               </span>
             </button>
@@ -873,7 +1126,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               type="button"
               onClick={() => setActiveProfileTab('REPORTS')}
-              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
+              className={`px-1 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'REPORTS'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -886,7 +1139,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               type="button"
               onClick={() => setActiveProfileTab('ABOUT')}
-              className={`px-1.5 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
+              className={`px-1 sm:px-2.5 h-9 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 border ${
                 activeProfileTab === 'ABOUT'
                   ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-extrabold shadow-2xs'
                   : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -900,9 +1153,24 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       </div>
 
       {/* ========================================================
-          2. 2-COLUMN PROFILE CONTENT
+          2. PROFILE CONTENT (FULL-WIDTH CHO PLANNER, 2 CỘT CHO TAB KHÁC)
           ======================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 items-start">
+        {activeProfileTab === 'PLANNER' && (
+          <div className="lg:col-span-12 min-w-0">
+            <PersonalPlannerSection
+              currentUser={currentUser}
+              personalPlanners={personalPlanners}
+              onSavePersonalPlanner={
+                onSavePersonalPlanner || (async () => {})
+              }
+              onShowNotification={onShowNotification}
+            />
+          </div>
+        )}
+
+        {activeProfileTab !== 'PLANNER' && (
+        <>
         {/* LEFT COLUMN */}
         <div className="lg:col-span-4 space-y-3 sm:space-y-4">
           {/* Card: Giới thiệu */}
@@ -991,11 +1259,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           {/* Card: Thao Tác Nhanh */}
           <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 text-white shadow-md border border-slate-800 space-y-2.5">
             <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
-              <span>⚡ Hoạt động thi đua</span>
+              <span>⚡ Thao tác nhanh</span>
             </div>
-            <p className="hidden sm:block text-xs text-slate-300 leading-relaxed">
-              Cập nhật Báo cáo hằng ngày và quản lý sổ tay MĐ cá nhân để theo sát hành trình chăm sóc.
-            </p>
             <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 pt-0.5">
               <button
                 type="button"
@@ -1018,7 +1283,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 onClick={onOpenRules}
                 className="col-span-2 lg:col-span-1 w-full h-9 px-3 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer border border-white/10"
               >
-                <span>Xem thể lệ quy đổi điểm</span>
+                <span>Thể lệ quy đổi điểm</span>
               </button>
             </div>
           </div>
@@ -1026,10 +1291,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         {/* RIGHT COLUMN */}
         <div className="lg:col-span-8 space-y-3 sm:space-y-4 min-w-0">
-          {/* TAB 1: BÀI VIẾT & HƯƠNG KHÍ */}
+          {/* TAB 1: BÀI VIẾT (NHẬT KÝ CẢM TẠ 24H & NHẬT KÝ TURBO CÁ NHÂN) */}
           {activeProfileTab === 'POSTS' && (
             <div className="space-y-3 sm:space-y-4 animate-in fade-in">
-              {/* Post Composer */}
+              {/* Post Composer & Filters */}
               <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xs border border-slate-100 dark:border-slate-800 space-y-3">
                 <div className="flex items-center gap-3">
                   {currentUser.avatarUrl ? (
@@ -1046,70 +1311,233 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   )}
                   <button
                     type="button"
-                    onClick={() => setIsAddHuongKhiModalOpen(true)}
+                    onClick={() => openNewJournalModal('GRATITUDE')}
                     className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-full px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400 text-left transition cursor-pointer flex items-center justify-between"
                   >
-                    <span className="truncate">
-                      {currentUser.fullName} ơi, bạn có câu chuyện hương khí nào muốn chia sẻ?
-                    </span>
-                    <Sparkles className="w-4 h-4 text-amber-500 shrink-0 ml-2" />
+                    <span className="truncate">Viết bài mới...</span>
+                    <NotebookPen className="w-4 h-4 text-amber-500 shrink-0 ml-2" />
                   </button>
                 </div>
 
-                <div className="flex items-center justify-around pt-3 border-t border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => {
-                      setQuickHkCategory('COM_YEU_THUONG');
-                      setIsAddHuongKhiModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                    onClick={() => openNewJournalModal('GRATITUDE')}
+                    className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 hover:bg-amber-100/80 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/60 transition cursor-pointer text-left"
                   >
-                    <span>🍲</span>
-                    <span>Bữa cơm</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="font-extrabold truncate">Nhật ký cảm tạ</div>
+                        <div className="text-[10px] font-medium text-amber-700 dark:text-amber-300/90 truncate">
+                          Công khai · Tự ẩn sau 24h
+                        </div>
+                      </div>
+                    </div>
+                    <Plus className="w-4 h-4 shrink-0" />
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => {
-                      setQuickHkCategory('THAM_VIENG');
-                      setIsAddHuongKhiModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                    onClick={() => openNewJournalModal('TURBO')}
+                    className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/30 hover:bg-indigo-100/80 dark:hover:bg-indigo-900/40 text-indigo-900 dark:text-indigo-200 border border-indigo-200/80 dark:border-indigo-800/60 transition cursor-pointer text-left"
                   >
-                    <span>🤝</span>
-                    <span>Thăm viếng</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Lock className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="font-extrabold truncate">Nhật ký turbo</div>
+                        <div className="text-[10px] font-medium text-indigo-700 dark:text-indigo-300/90 truncate">
+                          Riêng tư · Lưu tường cá nhân
+                        </div>
+                      </div>
+                    </div>
+                    <Plus className="w-4 h-4 shrink-0" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuickHkCategory('LAM_CHUNG');
-                      setIsAddHuongKhiModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                  >
-                    <span>✨</span>
-                    <span>Lời chứng</span>
-                  </button>
+                </div>
+
+                {/* Bộ lọc + Tìm kiếm + Lối tắt Nhật Ký & Cổ Vũ */}
+                <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] font-bold gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setJournalFeedFilter('ALL')}
+                        className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                          journalFeedFilter === 'ALL'
+                            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        Tất cả ({totalPostsCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setJournalFeedFilter('GRATITUDE')}
+                        className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                          journalFeedFilter === 'GRATITUDE'
+                            ? 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        Cảm tạ 24h ({myHuongKhiList.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setJournalFeedFilter('TURBO')}
+                        className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                          journalFeedFilter === 'TURBO'
+                            ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        Turbo riêng tư ({turboJournals.length})
+                      </button>
+                    </div>
+
+                    {onNavigateToJournalCheer && (
+                      <button
+                        type="button"
+                        onClick={onNavigateToJournalCheer}
+                        className="text-[11px] font-bold text-blue-700 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer shrink-0"
+                      >
+                        <span>Trang Nhật Ký &amp; Cổ Vũ</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  {totalPostsCount > 0 && (
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="relative flex-1 min-w-0">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={journalSearch}
+                          onChange={(e) => setJournalSearch(e.target.value)}
+                          placeholder="Tìm theo tiêu đề, nội dung..."
+                          className="w-full h-9 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/25"
+                        />
+                      </div>
+                      {availableJournalMonths.length > 0 && (
+                        <div className="w-full sm:w-44 shrink-0">
+                          <CustomSelect
+                            size="sm"
+                            searchable={false}
+                            value={journalMonthFilter}
+                            onChange={setJournalMonthFilter}
+                            options={[
+                              { value: 'ALL', label: 'Tất cả tháng' },
+                              ...availableJournalMonths.map((ym) => ({
+                                value: ym,
+                                label: `Tháng ${ym.split('-').reverse().join('/')}`,
+                              })),
+                            ]}
+                            ariaLabel="Lọc bài viết theo tháng"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Feed: My Huong Khi Stories */}
-              {myHuongKhiList.length > 0 ? (
-                <div className="space-y-4">
-                  {myHuongKhiList.map((item) => {
+              {/* Unified Chronological Timeline Feed */}
+              {unifiedFeedEntries.length > 0 ? (
+                <div className="space-y-3 sm:space-y-4">
+                  {unifiedFeedEntries.map((entry) => {
+                    if (entry.kind === 'TURBO') {
+                      const tj = entry.item;
+                      return (
+                        <div
+                          key={`turbo_${tj.id}`}
+                          className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 shadow-xs border border-indigo-200/80 dark:border-indigo-900/60 space-y-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {currentUser.avatarUrl ? (
+                                <img
+                                  src={currentUser.avatarUrl}
+                                  alt={currentUser.fullName}
+                                  className="w-9 h-9 rounded-full object-cover shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="w-9 h-9 rounded-full bg-indigo-700 text-white font-bold flex items-center justify-center shrink-0">
+                                  {currentUser.fullName.charAt(0)}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="font-extrabold text-sm text-slate-900 dark:text-white leading-tight truncate">
+                                  {currentUser.fullName}
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                                  <span className="font-mono tabular-nums">{tj.date}</span>
+                                  <span>·</span>
+                                  <span className="inline-flex items-center gap-1 font-bold text-indigo-700 dark:text-indigo-300">
+                                    <Lock className="w-3 h-3" />
+                                    Nhật ký turbo · Riêng tư
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {onUpdateTurboJournal && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditTurboModal(tj)}
+                                  title="Chỉnh sửa Nhật ký turbo"
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition cursor-pointer"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {onDeleteTurboJournal && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setConfirmDeletePost({
+                                      kind: 'TURBO',
+                                      id: tj.id,
+                                      title: tj.title,
+                                    })
+                                  }
+                                  title="Xóa trang Nhật ký turbo"
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h4 className="font-extrabold text-base text-slate-900 dark:text-white mb-1">
+                              {tj.title}
+                            </h4>
+                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                              {tj.content}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const item = entry.item;
                     const totalR = getTotalReactions(item);
                     const isCommentsOpen = expandedCommentsId === item.id;
                     const userCurrentReaction = item.userReaction
                       ? REACTION_CONFIG[item.userReaction]
                       : null;
+                    const remainingLabel = formatRemainingExpiry(item.expiresAtIso);
 
                     return (
                       <div
-                        key={item.id}
-                        className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-100 dark:border-slate-800 space-y-3.5"
+                        key={`grat_${item.id}`}
+                        className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-slate-800 space-y-3.5"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-3 min-w-0">
                             {currentUser.avatarUrl ? (
                               <img
                                 src={currentUser.avatarUrl}
@@ -1122,23 +1550,45 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                                 {currentUser.fullName.charAt(0)}
                               </div>
                             )}
-                            <div>
-                              <div className="font-extrabold text-sm text-slate-900 dark:text-white leading-tight">
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-sm text-slate-900 dark:text-white leading-tight truncate">
                                 {currentUser.fullName}
                               </div>
-                              <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                <span className="font-mono">{item.date}</span>
-                                <span>•</span>
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300">
-                                  {item.category === 'COM_YEU_THUONG'
-                                    ? '🍲 Bữa cơm yêu thương'
-                                    : item.category === 'THAM_VIENG'
-                                    ? '🤝 Thăm viếng'
-                                    : '✨ Lời chứng'}
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                                <span className="font-mono tabular-nums">{item.date}</span>
+                                <span>·</span>
+                                <span className="font-bold text-amber-700 dark:text-amber-300">
+                                  Nhật ký cảm tạ
                                 </span>
+                                {remainingLabel && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 tabular-nums">
+                                      <Clock className="w-3 h-3 text-amber-500" />
+                                      {remainingLabel}
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
+
+                          {onDeleteHuongKhi && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmDeletePost({
+                                  kind: 'GRATITUDE',
+                                  id: item.id,
+                                  title: item.title,
+                                })
+                              }
+                              title="Xóa Nhật ký cảm tạ"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
 
                         <div>
@@ -1150,7 +1600,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           </p>
                         </div>
 
-                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                           <div className="flex items-center gap-1 font-bold">
                             <span>❤️ 🙏 🔥</span>
                             <span>{totalR} lượt cảm xúc</span>
@@ -1255,7 +1705,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                                     handleCommentSubmit(item.id);
                                   }
                                 }}
-                                placeholder="Viết bình luận khích lệ..."
+                                placeholder="Viết bình luận..."
                                 className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
                               />
                               <button
@@ -1274,7 +1724,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
               ) : (
                 <div className="p-8 text-center text-xs text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800">
-                  Bạn chưa đăng bài viết nào. Hãy chia sẻ hương thơm Đấng Christ qua nút &ldquo;Đăng Hương Khí&rdquo; ở trên!
+                  {journalSearch.trim() || journalMonthFilter !== 'ALL'
+                    ? 'Không tìm thấy bài viết khớp bộ lọc.'
+                    : journalFeedFilter === 'TURBO'
+                    ? 'Chưa có Nhật ký turbo nào.'
+                    : journalFeedFilter === 'GRATITUDE'
+                    ? 'Chưa có Nhật ký cảm tạ nào trong 24 giờ qua.'
+                    : 'Chưa có bài viết nào.'}
                 </div>
               )}
             </div>
@@ -1284,15 +1740,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           {activeProfileTab === 'DISCIPLES' && (
             <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xs border border-slate-100 dark:border-slate-800 space-y-3 animate-in fade-in">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Danh Mục MĐ Cá Nhân ({myDisciples.length})</span>
-                  </h3>
-                  <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Đồng bộ trực tiếp từ Trang thông tin MĐ (sổ tay theo dõi độc lập của bạn).
-                  </p>
-                </div>
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Danh Mục MĐ Cá Nhân ({myDisciples.length})</span>
+                </h3>
 
                 <button
                   type="button"
@@ -1494,7 +1945,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </button>
               </div>
 
-              {/* Khối Xuất Excel Báo cáo (Grid chuẩn, không lệch hàng trên mobile) */}
+              {/* Khối Xuất Excel Báo cáo (3 tầng liên hoàn Sion -> KV -> Cá nhân theo RBAC) */}
               <div className="p-3 sm:p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-800/60 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -1510,15 +1961,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </span>
                 </div>
 
-                <div
-                  className={`grid gap-2 ${
-                    isAdminRole(currentUser.role) || currentUser.role === 'MANAGER'
-                      ? 'grid-cols-2 sm:grid-cols-4'
-                      : currentUser.role === 'SION_LEADER'
-                      ? 'grid-cols-2 sm:grid-cols-3'
-                      : 'grid-cols-2'
-                  }`}
-                >
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
                   <div className="min-w-0">
                     <CustomSelect
                       size="sm"
@@ -1534,7 +1977,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     />
                   </div>
 
-                  {(isAdminRole(currentUser.role) || currentUser.role === 'MANAGER') && (
+                  {(isAdminRole(currentUser.role) ||
+                    currentUser.role === 'MANAGER' ||
+                    exportScopedCompanies.length > 1) && (
                     <div className="min-w-0">
                       <CustomSelect
                         size="sm"
@@ -1543,18 +1988,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         onChange={(val) => {
                           setExportCompanyFilter(val);
                           setExportAreaFilter('ALL');
+                          setExportMemberFilter('ALL');
                         }}
                         options={[
-                          { value: 'ALL', label: isAdminRole(currentUser.role) ? 'Tất cả Sion' : 'Tất cả Sion (cụm)' },
-                          ...companies
-                            .filter((c) => {
-                              if (isAdminRole(currentUser.role)) return true;
-                              const comps = currentUser.managedCompanyCodes?.length
-                                ? currentUser.managedCompanyCodes
-                                : [currentUser.companyCode];
-                              return comps.includes(c.code);
-                            })
-                            .map((c) => ({ value: c.code, label: c.name })),
+                          {
+                            value: 'ALL',
+                            label: isAdminRole(currentUser.role) ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)',
+                          },
+                          ...exportScopedCompanies.map((c) => ({
+                            value: c.code,
+                            label: c.name || c.code,
+                          })),
                         ]}
                       />
                     </div>
@@ -1562,31 +2006,46 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                   {(isAdminRole(currentUser.role) ||
                     currentUser.role === 'MANAGER' ||
-                    currentUser.role === 'SION_LEADER') && (
+                    currentUser.role === 'SION_LEADER' ||
+                    currentUser.role === 'AREA_LEADER' ||
+                    exportScopedAreas.length > 1) && (
                     <div className="min-w-0">
                       <CustomSelect
                         size="sm"
                         searchable={false}
                         value={exportAreaFilter}
-                        onChange={setExportAreaFilter}
+                        onChange={(val) => {
+                          setExportAreaFilter(val);
+                          setExportMemberFilter('ALL');
+                        }}
                         options={[
-                          { value: 'ALL', label: 'Tất cả KV' },
-                          ...areas
-                            .filter((a) => {
-                              if (isAdminRole(currentUser.role)) {
-                                return exportCompanyFilter === 'ALL' || a.companyCode === exportCompanyFilter;
-                              }
-                              const comps = currentUser.managedCompanyCodes?.length
-                                ? currentUser.managedCompanyCodes
-                                : [currentUser.companyCode];
-                              const areaList = currentUser.managedAreaCodes || [];
-                              if (currentUser.role === 'MANAGER') {
-                                const inScope = comps.includes(a.companyCode) || areaList.includes(a.code);
-                                return inScope && (exportCompanyFilter === 'ALL' || a.companyCode === exportCompanyFilter);
-                              }
-                              return comps.includes(a.companyCode);
-                            })
-                            .map((a) => ({ value: a.code, label: `KV ${a.code}` })),
+                          { value: 'ALL', label: 'Tất cả Khu vực' },
+                          ...exportScopedAreas.map((a) => ({
+                            value: a.code,
+                            label: `KV ${a.code}`,
+                          })),
+                        ]}
+                      />
+                    </div>
+                  )}
+
+                  {currentUser.role !== 'MEMBER' && exportScopedMembers.length > 0 && (
+                    <div className="min-w-0">
+                      <CustomSelect
+                        size="sm"
+                        searchable
+                        value={exportMemberFilter}
+                        onChange={setExportMemberFilter}
+                        options={[
+                          {
+                            value: 'ALL',
+                            label: `Tất cả cá nhân (${exportScopedMembers.length})`,
+                          },
+                          ...exportScopedMembers.map((m) => ({
+                            value: m.id,
+                            label: m.fullName,
+                            badge: m.areaCode ? `KV ${m.areaCode}` : m.companyCode,
+                          })),
                         ]}
                       />
                     </div>
@@ -1606,23 +2065,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         periodMonth: currentMonthStr,
                         periodYear: currentYearStr,
                         filterCompanyCode:
-                          isAdminRole(currentUser.role) || currentUser.role === 'MANAGER'
-                            ? exportCompanyFilter
-                            : undefined,
+                          currentUser.role !== 'MEMBER' ? exportCompanyFilter : undefined,
                         filterAreaCode:
-                          isAdminRole(currentUser.role) ||
-                          currentUser.role === 'MANAGER' ||
-                          currentUser.role === 'SION_LEADER'
-                            ? exportAreaFilter
-                            : undefined,
+                          currentUser.role !== 'MEMBER' ? exportAreaFilter : undefined,
+                        filterMemberId:
+                          currentUser.role !== 'MEMBER' ? exportMemberFilter : undefined,
                       });
                       onShowNotification(
                         `Đã tải ${summary.fileName} (${summary.reportsCount} báo cáo).`
                       );
                     }}
-                    className={`min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer ${
-                      currentUser.role === 'SION_LEADER' ? 'col-span-2 sm:col-span-1' : ''
-                    }`}
+                    className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">Tải Excel</span>
@@ -1734,9 +2187,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
                   Thông Tin Tài Khoản &amp; Cơ Cấu Đơn Vị
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Dữ liệu định danh thành viên trong hệ thống Hành Thực Lục
-                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -1847,6 +2297,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* ========================================================
@@ -1869,12 +2321,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-1">
+            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-4">
               Chỉnh Sửa Thông Tin Cá Nhân
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Cập nhật tên hiển thị, châm ngôn sống và đơn vị công tác. Thay đổi công ty/khu vực sẽ tự đồng bộ sang danh sách MĐ của bạn.
-            </p>
 
             {editError && (
               <div className="mb-3 p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-semibold rounded-xl">
@@ -2033,7 +2482,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-4">
               <span className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 flex items-center justify-center">
                 <Camera className="w-4 h-4" />
               </span>
@@ -2041,9 +2490,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 Cập Nhật Ảnh Đại Diện
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-5">
-              Chọn từ bộ hình có sẵn hoặc tải ảnh mới từ máy tính / điện thoại (tự tối ưu dung lượng).
-            </p>
 
             <div className="flex flex-col items-center justify-center pb-5 border-b border-slate-100 dark:border-slate-800">
               <div className="w-24 h-24 rounded-full p-1 ring-4 ring-amber-400 shadow-xl overflow-hidden bg-slate-100 dark:bg-slate-800 mb-2">
@@ -2175,7 +2621,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-4">
               <span className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 flex items-center justify-center">
                 <Camera className="w-4 h-4" />
               </span>
@@ -2183,9 +2629,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 Cập Nhật Ảnh Bìa Trang Cá Nhân
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Chọn từ bộ sưu tập Spotlight hoặc tải hình riêng từ thiết bị (tự tối ưu dung lượng).
-            </p>
 
             <div className="w-full h-36 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 relative shadow-inner mb-4">
               <img
@@ -2316,15 +2759,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-4">
               <span className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 flex items-center justify-center">
                 <KeyRound className="w-4 h-4" />
               </span>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">Đổi Mật Khẩu</h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Nhập mật khẩu mới an toàn để bảo vệ tài khoản của bạn.
-            </p>
 
             {editError && (
               <div className="mb-3 p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-semibold rounded-xl">
@@ -2401,7 +2841,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center justify-between gap-2 mb-1 pr-8">
+            <div className="flex items-center justify-between gap-2 mb-4 pr-8">
               <div className="flex items-center gap-2">
                 <span className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-400 flex items-center justify-center">
                   <Lock className="w-4 h-4" />
@@ -2417,9 +2857,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <span>{showPinDigits ? 'Ẩn' : 'Hiện'}</span>
               </button>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Mã cá nhân 6 số được yêu cầu mỗi lần mở phiên làm việc để bảo vệ dữ liệu của bạn.
-            </p>
 
             {pinError && (
               <div className="mb-3 p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-semibold rounded-xl">
@@ -2500,66 +2937,109 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       )}
 
       {/* ========================================================
-          MODAL 3: ĐĂNG HƯƠNG KHÍ (HỖ TRỢ DARK MODE)
+          MODAL 3: VIẾT / SỬA NHẬT KÝ CẢM TẠ (24H) HOẶC NHẬT KÝ TURBO
           ======================================================== */}
       {isAddHuongKhiModalOpen && (
         <div
-          onClick={() => setIsAddHuongKhiModalOpen(false)}
+          onClick={() => {
+            setIsAddHuongKhiModalOpen(false);
+            setEditingTurboJournal(null);
+          }}
           className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-100 dark:border-slate-800 p-6 sm:p-7 relative cursor-default"
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-100 dark:border-slate-800 p-5 sm:p-7 relative cursor-default"
           >
             <button
               type="button"
-              onClick={() => setIsAddHuongKhiModalOpen(false)}
+              onClick={() => {
+                setIsAddHuongKhiModalOpen(false);
+                setEditingTurboJournal(null);
+              }}
               className="absolute top-5 right-5 p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-400 flex items-center justify-center">
-                <Sparkles className="w-4 h-4" />
+            <div className="flex items-center gap-2 mb-4 pr-8">
+              <span
+                className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  quickJournalKind === 'TURBO'
+                    ? 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300'
+                    : 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300'
+                }`}
+              >
+                {quickJournalKind === 'TURBO' ? (
+                  <Lock className="w-4 h-4" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
               </span>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                Đăng Hương Khí Truyền Đạo
+                {editingTurboJournal
+                  ? 'Chỉnh sửa Nhật ký turbo'
+                  : quickJournalKind === 'TURBO'
+                  ? 'Viết Nhật ký turbo'
+                  : 'Viết Nhật ký cảm tạ'}
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Chia sẻ những điều mắt thấy tai nghe, ơn phước Chúa ban qua từng bước kết bạn, thăm viếng và bữa cơm thân tình.
-            </p>
 
             <form onSubmit={handlePostQuickHuongKhi} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Thể loại hương khí *
-                </label>
-                <CustomSelect
-                  size="sm"
-                  value={quickHkCategory}
-                  onChange={(val) => setQuickHkCategory(val as any)}
-                  options={[
-                    { value: 'COM_YEU_THUONG', label: '🍲 Bữa cơm yêu thương mở lối' },
-                    { value: 'THAM_VIENG', label: '🤝 Thăm viếng chăm sóc' },
-                    { value: 'LAM_CHUNG', label: '✨ Lời chứng đức tin biến đổi' },
-                    { value: 'GIUP_DO', label: '❤️ Việc lành bác ái cụ thể' },
-                    { value: 'CAU_NGUYEN', label: '🙏 Cầu nguyện chữa lành & giải cứu' },
-                  ]}
-                  ariaLabel="Chọn thể loại hương khí"
-                />
-              </div>
+              {/* Chọn loại nhật ký (ẩn khi đang sửa bài Turbo) */}
+              {!editingTurboJournal && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQuickJournalKind('GRATITUDE')}
+                    className={`p-2.5 rounded-2xl border text-left transition cursor-pointer ${
+                      quickJournalKind === 'GRATITUDE'
+                        ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600 text-amber-950 dark:text-amber-200 ring-2 ring-amber-400/20'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    <div className="text-xs font-extrabold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Nhật ký cảm tạ</span>
+                    </div>
+                    <div className="text-[10px] opacity-80 mt-0.5">
+                      Công khai · Tự ẩn sau 24h
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setQuickJournalKind('TURBO')}
+                    className={`p-2.5 rounded-2xl border text-left transition cursor-pointer ${
+                      quickJournalKind === 'TURBO'
+                        ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-600 text-indigo-950 dark:text-indigo-200 ring-2 ring-indigo-400/20'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    <div className="text-xs font-extrabold flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Nhật ký turbo</span>
+                    </div>
+                    <div className="text-[10px] opacity-80 mt-0.5">
+                      Riêng tư · Lưu tường cá nhân
+                    </div>
+                  </button>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Tiêu đề câu chuyện *
+                  Tiêu đề *
                 </label>
                 <input
                   type="text"
                   value={quickHkTitle}
                   onChange={(e) => setQuickHkTitle(e.target.value)}
-                  placeholder="Ví dụ: Bữa cơm thân mật cùng gia đình người bạn mới..."
+                  placeholder={
+                    quickJournalKind === 'TURBO'
+                      ? 'Tiêu đề Nhật ký turbo...'
+                      : 'Tiêu đề Nhật ký cảm tạ...'
+                  }
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white"
                   required
                 />
@@ -2567,39 +3047,110 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Nội dung chia sẻ hương thơm Đấng Christ *
+                  Nội dung *
                 </label>
                 <textarea
                   rows={4}
                   value={quickHkContent}
                   onChange={(e) => setQuickHkContent(e.target.value)}
-                  placeholder="Kể lại hoàn cảnh, cảm xúc, lời cầu nguyện và những điều Chúa đã làm..."
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-xs leading-relaxed text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20"
+                  placeholder="Viết nội dung (tự động viết tắt theo từ điển khi lưu)..."
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-xs leading-relaxed text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20"
                   required
                 />
               </div>
 
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed border border-amber-200 dark:border-amber-800/60">
-                ✨ Câu chuyện của bạn sẽ xuất hiện trên mục <strong>Hương Khí Nổi Bật</strong> tại trang Bản tin Lễ hội để khích lệ đức tin cho toàn thể đội ngũ.
-              </div>
+              {vocabularyConfig?.enabled !== false && journalMatches.length > 0 && (
+                <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/60 space-y-1.5 text-[11px]">
+                  <div className="font-extrabold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Tự động viết tắt {journalMatches.length} cụm từ:</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {journalMatches.map((m) => (
+                      <span
+                        key={m.source}
+                        className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-700 text-slate-700 dark:text-slate-200 font-semibold"
+                      >
+                        {m.source} → <strong className="text-emerald-700 dark:text-emerald-400">{m.code}</strong>
+                      </span>
+                    ))}
+                  </div>
+                  {quickHkContent.trim() && (
+                    <div className="pt-1 text-slate-600 dark:text-slate-300 border-t border-emerald-200/70 dark:border-emerald-800/60">
+                      <span className="font-bold">Xem trước: </span>
+                      <span className="italic">{encodedPreviewContent}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsAddHuongKhiModalOpen(false)}
+                  onClick={() => {
+                    setIsAddHuongKhiModalOpen(false);
+                    setEditingTurboJournal(null);
+                  }}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  disabled={isSavingJournal}
+                  className={`px-5 py-2 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-60 ${
+                    quickJournalKind === 'TURBO'
+                      ? 'bg-indigo-600 hover:bg-indigo-700'
+                      : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Đăng ngay</span>
+                  <span>
+                    {isSavingJournal
+                      ? 'Đang lưu...'
+                      : editingTurboJournal
+                      ? 'Cập nhật'
+                      : 'Lưu bài'}
+                  </span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal xác nhận xóa Nhật ký */}
+      {confirmDeletePost && (
+        <div
+          onClick={() => setConfirmDeletePost(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-3xl p-5 max-w-sm w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4"
+          >
+            <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+              Xóa nhật ký này?
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Bạn muốn xóa bài <strong>&ldquo;{confirmDeletePost.title}&rdquo;</strong>? Thao tác này không thể hoàn tác.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeletePost(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteJournal}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+              >
+                Xác nhận xóa
+              </button>
+            </div>
           </div>
         </div>
       )}

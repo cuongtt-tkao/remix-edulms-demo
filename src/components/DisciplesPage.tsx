@@ -30,7 +30,13 @@ import {
   mapAgeToRange,
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
-import { isAdminRole, isSupervisorRole } from '../utils/rbac';
+import {
+  getScopedAreaOptions,
+  getScopedCompanyOptions,
+  isAdminRole,
+  isSupervisorRole,
+  normalizeOrgCode,
+} from '../utils/rbac';
 import { exportDisciplesExcel } from '../utils/excelManager';
 
 interface DisciplesPageProps {
@@ -104,7 +110,9 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [progressFilter, setProgressFilter] = useState<ProgressFilter>('ALL');
+  const [companyFilter, setCompanyFilter] = useState<string>('ALL');
   const [areaFilter, setAreaFilter] = useState<string>('ALL');
+  const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
 
   // Form Modal State (Add / Full Edit / Supervisor Quick Progress+Note Edit)
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -155,14 +163,83 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
     }
   }, [currentUser]);
 
-  // Distinct areas present in loaded disciples (for supervisors)
-  const availableAreas = useMemo(() => {
-    const set = new Set<string>();
+  // 3 tầng lọc liên hoàn (Sion -> Khu vực -> Người phụ trách) tuân thủ RBAC
+  const disciplePseudoMembers = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        id: string;
+        code: string;
+        fullName: string;
+        companyCode: string;
+        areaCode: string;
+        departmentCode: string;
+        active: boolean;
+        goals: { s1: number; s2: number; s3: number; s4: number; s5: number; s6: number };
+        results: { s1: number; s2: number; s3: number; s4: number; s5: number; s6: number };
+        score: number;
+        targets: never[];
+        createdAt: string;
+      }
+    >();
     disciples.forEach((d) => {
-      if (d.areaCode) set.add(d.areaCode);
+      const key = d.ownerUid || d.ownerMemberId || d.ownerName;
+      if (!key || map.has(key)) return;
+      map.set(key, {
+        id: key,
+        code: key,
+        fullName: d.ownerName || key,
+        companyCode: d.companyCode || '',
+        areaCode: d.areaCode || '',
+        departmentCode: d.ownerUnitCode || '',
+        active: true,
+        goals: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+        results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+        score: 0,
+        targets: [],
+        createdAt: d.createdAt || '',
+      });
     });
-    return Array.from(set).sort();
+    return Array.from(map.values());
   }, [disciples]);
+
+  const selectableCompanies = useMemo(() => {
+    if (!currentUser || !isSupervisor) return [];
+    return getScopedCompanyOptions(currentUser, companies, disciplePseudoMembers);
+  }, [currentUser, isSupervisor, companies, disciplePseudoMembers]);
+
+  const selectableAreas = useMemo(() => {
+    if (!currentUser || !isSupervisor) return [];
+    return getScopedAreaOptions(currentUser, areas, companyFilter, disciplePseudoMembers);
+  }, [currentUser, isSupervisor, areas, companyFilter, disciplePseudoMembers]);
+
+  const selectableOwners = useMemo(() => {
+    if (!isSupervisor) return [];
+    return disciplePseudoMembers
+      .filter((m) => {
+        if (
+          companyFilter !== 'ALL' &&
+          normalizeOrgCode(m.companyCode) !== normalizeOrgCode(companyFilter)
+        ) {
+          return false;
+        }
+        if (areaFilter !== 'ALL' && normalizeOrgCode(m.areaCode) !== normalizeOrgCode(areaFilter)) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.fullName.localeCompare(b.fullName, 'vi'));
+  }, [isSupervisor, disciplePseudoMembers, companyFilter, areaFilter]);
+
+  const showCompanyDropdown =
+    isSupervisor && (isAdmin || currentUser?.role === 'MANAGER' || selectableCompanies.length > 1);
+  const showAreaDropdown =
+    isSupervisor &&
+    (isAdmin ||
+      currentUser?.role === 'MANAGER' ||
+      currentUser?.role === 'SION_LEADER' ||
+      selectableAreas.length > 1);
+  const showOwnerDropdown = isSupervisor && selectableOwners.length > 1;
 
   // Filtered list
   const filteredDisciples = useMemo(() => {
@@ -170,7 +247,23 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
     return [...disciples]
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
       .filter((d) => {
-        if (areaFilter !== 'ALL' && d.areaCode !== areaFilter) return false;
+        if (
+          companyFilter !== 'ALL' &&
+          normalizeOrgCode(d.companyCode) !== normalizeOrgCode(companyFilter)
+        ) {
+          return false;
+        }
+        if (areaFilter !== 'ALL' && normalizeOrgCode(d.areaCode) !== normalizeOrgCode(areaFilter)) {
+          return false;
+        }
+        if (ownerFilter !== 'ALL') {
+          const matchesOwner =
+            d.ownerUid === ownerFilter ||
+            d.ownerMemberId === ownerFilter ||
+            (d.ownerUid && `m-${d.ownerUid}` === ownerFilter) ||
+            d.ownerName === ownerFilter;
+          if (!matchesOwner) return false;
+        }
 
         if (progressFilter === 'ACTIVE' && d.isStopped) return false;
         if (progressFilter === 'STOPPED' && !d.isStopped) return false;
@@ -200,7 +293,7 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
         }
         return true;
       });
-  }, [disciples, areaFilter, progressFilter, searchQuery]);
+  }, [disciples, companyFilter, areaFilter, ownerFilter, progressFilter, searchQuery]);
 
   // Summary metrics
   const stats = useMemo(() => {
@@ -385,7 +478,9 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                     : 'ALL';
                 const res = exportDisciplesExcel(filteredDisciples, {
                   viewer: currentUser,
+                  companyCode: companyFilter,
                   areaCode: areaFilter,
+                  ownerKey: ownerFilter,
                   status: statusOpt,
                 });
                 onShowNotification(
@@ -451,25 +546,21 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
         </div>
       </div>
 
-      {/* Search + Filter Dropdown Toolbar (2 compact rows on mobile) */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-2.5 sm:p-3.5 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm biệt danh MĐ, công việc, đặc điểm, ghi chú..."
-            className="w-full pl-9 pr-3 h-9 sm:h-10 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-          />
-        </div>
+      {/* Search + 3-Tier Cascading Filter Toolbar */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-2.5 sm:p-3.5 border border-slate-200 dark:border-slate-800 space-y-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm biệt danh MĐ, công việc, đặc điểm, ghi chú..."
+              className="w-full pl-9 pr-3 h-9 sm:h-10 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
 
-        <div
-          className={`grid gap-2 sm:flex sm:items-center ${
-            isSupervisor && availableAreas.length > 1 ? 'grid-cols-2' : 'grid-cols-1'
-          }`}
-        >
-          <div className="w-full sm:w-52">
+          <div className="w-full sm:w-56 shrink-0">
             <CustomSelect
               size="sm"
               ariaLabel="Lọc theo tiến độ MĐ"
@@ -487,28 +578,70 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
               ]}
             />
           </div>
+        </div>
 
-          {isSupervisor && availableAreas.length > 1 && (
-            <div className="w-full sm:w-48">
+        {(showCompanyDropdown || showAreaDropdown || showOwnerDropdown) && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {showCompanyDropdown && (
+              <CustomSelect
+                size="sm"
+                ariaLabel="Lọc theo Sion / Công ty"
+                searchable={false}
+                value={companyFilter}
+                onChange={(val) => {
+                  setCompanyFilter(val);
+                  setAreaFilter('ALL');
+                  setOwnerFilter('ALL');
+                }}
+                options={[
+                  { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                  ...selectableCompanies.map((c) => ({
+                    value: c.code,
+                    label: c.name || c.code,
+                  })),
+                ]}
+              />
+            )}
+
+            {showAreaDropdown && (
               <CustomSelect
                 size="sm"
                 ariaLabel="Lọc theo khu vực"
+                searchable={false}
                 value={areaFilter}
-                onChange={setAreaFilter}
+                onChange={(val) => {
+                  setAreaFilter(val);
+                  setOwnerFilter('ALL');
+                }}
                 options={[
-                  { value: 'ALL', label: 'Mọi khu vực', badge: String(availableAreas.length) },
-                  ...availableAreas.map((code) => {
-                    const areaObj = areas.find((a) => a.code === code);
-                    return {
-                      value: code,
-                      label: areaObj ? `KV ${areaObj.code} - ${areaObj.name}` : `KV ${code}`,
-                    };
-                  }),
+                  { value: 'ALL', label: 'Mọi khu vực', badge: String(selectableAreas.length) },
+                  ...selectableAreas.map((a) => ({
+                    value: a.code,
+                    label: a.name && a.name !== `KV ${a.code}` ? `KV ${a.code} - ${a.name}` : `KV ${a.code}`,
+                  })),
                 ]}
               />
-            </div>
-          )}
-        </div>
+            )}
+
+            {showOwnerDropdown && (
+              <CustomSelect
+                size="sm"
+                ariaLabel="Lọc theo cá nhân phụ trách MĐ"
+                searchable
+                value={ownerFilter}
+                onChange={setOwnerFilter}
+                options={[
+                  { value: 'ALL', label: `Tất cả người phụ trách (${selectableOwners.length})` },
+                  ...selectableOwners.map((o) => ({
+                    value: o.id,
+                    label: o.fullName,
+                    badge: o.areaCode ? `KV ${o.areaCode}` : o.companyCode,
+                  })),
+                ]}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Loading / Empty / List */}

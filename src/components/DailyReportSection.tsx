@@ -434,9 +434,6 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                           {(ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).label}
                         </span>
                       </div>
-                      <div className="text-[10px] text-slate-600 dark:text-slate-300 leading-tight max-w-md">
-                        {(ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).scopeSummary}
-                      </div>
                     </div>
                   ) : (
                     <button
@@ -939,7 +936,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() => onNavigateTab?.('HONORS')}
+                    onClick={() => onNavigateTab?.('JOURNAL_CHEER')}
                     className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-0.5 cursor-pointer"
                   >
                     <span>Xem thêm</span>
@@ -949,7 +946,10 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
 
                 {latestCheer ? (
                   <div className="flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl sm:rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/25">
-                    <div className="min-w-0 flex-1">
+                    <div
+                      onClick={() => onNavigateTab?.('JOURNAL_CHEER')}
+                      className="min-w-0 flex-1 cursor-pointer"
+                    >
                       <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 line-clamp-2">
                         {latestCheer.title || latestCheer.content}
                       </p>
@@ -970,9 +970,16 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                     </button>
                   </div>
                 ) : (
-                  <div className="px-3 py-2 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
-                    Chưa có bài cổ vũ mới. Hãy vào Bảng Vinh danh để chia sẻ Hương Khí!
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.('JOURNAL_CHEER')}
+                    className="w-full text-left px-3 py-2 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between gap-2 transition cursor-pointer"
+                  >
+                    <span>Chưa có Nhật ký cảm tạ nào trong 24h qua.</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold shrink-0">
+                      Viết ngay →
+                    </span>
+                  </button>
                 )}
               </div>
             )}

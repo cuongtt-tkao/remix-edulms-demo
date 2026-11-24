@@ -1,5 +1,7 @@
 import {
+  Area,
   AreaRankItem,
+  Company,
   CompanyRankItem,
   DiscipleRecord,
   KpiSummary,
@@ -750,3 +752,123 @@ export function canAssignTargetRole(
     getRoleLevel(nextTargetRole) <= maxAssignable
   );
 }
+
+/**
+ * Xây dựng danh sách lựa chọn 3 tầng liên hoàn (Sion -> Khu vực -> Cá nhân)
+ * luôn tuân thủ phạm vi RBAC 7 cấp và chuẩn hóa mã (normalizeOrgCode).
+ */
+export function getScopedCompanyOptions(
+  viewer: UserAccount | null,
+  companies: Company[],
+  scopedMembers: Member[] = []
+): Company[] {
+  const seen = new Set<string>();
+  const merged: Company[] = [];
+
+  const pushUnique = (comp: Company) => {
+    const norm = normalizeOrgCode(comp.code);
+    if (!norm || seen.has(norm)) return;
+    seen.add(norm);
+    merged.push(comp);
+  };
+
+  if (!viewer || isAdminRole(viewer.role)) {
+    companies.forEach(pushUnique);
+  } else {
+    const allowedCodes = new Set<string>();
+    if (viewer.companyCode) allowedCodes.add(normalizeOrgCode(viewer.companyCode));
+    resolveViewerCompanyScope(viewer).forEach((c) => allowedCodes.add(c));
+    scopedMembers
+      .filter((m) => canAccessMemberReportOverview(viewer, m) || canManageOrgRecord(viewer, m))
+      .forEach((m) => {
+        if (m.companyCode) allowedCodes.add(normalizeOrgCode(m.companyCode));
+      });
+
+    companies.forEach((c) => {
+      if (allowedCodes.has(normalizeOrgCode(c.code))) pushUnique(c);
+    });
+    allowedCodes.forEach((code) => {
+      if (!seen.has(code)) {
+        pushUnique({ id: `c-${code}`, code, name: `Sion ${code}`, active: true });
+      }
+    });
+  }
+
+  return merged.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'vi'));
+}
+
+export function getScopedAreaOptions(
+  viewer: UserAccount | null,
+  areas: Area[],
+  selectedCompanyCode: string,
+  scopedMembers: Member[] = []
+): Area[] {
+  const normCompany = normalizeOrgCode(selectedCompanyCode);
+  const filterByCompany = selectedCompanyCode && selectedCompanyCode !== 'ALL';
+  const seen = new Set<string>();
+  const merged: Area[] = [];
+
+  const isAreaAllowedForViewer = (areaCode: string, compCode: string): boolean => {
+    if (!viewer || isAdminRole(viewer.role)) return true;
+    if (viewer.role === 'MANAGER' || viewer.role === 'SION_LEADER') {
+      const allowedComps = resolveViewerCompanyScope(viewer);
+      const allowedAreas = resolveViewerAreaScope(viewer);
+      return (
+        allowedComps.has(normalizeOrgCode(compCode)) ||
+        (viewer.role === 'MANAGER' && allowedAreas.has(normalizeOrgCode(areaCode)))
+      );
+    }
+    if (viewer.role === 'AREA_LEADER' || viewer.role === 'UNI_LEADER' || viewer.role === 'MEMBER') {
+      const allowedAreas = resolveViewerAreaScope(viewer);
+      return allowedAreas.has(normalizeOrgCode(areaCode));
+    }
+    return true;
+  };
+
+  const pushUnique = (area: Area) => {
+    const normArea = normalizeOrgCode(area.code);
+    const normAreaComp = normalizeOrgCode(area.companyCode);
+    if (!normArea) return;
+    if (filterByCompany && normAreaComp !== normCompany) return;
+    if (!isAreaAllowedForViewer(area.code, area.companyCode)) return;
+    const dedupeKey = filterByCompany ? normArea : `${normAreaComp}::${normArea}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    merged.push(area);
+  };
+
+  areas.forEach(pushUnique);
+
+  scopedMembers.forEach((m) => {
+    if (!m.areaCode) return;
+    pushUnique({
+      id: `a-${m.companyCode || 'org'}-${m.areaCode}`,
+      code: m.areaCode,
+      name: `KV ${m.areaCode}`,
+      companyCode: m.companyCode || '',
+      active: true,
+    });
+  });
+
+  return merged.sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name, 'vi'));
+}
+
+export function getScopedMemberOptions(
+  scopedMembers: Member[],
+  selectedCompanyCode: string,
+  selectedAreaCode: string
+): Member[] {
+  const filterComp = selectedCompanyCode && selectedCompanyCode !== 'ALL';
+  const filterArea = selectedAreaCode && selectedAreaCode !== 'ALL';
+  const normComp = normalizeOrgCode(selectedCompanyCode);
+  const normArea = normalizeOrgCode(selectedAreaCode);
+
+  return scopedMembers
+    .filter((m) => {
+      if (filterComp && normalizeOrgCode(m.companyCode) !== normComp) return false;
+      if (filterArea && normalizeOrgCode(m.areaCode) !== normArea) return false;
+      return true;
+    })
+    .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'vi'));
+}
+

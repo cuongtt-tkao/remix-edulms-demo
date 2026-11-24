@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   ChevronDown,
   BarChart3,
+  Sparkles,
 } from 'lucide-react';
 import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel } from '../types/edulms';
 
@@ -33,6 +34,7 @@ export type AppTab =
   | 'DISCIPLES'
   | 'REPORT_OVERVIEW'
   | 'PROFILE'
+  | 'JOURNAL_CHEER'
   | 'WORK_SCHEDULE'
   | 'EVENT_HUB'
   | 'EDU_LMS'
@@ -536,7 +538,7 @@ function getRoleSubtitle(user: UserAccount): string {
 /**
  * Menu dọc chia thành 5 Nhóm Chính:
  * 1. Turbo (Báo cáo hằng ngày, Bảng Xếp hạng thi đua, Trang thông tin MĐ)
- * 2. Công Việc (Hồ sơ cá nhân & Hương khí)
+ * 2. Công Việc (Hồ sơ cá nhân, Nhật Ký & Cổ Vũ, Lịch làm việc)
  * 3. Event (Trang Event)
  * 4. Edu (Giáo dục: LMS & CMS)
  * 5. Quản trị (Quản trị Tổng - tách riêng khỏi Event)
@@ -601,9 +603,17 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         {
           id: 'PROFILE',
           label: 'Hồ sơ cá nhân',
-          subLabel: 'Thông tin & Hương khí',
+          subLabel: 'Bài viết & KH LLV',
           icon: User,
           accent: 'text-sky-400',
+          visible: true,
+        },
+        {
+          id: 'JOURNAL_CHEER',
+          label: 'Nhật Ký & Cổ Vũ',
+          subLabel: 'Cảm tạ 24h & cổ vũ',
+          icon: Sparkles,
+          accent: 'text-amber-400',
           visible: true,
         },
         {
