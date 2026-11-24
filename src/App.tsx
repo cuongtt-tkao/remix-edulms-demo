@@ -132,6 +132,7 @@ import {
   describeAuthError,
   BOOTSTRAP_SUPER_ADMIN_EMAILS,
   isBootstrapSuperAdminEmail,
+  FIRESTORE_DATABASE_ID,
 } from './firebase';
 
 export default function App() {
@@ -139,7 +140,9 @@ export default function App() {
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [profileState, setProfileState] = useState<'UNKNOWN' | 'READY' | 'MISSING'>('UNKNOWN');
+  const [profileState, setProfileState] = useState<'UNKNOWN' | 'READY' | 'MISSING' | 'ERROR'>('UNKNOWN');
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileRetryTick, setProfileRetryTick] = useState<number>(0);
   const [pinUnlockedUid, setPinUnlockedUid] = useState<string | null>(null);
   const [authModalInitialMode, setAuthModalInitialMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const pendingRegistrationRef = useRef<RegistrationData | null>(null);
@@ -159,6 +162,7 @@ export default function App() {
   const securityGateMode: SecurityGateMode | null = useMemo(() => {
     if (!authReady) return 'LOADING';
     if (!signedIn) return 'UNAUTHENTICATED';
+    if (profileState === 'ERROR') return 'PROFILE_ERROR';
     if (profileState === 'UNKNOWN') return 'LOADING';
     if (profileState === 'MISSING') {
       return pendingRegistrationRef.current ? 'LOADING' : 'ONBOARDING';
@@ -737,12 +741,38 @@ export default function App() {
     [scoringConfig]
   );
 
+  const preAssignedRolesRef = useRef<RoleAssignment[]>([]);
+  preAssignedRolesRef.current = preAssignedRoles;
+  const ownRoleClaimRef = useRef<RoleAssignment | null>(null);
+  ownRoleClaimRef.current = ownRoleClaim;
+
+  const formatFirestoreProfileError = useCallback((err: unknown): string => {
+    const code = String((err as { code?: string })?.code || '').toLowerCase();
+    const msg = err instanceof Error ? err.message : String(err || '');
+    const lower = `${code} ${msg}`.toLowerCase();
+    if (lower.includes('resource-exhausted') || lower.includes('quota')) {
+      return `Firestore (${FIRESTORE_DATABASE_ID}) đã chạm hạn mức đọc miễn phí trong ngày (Spark). Vui lòng thử lại sau hoặc kiểm tra Firebase Console.\n(${code || msg})`;
+    }
+    if (lower.includes('permission-denied') || lower.includes('insufficient permissions')) {
+      return `Quyền đọc hồ sơ trên Firestore (${FIRESTORE_DATABASE_ID}) bị từ chối. Hãy kiểm tra và Publish lại file firestore.rules lên database (${FIRESTORE_DATABASE_ID}) trong Firebase Console.\n(${code || msg})`;
+    }
+    if (lower.includes('not-found') || lower.includes('does not exist')) {
+      return `Không tìm thấy database Firestore (${FIRESTORE_DATABASE_ID}) trên dự án Firebase. Hãy kiểm tra trong Firebase Console.\n(${code || msg})`;
+    }
+    if (lower.includes('unavailable') || lower.includes('offline') || lower.includes('network')) {
+      return `Không kết nối được tới máy chủ Firestore (${FIRESTORE_DATABASE_ID}). Kiểm tra mạng hoặc tắt trình chặn quảng cáo/VPN rồi bấm Thử lại.\n(${code || msg})`;
+    }
+    return `Không đọc được hồ sơ tài khoản trên Firestore (${FIRESTORE_DATABASE_ID}): ${msg || code}`;
+  }, []);
+
   // ---------- Theo dõi trạng thái đăng nhập ----------
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       const nextUid = u?.uid || null;
       if (prevAuthUidRef.current !== nextUid) {
         setPinUnlockedUid(null);
+        setProfileState('UNKNOWN');
+        setProfileError(null);
         prevAuthUidRef.current = nextUid;
       }
       setFirebaseUser(u);
@@ -750,6 +780,7 @@ export default function App() {
       if (!u) {
         setCurrentUser(null);
         setProfileState('UNKNOWN');
+        setProfileError(null);
         setOwnRoleClaim(null);
         creatingProfileRef.current = false;
       }
@@ -757,74 +788,141 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // Đọc hồ sơ tài khoản (users/{uid})
+  // Đọc hồ sơ tài khoản (users/{uid}) - tách khỏi preAssignedRoles/ownRoleClaim để không bị reset listener khi vừa login
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!firebaseUser?.uid) return;
+    let cancelled = false;
+    let settled = false;
+    let serverCheckInFlight = false;
+    setProfileError(null);
+
+    const userRef = doc(db, 'users', firebaseUser.uid);
+
+    const applyProfileData = (raw: Omit<UserAccount, 'id'>, docId: string) => {
+      if (cancelled) return;
+      settled = true;
+      const emailLower = (firebaseUser.email || raw.email || '').toLowerCase().trim();
+      const emailVerified = Boolean(firebaseUser.emailVerified);
+      const claimNow = ownRoleClaimRef.current;
+      const preMatch = emailVerified
+        ? preAssignedRolesRef.current.find((p) => p.email.toLowerCase() === emailLower) ||
+          (claimNow && claimNow.email?.toLowerCase() === emailLower ? claimNow : undefined)
+        : undefined;
+      const rawRole: UserRole = raw.role || 'MEMBER';
+      const isSuper =
+        (emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
+        preMatch?.role === 'SUPER_ADMIN' ||
+        rawRole === 'SUPER_ADMIN';
+      const isAdmin = isSuper || rawRole === 'ADMIN' || preMatch?.role === 'ADMIN';
+      const shouldAdoptPreMatch =
+        !!preMatch?.role &&
+        (rawRole === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(rawRole));
+      const resolvedRole: UserRole = isSuper
+        ? 'SUPER_ADMIN'
+        : isAdmin
+        ? 'ADMIN'
+        : shouldAdoptPreMatch
+        ? preMatch!.role
+        : rawRole;
+
+      const managedCompanyCodes = raw.managedCompanyCodes?.length
+        ? raw.managedCompanyCodes
+        : preMatch?.managedCompanyCodes || [];
+      const managedAreaCodes = raw.managedAreaCodes?.length
+        ? raw.managedAreaCodes
+        : preMatch?.managedAreaCodes || [];
+      const managedUnitCodes = raw.managedUnitCodes?.length
+        ? raw.managedUnitCodes
+        : preMatch?.managedUnitCodes || [];
+
+      setProfileError(null);
+      setCurrentUser({
+        ...raw,
+        id: docId,
+        role: resolvedRole,
+        managedCompanyCodes,
+        managedAreaCodes,
+        managedUnitCodes,
+      });
+      setProfileState('READY');
+    };
+
+    const applyMissing = () => {
+      if (cancelled || settled) return;
+      settled = true;
+      setProfileError(null);
+      setCurrentUser(null);
+      setProfileState('MISSING');
+    };
+
+    const applyError = (err: unknown) => {
+      if (cancelled || settled) return;
+      settled = true;
+      const msg = formatFirestoreProfileError(err);
+      console.error('[Firestore] Không đọc được hồ sơ:', err);
+      setProfileError(msg);
+      setProfileState('ERROR');
+      showNotification(msg.split('\n')[0]);
+    };
+
+    const verifyFromServer = async () => {
+      if (cancelled || settled || serverCheckInFlight) return;
+      serverCheckInFlight = true;
+      try {
+        const serverSnap = await getDocFromServer(userRef);
+        if (cancelled || settled) return;
+        if (serverSnap.exists()) {
+          clearTimeout(timeoutId);
+          applyProfileData(serverSnap.data() as Omit<UserAccount, 'id'>, serverSnap.id);
+        } else {
+          clearTimeout(timeoutId);
+          applyMissing();
+        }
+      } catch (err) {
+        if (cancelled || settled) return;
+        clearTimeout(timeoutId);
+        applyError(err);
+      } finally {
+        serverCheckInFlight = false;
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (cancelled || settled) return;
+      settled = true;
+      setProfileError(
+        `Quá thời gian chờ phản hồi từ Firestore (${FIRESTORE_DATABASE_ID}). Hãy kiểm tra mạng, hạn mức đọc Spark hoặc Rules trên database (${FIRESTORE_DATABASE_ID}).`
+      );
+      setProfileState('ERROR');
+    }, 8000);
+
     const unsubscribe = onSnapshot(
-      doc(db, 'users', firebaseUser.uid),
+      userRef,
       (snap) => {
+        if (cancelled) return;
         if (snap.exists()) {
-          const raw = snap.data() as Omit<UserAccount, 'id'>;
-          const emailLower = (firebaseUser.email || raw.email || '').toLowerCase().trim();
-          const emailVerified = Boolean(firebaseUser.emailVerified);
-          const preMatch = emailVerified
-            ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
-              (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
-                ? ownRoleClaim
-                : undefined)
-            : undefined;
-          const rawRole: UserRole = raw.role || 'MEMBER';
-          const isSuper =
-            (emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
-            preMatch?.role === 'SUPER_ADMIN' ||
-            rawRole === 'SUPER_ADMIN';
-          const isAdmin =
-            isSuper || rawRole === 'ADMIN' || preMatch?.role === 'ADMIN';
-          const shouldAdoptPreMatch =
-            !!preMatch?.role &&
-            (rawRole === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(rawRole));
-          const resolvedRole: UserRole = isSuper
-            ? 'SUPER_ADMIN'
-            : isAdmin
-            ? 'ADMIN'
-            : shouldAdoptPreMatch
-            ? preMatch!.role
-            : rawRole;
-
-          const managedCompanyCodes =
-            raw.managedCompanyCodes?.length
-              ? raw.managedCompanyCodes
-              : preMatch?.managedCompanyCodes || [];
-          const managedAreaCodes =
-            raw.managedAreaCodes?.length
-              ? raw.managedAreaCodes
-              : preMatch?.managedAreaCodes || [];
-          const managedUnitCodes =
-            raw.managedUnitCodes?.length
-              ? raw.managedUnitCodes
-              : preMatch?.managedUnitCodes || [];
-
-          setCurrentUser({
-            ...raw,
-            id: snap.id,
-            role: resolvedRole,
-            managedCompanyCodes,
-            managedAreaCodes,
-            managedUnitCodes,
-          });
-          setProfileState('READY');
+          clearTimeout(timeoutId);
+          applyProfileData(snap.data() as Omit<UserAccount, 'id'>, snap.id);
         } else if (!snap.metadata.fromCache) {
-          setCurrentUser(null);
-          setProfileState('MISSING');
+          clearTimeout(timeoutId);
+          applyMissing();
+        } else {
+          // Bộ nhớ đệm cục bộ trả rỗng -> kiểm tra trực tiếp từ máy chủ để tránh kẹt ở UNKNOWN
+          void verifyFromServer();
         }
       },
       (err) => {
-        console.error('[Firestore] Không đọc được hồ sơ:', err);
-        showNotification(`Không đọc được hồ sơ tài khoản: ${err.message}`);
+        clearTimeout(timeoutId);
+        applyError(err);
       }
     );
-    return unsubscribe;
-  }, [firebaseUser?.uid, preAssignedRoles, ownRoleClaim, showNotification]);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      unsubscribe();
+    };
+  }, [firebaseUser?.uid, profileRetryTick, formatFirestoreProfileError, showNotification]);
 
   // Tạo hồ sơ + thành viên CHỈ KHI người dùng đăng ký qua Email (có pendingRegistrationRef với đủ Sion/KV/PIN).
   // Người dùng Google lần đầu sẽ ở mode ONBOARDING để tự chọn Sion/Khu vực & Mã PIN 6 số.
@@ -1052,7 +1150,23 @@ export default function App() {
       : currentUser.role;
 
     if (currentUser.role !== expectedRole) {
-      setCurrentUser((prev) => (prev ? { ...prev, role: expectedRole } : null));
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              role: expectedRole,
+              managedCompanyCodes: prev.managedCompanyCodes?.length
+                ? prev.managedCompanyCodes
+                : preMatch?.managedCompanyCodes || [],
+              managedAreaCodes: prev.managedAreaCodes?.length
+                ? prev.managedAreaCodes
+                : preMatch?.managedAreaCodes || [],
+              managedUnitCodes: prev.managedUnitCodes?.length
+                ? prev.managedUnitCodes
+                : preMatch?.managedUnitCodes || [],
+            }
+          : null
+      );
     }
 
     const patch: Record<string, unknown> = {};
@@ -2842,8 +2956,17 @@ export default function App() {
     return true;
   };
 
+  const handleRetryProfile = useCallback(() => {
+    setProfileError(null);
+    setProfileState('UNKNOWN');
+    setProfileRetryTick((n) => n + 1);
+  }, []);
+
   const handleLogout = () => {
     setPinUnlockedUid(null);
+    setProfileError(null);
+    setProfileState('UNKNOWN');
+    pendingRegistrationRef.current = null;
     logOutFirebase().catch((err) => console.warn('Firebase logout notice:', err));
     setActiveTab('ENTRY');
     showNotification('Đã đăng xuất tài khoản.');
@@ -3351,6 +3474,7 @@ export default function App() {
           mode={securityGateMode}
           firebaseUser={firebaseUser}
           currentUser={effectiveCurrentUser}
+          profileError={profileError}
           companies={effectiveCompanies}
           areas={effectiveAreas}
           departments={effectiveDepartments}
@@ -3361,6 +3485,7 @@ export default function App() {
           onPinUnlocked={() => {
             if (firebaseUser?.uid) setPinUnlockedUid(firebaseUser.uid);
           }}
+          onRetryProfile={handleRetryProfile}
           onLogout={handleLogout}
         />
 

@@ -49,6 +49,8 @@ export const auth = getAuth(app);
 const databaseId: string =
   ((import.meta as any).env?.VITE_FIRESTORE_DATABASE_ID as string | undefined) || '(default)';
 
+export const FIRESTORE_DATABASE_ID = databaseId;
+
 export const db = initializeFirestore(
   app,
   {
