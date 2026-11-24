@@ -26,6 +26,11 @@ import {
   isMemberInManagerCluster,
   normalizeOrgCode,
 } from './rbac';
+import {
+  sanitizeExcelCell,
+  validateExcelUploadFile,
+  sanitizeParsedSheetRows,
+} from './excelSanitizer';
 
 function getDateStamp(): string {
   const now = new Date();
@@ -90,9 +95,9 @@ export function exportSystemConfigExcel(
   // Sheet 1: Sion / Công ty
   const compRows = companies.map((c, i) => ({
     STT: i + 1,
-    'Mã Sion': c.code,
-    'Tên Sion': c.name,
-    'Mô Tả': c.description || '',
+    'Mã Sion': sanitizeExcelCell(c.code),
+    'Tên Sion': sanitizeExcelCell(c.name),
+    'Mô Tả': sanitizeExcelCell(c.description || ''),
     'Trạng Thái': c.active ? 'Hoạt động' : 'Tạm ngưng',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(compRows), 'Sion - Công Ty');
@@ -100,9 +105,9 @@ export function exportSystemConfigExcel(
   // Sheet 2: Khu vực
   const areaRows = areas.map((a, i) => ({
     STT: i + 1,
-    'Mã Khu Vực': a.code,
-    'Tên Khu Vực': a.name,
-    'Mã Sion Trực Thuộc': a.companyCode,
+    'Mã Khu Vực': sanitizeExcelCell(a.code),
+    'Tên Khu Vực': sanitizeExcelCell(a.name),
+    'Mã Sion Trực Thuộc': sanitizeExcelCell(a.companyCode),
     'Trạng Thái': a.active ? 'Hoạt động' : 'Tạm ngưng',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(areaRows), 'Khu Vực');
@@ -110,8 +115,8 @@ export function exportSystemConfigExcel(
   // Sheet 3: Ban ngành
   const deptRows = departments.map((d, i) => ({
     STT: i + 1,
-    'Mã Ban Ngành': d.code,
-    'Tên Ban Ngành': d.name,
+    'Mã Ban Ngành': sanitizeExcelCell(d.code),
+    'Tên Ban Ngành': sanitizeExcelCell(d.name),
     'Trạng Thái': d.active ? 'Hoạt động' : 'Tạm ngưng',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deptRows), 'Ban Ngành');
@@ -191,16 +196,16 @@ export function exportMembersAndTargetsExcel(
 
     return {
       STT: i + 1,
-      'Mã TV': m.code,
-      'Họ và Tên': m.fullName,
-      Username: linkedUser?.username || '',
-      Email: linkedUser?.email || '',
-      'Vai Trò (7 cấp)': roleMeta?.label || 'Thành viên (TĐ)',
-      'Phạm Vi Quản Lý': formatUserManagedScope(linkedUser),
-      Sion: m.companyCode,
-      'Khu Vực': m.areaCode,
-      'Ban Ngành': m.departmentCode,
-      'Đội / Uni': m.unitCode || linkedUser?.unitCode || '',
+      'Mã TV': sanitizeExcelCell(m.code),
+      'Họ và Tên': sanitizeExcelCell(m.fullName),
+      Username: sanitizeExcelCell(linkedUser?.username || ''),
+      Email: sanitizeExcelCell(linkedUser?.email || ''),
+      'Vai Trò (7 cấp)': sanitizeExcelCell(roleMeta?.label || 'Thành viên (TĐ)'),
+      'Phạm Vi Quản Lý': sanitizeExcelCell(formatUserManagedScope(linkedUser)),
+      Sion: sanitizeExcelCell(m.companyCode),
+      'Khu Vực': sanitizeExcelCell(m.areaCode),
+      'Ban Ngành': sanitizeExcelCell(m.departmentCode),
+      'Đội / Uni': sanitizeExcelCell(m.unitCode || linkedUser?.unitCode || ''),
       Hạng: m.rank || i + 1,
       'Tổng Điểm': m.score || 0,
       KN: dr?.kn || 0,
@@ -213,7 +218,7 @@ export function exportMembersAndTargetsExcel(
       'MĐ Đang Theo': dStats.active,
       'Tổng MĐ': dStats.total,
       'Trạng Thái': m.active ? 'Hoạt động' : 'Tạm ngưng',
-      'Ngày Tham Gia': m.createdAt || '',
+      'Ngày Tham Gia': sanitizeExcelCell(m.createdAt || ''),
     };
   });
   XLSX.utils.book_append_sheet(
@@ -281,8 +286,8 @@ export function exportMembersAndTargetsExcel(
     .sort((a, b) => b.totalScore - a.totalScore)
     .map((g, idx) => ({
       STT: idx + 1,
-      Sion: g.companyCode,
-      'Khu Vực': g.areaCode,
+      Sion: sanitizeExcelCell(g.companyCode),
+      'Khu Vực': sanitizeExcelCell(g.areaCode),
       'Số Thành Viên': g.count,
       'Tổng Điểm': g.totalScore,
       'Điểm TB': g.count > 0 ? Math.round(g.totalScore / g.count) : 0,
@@ -428,10 +433,10 @@ export function exportDisciplesExcel(
 
   const summaryRows = Array.from(ownerMap.values()).map((g, idx) => ({
     STT: idx + 1,
-    Sion: g.companyCode,
-    'Khu Vực': g.areaCode,
-    'Đội / Uni': g.unitCode,
-    'Người Phụ Trách': g.ownerName,
+    Sion: sanitizeExcelCell(g.companyCode),
+    'Khu Vực': sanitizeExcelCell(g.areaCode),
+    'Đội / Uni': sanitizeExcelCell(g.unitCode),
+    'Người Phụ Trách': sanitizeExcelCell(g.ownerName),
     'Tổng MĐ': g.total,
     'Đang Theo': g.active,
     'Đã Dừng': g.stopped,
@@ -470,12 +475,12 @@ export function exportDisciplesExcel(
 
     return {
       STT: idx + 1,
-      'Biệt Danh MĐ': d.nickname,
-      'Độ Tuổi': ageLabel,
-      'Công Việc': d.job || '',
-      'Đặc Điểm': d.traits || '',
+      'Biệt Danh MĐ': sanitizeExcelCell(d.nickname),
+      'Độ Tuổi': sanitizeExcelCell(ageLabel),
+      'Công Việc': sanitizeExcelCell(d.job || ''),
+      'Đặc Điểm': sanitizeExcelCell(d.traits || ''),
       'Trạng Thái': stopped ? 'Đã dừng' : 'Đang theo',
-      'Bước Cao Nhất': highestStep,
+      'Bước Cao Nhất': sanitizeExcelCell(highestStep),
       KN: progressArr.includes('KN') ? 'X' : '',
       Thăm: progressArr.includes('Thăm') ? 'X' : '',
       'Ăn Cơm': progressArr.includes('Ăn Cơm') ? 'X' : '',
@@ -485,12 +490,12 @@ export function exportDisciplesExcel(
       KT: progressArr.includes('KT') ? 'X' : '',
       WS: progressArr.includes('WS') ? 'X' : '',
       Dừng: stopped ? 'X' : '',
-      'Ghi Chú Chăm Sóc': d.statusNote || '',
-      'Người Phụ Trách': d.ownerName || '',
-      Sion: d.companyCode || '',
-      'Khu Vực': d.areaCode || '',
-      'Đội / Uni': d.ownerUnitCode || '',
-      'Ngày Cập Nhật': (d.updatedAt || d.createdAt || '').slice(0, 10),
+      'Ghi Chú Chăm Sóc': sanitizeExcelCell(d.statusNote || ''),
+      'Người Phụ Trách': sanitizeExcelCell(d.ownerName || ''),
+      Sion: sanitizeExcelCell(d.companyCode || ''),
+      'Khu Vực': sanitizeExcelCell(d.areaCode || ''),
+      'Đội / Uni': sanitizeExcelCell(d.ownerUnitCode || ''),
+      'Ngày Cập Nhật': sanitizeExcelCell((d.updatedAt || d.createdAt || '').slice(0, 10)),
     };
   });
   XLSX.utils.book_append_sheet(
@@ -588,19 +593,19 @@ export function exportEduDataExcel(
   // Sheet 1: LMS Chủ Đề Tuần
   const topicRows = filteredTopics.map((t, idx) => ({
     STT: idx + 1,
-    Tuần: t.weekLabel,
-    'Từ Ngày': t.startDate,
-    'Đến Ngày': t.endDate,
-    'Lộ Trình': EDU_TRACK_LABELS[t.track] || t.track,
-    Sion: t.companyCode === 'ALL' ? 'Toàn hệ thống' : t.companyCode,
-    'Khu Vực': t.areaCode === 'ALL' ? 'Tất cả KV' : t.areaCode,
-    'Tên Chủ Đề': t.topicTitle,
-    'Tóm Tắt': t.summary || '',
-    'Mục Tiêu Bài Học': t.learningObjectives || '',
-    'Nội Dung Giáo Trình': t.curriculumContent || '',
-    'Tài Liệu Tham Khảo': t.referenceLinks || '',
-    'Người Tạo': t.createdBy || '',
-    'Cập Nhật': (t.updatedAt || '').slice(0, 10),
+    Tuần: sanitizeExcelCell(t.weekLabel),
+    'Từ Ngày': sanitizeExcelCell(t.startDate),
+    'Đến Ngày': sanitizeExcelCell(t.endDate),
+    'Lộ Trình': sanitizeExcelCell(EDU_TRACK_LABELS[t.track] || t.track),
+    Sion: sanitizeExcelCell(t.companyCode === 'ALL' ? 'Toàn hệ thống' : t.companyCode),
+    'Khu Vực': sanitizeExcelCell(t.areaCode === 'ALL' ? 'Tất cả KV' : t.areaCode),
+    'Tên Chủ Đề': sanitizeExcelCell(t.topicTitle),
+    'Tóm Tắt': sanitizeExcelCell(t.summary || ''),
+    'Mục Tiêu Bài Học': sanitizeExcelCell(t.learningObjectives || ''),
+    'Nội Dung Giáo Trình': sanitizeExcelCell(t.curriculumContent || ''),
+    'Tài Liệu Tham Khảo': sanitizeExcelCell(t.referenceLinks || ''),
+    'Người Tạo': sanitizeExcelCell(t.createdBy || ''),
+    'Cập Nhật': sanitizeExcelCell((t.updatedAt || '').slice(0, 10)),
   }));
   XLSX.utils.book_append_sheet(
     wb,
@@ -613,16 +618,16 @@ export function exportEduDataExcel(
   // Sheet 2: LMS Phân Công TĐ
   const assignRows = filteredAssignments.map((a, idx) => ({
     STT: idx + 1,
-    Tuần: a.weekLabel,
-    'Lộ Trình': EDU_TRACK_LABELS[a.track] || a.track,
-    'Chủ Đề': a.topicTitle,
-    Sion: a.companyCode,
-    'Khu Vực': a.areaCode,
-    'Tên TĐ': a.studentName,
-    'Trạng Thái': EDU_ASSIGNMENT_STATUS_LABELS[a.status] || a.status,
-    'Người Gán': a.assignedByName,
-    'Ghi Chú': a.note || '',
-    'Cập Nhật': (a.updatedAt || '').slice(0, 10),
+    Tuần: sanitizeExcelCell(a.weekLabel),
+    'Lộ Trình': sanitizeExcelCell(EDU_TRACK_LABELS[a.track] || a.track),
+    'Chủ Đề': sanitizeExcelCell(a.topicTitle),
+    Sion: sanitizeExcelCell(a.companyCode),
+    'Khu Vực': sanitizeExcelCell(a.areaCode),
+    'Tên TĐ': sanitizeExcelCell(a.studentName),
+    'Trạng Thái': sanitizeExcelCell(EDU_ASSIGNMENT_STATUS_LABELS[a.status] || a.status),
+    'Người Gán': sanitizeExcelCell(a.assignedByName),
+    'Ghi Chú': sanitizeExcelCell(a.note || ''),
+    'Cập Nhật': sanitizeExcelCell((a.updatedAt || '').slice(0, 10)),
   }));
   XLSX.utils.book_append_sheet(
     wb,
@@ -635,15 +640,15 @@ export function exportEduDataExcel(
   // Sheet 3: CMS Lộ Trình & NGV
   const cmsRows = filteredCms.map((c, idx) => ({
     STT: idx + 1,
-    'Họ và Tên': c.fullName,
-    Sion: c.companyCode,
-    'Khu Vực': c.areaCode,
-    'Cấp Độ': EDU_CMS_STAGE_LABELS[c.stage] || c.stage,
-    'NGV Phụ Trách': c.ngvName || '',
-    'Chuyên Môn / Lĩnh Vực': c.specialty || '',
-    'Chủ Đề Hiện Tại': c.currentTopicTitle || '',
-    'Ghi Chú': c.note || '',
-    'Cập Nhật': (c.updatedAt || '').slice(0, 10),
+    'Họ và Tên': sanitizeExcelCell(c.fullName),
+    Sion: sanitizeExcelCell(c.companyCode),
+    'Khu Vực': sanitizeExcelCell(c.areaCode),
+    'Cấp Độ': sanitizeExcelCell(EDU_CMS_STAGE_LABELS[c.stage] || c.stage),
+    'NGV Phụ Trách': sanitizeExcelCell(c.ngvName || ''),
+    'Chuyên Môn / Lĩnh Vực': sanitizeExcelCell(c.specialty || ''),
+    'Chủ Đề Hiện Tại': sanitizeExcelCell(c.currentTopicTitle || ''),
+    'Ghi Chú': sanitizeExcelCell(c.note || ''),
+    'Cập Nhật': sanitizeExcelCell((c.updatedAt || '').slice(0, 10)),
   }));
   XLSX.utils.book_append_sheet(
     wb,
@@ -755,9 +760,10 @@ export async function parseConfigExcel(file: File): Promise<{
   departments: Department[];
   errors: string[];
 }> {
+  validateExcelUploadFile(file);
   const errors: string[] = [];
   const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: 'array' });
+  const wb = XLSX.read(buffer, { type: 'array', cellFormula: false, cellHTML: false });
 
   const parsedCompanies: Company[] = [];
   const parsedAreas: Area[] = [];
@@ -767,7 +773,7 @@ export async function parseConfigExcel(file: File): Promise<{
   const compSheetName =
     wb.SheetNames.find((s) => /sion|công ty|companies|cty/i.test(s)) || wb.SheetNames[0];
   if (compSheetName && wb.Sheets[compSheetName]) {
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[compSheetName]);
+    const rows = sanitizeParsedSheetRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[compSheetName]));
     rows.forEach((r, idx) => {
       const code = String(
         r['Mã Sion'] || r['Ma Sion'] || r['Mã Công Ty'] || r['Ma Cong Ty'] || r['code'] || r['Code'] || ''
@@ -799,7 +805,7 @@ export async function parseConfigExcel(file: File): Promise<{
   // 2. Sheet Khu vực
   const areaSheetName = wb.SheetNames.find((s) => /khu vực|areas|kv/i.test(s));
   if (areaSheetName && wb.Sheets[areaSheetName]) {
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[areaSheetName]);
+    const rows = sanitizeParsedSheetRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[areaSheetName]));
     rows.forEach((r, idx) => {
       const code = String(
         r['Mã Khu Vực'] || r['Ma Khu Vuc'] || r['code'] || r['Code'] || ''
@@ -836,7 +842,7 @@ export async function parseConfigExcel(file: File): Promise<{
   // 3. Sheet Ban ngành
   const deptSheetName = wb.SheetNames.find((s) => /ban ngành|departments|ngành/i.test(s));
   if (deptSheetName && wb.Sheets[deptSheetName]) {
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[deptSheetName]);
+    const rows = sanitizeParsedSheetRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[deptSheetName]));
     rows.forEach((r, idx) => {
       const code = String(r['Mã Ban Ngành'] || r['Ma Ban Nganh'] || r['code'] || '').trim();
       const name = String(r['Tên Ban Ngành'] || r['Ten Ban Nganh'] || r['name'] || code).trim();
@@ -873,16 +879,17 @@ export async function parseMembersExcel(file: File): Promise<{
   members: Member[];
   errors: string[];
 }> {
+  validateExcelUploadFile(file);
   const errors: string[] = [];
   const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: 'array' });
+  const wb = XLSX.read(buffer, { type: 'array', cellFormula: false, cellHTML: false });
 
   const parsedMembers: Member[] = [];
   const memSheetName =
     wb.SheetNames.find((s) => /thành viên|hồ sơ|members|nhân sự/i.test(s)) || wb.SheetNames[0];
 
   if (memSheetName && wb.Sheets[memSheetName]) {
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[memSheetName]);
+    const rows = sanitizeParsedSheetRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[memSheetName]));
     rows.forEach((r, idx) => {
       const fullName = String(
         r['Họ và Tên'] || r['Họ Tên'] || r['fullName'] || r['Name'] || ''

@@ -838,7 +838,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               const areasForDraftCompany = areas.filter(
                 (a) => a.companyCode === draft.companyCode && a.active !== false
               );
-              const roleChoices = ROLE_ORDER.filter((r) => isSuperAdmin || r !== 'SUPER_ADMIN');
+              const roleChoices = ROLE_ORDER.filter((r) => isSuperAdmin || getRoleLevel(r) <= 5);
               return (
                 <div
                   key={u.id}
