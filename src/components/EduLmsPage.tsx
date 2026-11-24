@@ -34,6 +34,7 @@ import {
   canModifyEduRecord,
   canViewEduRecord,
   canViewMemberDetail,
+  formatAreaDisplayName,
   isAdminRole,
 } from '../utils/rbac';
 
@@ -1060,7 +1061,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                       .filter((a) => a.companyCode === tCompanyCode)
                       .map((a) => ({
                         value: a.code,
-                        label: `KV ${a.code} — ${a.name}`,
+                        label: formatAreaDisplayName(a.code, a.name),
                         badge: a.code,
                       })),
                   ]}
@@ -1192,7 +1193,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                     onChange={setAAreaCode}
                     options={areaOptionsForAssign.map((a) => ({
                       value: a.code,
-                      label: `KV ${a.code} (${a.name})`,
+                      label: formatAreaDisplayName(a.code, a.name),
                       badge: a.code,
                     }))}
                     ariaLabel="Chọn Khu vực"

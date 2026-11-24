@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, BarChart3, MapPin, Users, Trophy } from 'lucide-react';
 import { AreaRankItem } from '../types/edulms';
+import { formatAreaDisplayName } from '../utils/rbac';
 
 interface RegionalDetailModalProps {
   isOpen: boolean;
@@ -86,7 +87,9 @@ export const RegionalDetailModal: React.FC<RegionalDetailModalProps> = ({
                         className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: area.color || '#3b82f6' }}
                       />
-                      <span className="font-bold text-slate-900">{area.areaName}</span>
+                      <span className="font-bold text-slate-900">
+                        {formatAreaDisplayName(area.areaCode, area.areaName)}
+                      </span>
                     </div>
                   </td>
                   <td className="py-3 px-3 font-semibold text-slate-700">{area.companyCode}</td>

@@ -1008,7 +1008,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                     options={areaOptions.map((a) => ({
                       value: a.code,
                       label: `KV ${a.code}`,
-                      description: a.name,
+                      description: a.name && a.name !== a.code ? a.name : undefined,
                     }))}
                     menuMinWidth={180}
                     ariaLabel="Chọn Khu vực"

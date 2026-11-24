@@ -22,6 +22,23 @@ export interface Area {
   active: boolean;
 }
 
+export interface OrgCluster {
+  id: string;
+  code: string; // TH1, ELI, HBC, PER, YSAC
+  name: string; // TH1, ÊLI, HBC, PER, YSAC
+  companyCodes: string[]; // Danh sách mã Sion thuộc cụm
+  isCatchAll?: boolean; // Cụm "Còn lại" (tự động bao gồm các Sion chưa thuộc cụm khác)
+  description?: string;
+  active?: boolean;
+}
+
+export interface SystemClustersConfig {
+  id?: string;
+  clusters: OrgCluster[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface Department {
   id: string;
   code: string;
@@ -241,6 +258,7 @@ export interface RoleAssignment {
   grantedBy: string;
   grantedAt: string;
   note?: string;
+  managedClusterIds?: string[];
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
   managedUnitCodes?: string[];
@@ -283,6 +301,7 @@ export interface UserAccount {
   areaCode: string;
   departmentCode: string;
   unitCode?: string; // Đội / Uni cá nhân
+  managedClusterIds?: string[];
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
   managedUnitCodes?: string[];
