@@ -26,16 +26,12 @@ import {
   isValidPersonalPin,
   sanitizePinInput,
 } from '../utils/pinSecurity';
+import { cleanRawAreaCode, normalizeOrgCode } from '../utils/rbac';
 import {
   INITIAL_COMPANIES,
   INITIAL_AREAS,
   INITIAL_DEPARTMENTS,
 } from '../data/competitionStore';
-import {
-  cleanRawAreaCode,
-  formatAreaDisplayName,
-  normalizeOrgCode,
-} from '../utils/rbac';
 
 export interface RegistrationData {
   fullName: string;
@@ -44,6 +40,8 @@ export interface RegistrationData {
   password: string;
   companyCode: string;
   areaCode: string;
+  areaName?: string;
+  isNewArea?: boolean;
   departmentCode: string;
   unitCode?: string;
   pin: string;
@@ -89,8 +87,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regCompany, setRegCompany] = useState(effectiveCompanies[0]?.code || 'Th1');
-  const [regArea, setRegArea] = useState('');
-  const [isCustomRegArea, setIsCustomRegArea] = useState(false);
+  const [regArea, setRegArea] = useState(effectiveAreas[0]?.code || '1.1');
+  const [isCreatingNewArea, setIsCreatingNewArea] = useState(false);
+  const [regNewAreaCode, setRegNewAreaCode] = useState('');
+  const [regNewAreaName, setRegNewAreaName] = useState('');
   const [regDept, setRegDept] = useState(effectiveDepartments[0]?.code || 'Thanh Niên Nam');
   const [regUnitCode, setRegUnitCode] = useState('');
   const [regPin, setRegPin] = useState('');
@@ -107,37 +107,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [isOpen, initialMode]);
 
-  const areasForRegCompany = React.useMemo(() => {
-    const targetComp = normalizeOrgCode(regCompany);
-    return effectiveAreas.filter(
-      (a) => normalizeOrgCode(a.companyCode) === targetComp && a.active !== false
-    );
-  }, [effectiveAreas, regCompany]);
+  const areasForRegCompany = React.useMemo(
+    () =>
+      effectiveAreas.filter(
+        (a) =>
+          normalizeOrgCode(a.companyCode) === normalizeOrgCode(regCompany) &&
+          a.active !== false
+      ),
+    [effectiveAreas, regCompany]
+  );
 
   React.useEffect(() => {
-    if (
-      effectiveCompanies.length > 0 &&
-      !effectiveCompanies.some((c) => normalizeOrgCode(c.code) === normalizeOrgCode(regCompany))
-    ) {
+    if (effectiveCompanies.length > 0 && !effectiveCompanies.some((c) => c.code === regCompany)) {
       setRegCompany(effectiveCompanies[0].code);
     }
   }, [effectiveCompanies]);
 
   React.useEffect(() => {
     if (areasForRegCompany.length > 0) {
-      if (!isCustomRegArea) {
-        const matched = areasForRegCompany.find(
-          (a) => normalizeOrgCode(a.code) === normalizeOrgCode(regArea)
-        );
-        if (!matched) {
-          setRegArea(areasForRegCompany[0].code);
-        }
+      if (!areasForRegCompany.some((a) => a.code === regArea)) {
+        setRegArea(areasForRegCompany[0].code);
       }
     } else {
-      setIsCustomRegArea(true);
-      if (effectiveAreas.some((a) => normalizeOrgCode(a.code) === normalizeOrgCode(regArea))) {
-        setRegArea('');
-      }
+      setRegArea('');
     }
   }, [areasForRegCompany, regCompany]);
 
@@ -222,9 +214,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setAuthError('Mật khẩu phải có tối thiểu 6 ký tự.');
       return;
     }
-    const cleanArea = cleanRawAreaCode(regArea);
+    const creatingAreaMode = isCreatingNewArea || areasForRegCompany.length === 0;
+    const rawAreaInput = creatingAreaMode ? regNewAreaCode : regArea;
+    const cleanArea = cleanRawAreaCode(rawAreaInput);
+
     if (!regCompany.trim() || !cleanArea) {
-      setAuthError('Vui lòng chọn Sion / Công ty và nhập mã Khu vực.');
+      setAuthError(
+        creatingAreaMode
+          ? 'Vui lòng nhập mã Khu vực mới.'
+          : 'Vui lòng chọn đầy đủ Sion / Công ty và Khu vực.'
+      );
+      return;
+    }
+    if (cleanArea.length > 30) {
+      setAuthError('Mã Khu vực tối đa 30 ký tự.');
       return;
     }
     if (!isValidPersonalPin(regPin)) {
@@ -236,6 +239,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    const matchedExistingArea = areasForRegCompany.find(
+      (a) => normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
+    );
+    const resolvedAreaCode = matchedExistingArea ? matchedExistingArea.code : cleanArea;
+    const resolvedAreaName = matchedExistingArea
+      ? matchedExistingArea.name
+      : (regNewAreaName.trim().slice(0, 80) || `Khu vực ${cleanArea}`);
+
     try {
       setIsSubmitting(true);
       // Pre-validate hashing capability
@@ -246,7 +257,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         email: regEmail.trim(),
         password: regPassword,
         companyCode: regCompany,
-        areaCode: cleanArea,
+        areaCode: resolvedAreaCode,
+        areaName: resolvedAreaName,
+        isNewArea: !matchedExistingArea,
         departmentCode: regDept,
         unitCode: regUnitCode.trim() || undefined,
         pin: regPin,
@@ -254,6 +267,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setRegPassword('');
       setRegPin('');
       setRegPinConfirm('');
+      setIsCreatingNewArea(false);
+      setRegNewAreaCode('');
+      setRegNewAreaName('');
       onClose();
     } catch (err: any) {
       setAuthError(describeAuthError(err));
@@ -536,9 +552,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </label>
                   <CustomSelect
                     value={regCompany}
-                    onChange={(nextComp) => {
-                      setRegCompany(nextComp);
-                      setIsCustomRegArea(false);
+                    onChange={(val) => {
+                      setRegCompany(val);
+                      setIsCreatingNewArea(false);
                     }}
                     size="sm"
                     leadingIcon={<Building2 className="w-3.5 h-3.5" />}
@@ -552,30 +568,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
-                    <span>Khu vực *</span>
-                    {isCustomRegArea && areasForRegCompany.length > 0 && (
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Khu vực *
+                    </label>
+                    {areasForRegCompany.length > 0 && (
                       <button
                         type="button"
                         onClick={() => {
-                          setIsCustomRegArea(false);
-                          setRegArea(areasForRegCompany[0]?.code || '');
+                          setIsCreatingNewArea((prev) => !prev);
+                          setAuthError('');
                         }}
-                        className="text-[10px] text-blue-600 hover:underline font-semibold cursor-pointer"
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
                       >
-                        Chọn có sẵn
+                        {isCreatingNewArea ? 'Chọn có sẵn' : '+ Tạo mới'}
                       </button>
                     )}
-                  </label>
-                  {areasForRegCompany.length > 0 && !isCustomRegArea ? (
+                  </div>
+                  {!isCreatingNewArea && areasForRegCompany.length > 0 ? (
                     <CustomSelect
                       value={regArea}
                       onChange={(val) => {
-                        if (val === '__NEW__') {
-                          setIsCustomRegArea(true);
-                          setRegArea('');
+                        if (val === '__CREATE_NEW_AREA__') {
+                          setIsCreatingNewArea(true);
+                          setRegNewAreaCode('');
+                          setRegNewAreaName('');
                         } else {
-                          setIsCustomRegArea(false);
                           setRegArea(val);
                         }
                       }}
@@ -584,12 +602,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       options={[
                         ...areasForRegCompany.map((a) => ({
                           value: a.code,
-                          label: formatAreaDisplayName(a.code, a.name),
+                          label: a.name || `Khu vực ${a.code}`,
                           badge: a.code,
                         })),
                         {
-                          value: '__NEW__',
-                          label: '+ Nhập Khu vực mới...',
+                          value: '__CREATE_NEW_AREA__',
+                          label: '+ Tạo khu vực mới...',
+                          description: 'Nhập mã/tên nếu chưa có trong danh sách',
                         },
                       ]}
                       ariaLabel="Chọn Khu vực"
@@ -597,15 +616,47 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   ) : (
                     <input
                       type="text"
-                      value={regArea}
-                      onChange={(e) => setRegArea(e.target.value)}
-                      placeholder="Chỉ nhập số/mã (VD: 1.1)"
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900"
+                      maxLength={30}
+                      value={regNewAreaCode}
+                      onChange={(e) => setRegNewAreaCode(e.target.value)}
+                      placeholder="Nhập mã KV mới (VD: 1.5)"
+                      className="w-full px-3 py-2 bg-slate-50 border border-blue-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20"
                       required
                     />
                   )}
                 </div>
               </div>
+
+              {(isCreatingNewArea || areasForRegCompany.length === 0) && (
+                <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/80 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-[11px] font-bold text-blue-900">
+                      Tên hiển thị Khu vực mới (tuỳ chọn)
+                    </label>
+                    <span className="text-[10px] text-blue-700 font-semibold">
+                      Sion {regCompany}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={80}
+                    value={regNewAreaName}
+                    onChange={(e) => setRegNewAreaName(e.target.value)}
+                    placeholder={`VD: Khu vực ${cleanRawAreaCode(regNewAreaCode) || '1.5'} (để trống sẽ tự đặt)`}
+                    className="w-full px-3 py-1.5 bg-white border border-blue-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  {cleanRawAreaCode(regNewAreaCode) &&
+                    areasForRegCompany.some(
+                      (a) =>
+                        normalizeOrgCode(cleanRawAreaCode(a.code)) ===
+                        normalizeOrgCode(cleanRawAreaCode(regNewAreaCode))
+                    ) && (
+                      <p className="text-[10px] text-amber-700 font-semibold">
+                        Mã khu vực này đã tồn tại trong Sion {regCompany} — hệ thống sẽ tự chọn khu vực sẵn có.
+                      </p>
+                    )}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>

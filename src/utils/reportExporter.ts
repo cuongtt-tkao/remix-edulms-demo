@@ -14,9 +14,7 @@ import {
   canAccessMemberReportOverview,
   isAdminRole,
   normalizeOrgCode,
-  parseAreaScopeEntry,
 } from './rbac';
-import { sanitizeExcelCell } from './excelSanitizer';
 
 export type DailyReportExportPeriod = 'DAY' | 'MONTH' | 'YEAR' | 'ALL';
 
@@ -90,16 +88,7 @@ export function exportDailyReportsByRbacExcel(
       if (normalizeOrgCode(companyCode) !== normalizeOrgCode(opts.filterCompanyCode)) return false;
     }
     if (opts.filterAreaCode && opts.filterAreaCode !== 'ALL') {
-      const parsedArea = parseAreaScopeEntry(opts.filterAreaCode);
-      if (
-        parsedArea.hasCompanyPrefix &&
-        normalizeOrgCode(companyCode) !== parsedArea.companyCode
-      ) {
-        return false;
-      }
-      if (parsedArea.areaCode && normalizeOrgCode(areaCode) !== parsedArea.areaCode) {
-        return false;
-      }
+      if (normalizeOrgCode(areaCode) !== normalizeOrgCode(opts.filterAreaCode)) return false;
     }
     return true;
   };
@@ -182,10 +171,10 @@ export function exportDailyReportsByRbacExcel(
     .sort((a, b) => b.totalScore - a.totalScore || b.daysCount - a.daysCount)
     .map((entry, idx) => ({
       STT: idx + 1,
-      'Họ và Tên': sanitizeExcelCell(entry.member.fullName),
-      Sion: sanitizeExcelCell(entry.member.companyCode),
-      'Khu vực': sanitizeExcelCell(entry.member.areaCode),
-      'Đội / Uni': sanitizeExcelCell(entry.member.unitCode || entry.member.departmentCode || ''),
+      'Họ và Tên': entry.member.fullName,
+      Sion: entry.member.companyCode,
+      'Khu vực': entry.member.areaCode,
+      'Đội / Uni': entry.member.unitCode || entry.member.departmentCode || '',
       'Số ngày nhập': entry.daysCount,
       ...Object.fromEntries(DAILY_METRIC_DEFINITIONS.map((m) => [m.label, entry.sums[m.key]])),
       'Tổng điểm quy đổi': entry.totalScore,
@@ -217,7 +206,7 @@ export function exportDailyReportsByRbacExcel(
       const mem = memberById.get(mId);
       const comp = mem?.companyCode || viewer.companyCode || '';
       const area = mem?.areaCode || viewer.areaCode || '';
-      const key = `${normalizeOrgCode(comp)}__${normalizeOrgCode(area)}`;
+      const key = `${comp}__${area}`;
       const bucket = unitMap.get(key) || {
         companyCode: comp,
         areaCode: area,
@@ -235,8 +224,8 @@ export function exportDailyReportsByRbacExcel(
         const sums = sumDailyReportMetrics(g.reports);
         return {
           STT: idx + 1,
-          Sion: sanitizeExcelCell(g.companyCode),
-          'Khu vực': sanitizeExcelCell(g.areaCode),
+          Sion: g.companyCode,
+          'Khu vực': g.areaCode,
           'Số thành viên': g.memberSet.size,
           'Số ngày báo cáo': g.reports.length,
           ...Object.fromEntries(DAILY_METRIC_DEFINITIONS.map((m) => [m.label, sums[m.key]])),
@@ -256,15 +245,14 @@ export function exportDailyReportsByRbacExcel(
       const mId = r.memberId || `m-${r.uid}`;
       const mem = memberById.get(mId);
       return {
-        Ngày: sanitizeExcelCell(r.date),
-        'Họ và Tên': sanitizeExcelCell(mem?.fullName || (r.uid === viewer.id ? viewer.fullName : mId)),
-        Sion: sanitizeExcelCell(mem?.companyCode || (r.uid === viewer.id ? viewer.companyCode : '')),
-        'Khu vực': sanitizeExcelCell(mem?.areaCode || (r.uid === viewer.id ? viewer.areaCode : '')),
-        'Đội / Uni': sanitizeExcelCell(
+        Ngày: r.date,
+        'Họ và Tên': mem?.fullName || (r.uid === viewer.id ? viewer.fullName : mId),
+        Sion: mem?.companyCode || (r.uid === viewer.id ? viewer.companyCode : ''),
+        'Khu vực': mem?.areaCode || (r.uid === viewer.id ? viewer.areaCode : ''),
+        'Đội / Uni':
           mem?.unitCode ||
-            mem?.departmentCode ||
-            (r.uid === viewer.id ? viewer.unitCode || viewer.departmentCode : '')
-        ),
+          mem?.departmentCode ||
+          (r.uid === viewer.id ? viewer.unitCode || viewer.departmentCode : ''),
         ...Object.fromEntries(
           DAILY_METRIC_DEFINITIONS.map((m) => [`KQ ${m.label}`, r.results?.[m.key] || 0])
         ),
@@ -307,11 +295,11 @@ export function exportCompetitionToExcel(
   // 1. Sheet Cá Nhân
   const memberRows = members.map((m, idx) => ({
     'Thứ Hạng': m.rank || idx + 1,
-    'Mã TV': sanitizeExcelCell(m.code),
-    'Họ và Tên': sanitizeExcelCell(m.fullName),
-    'Công Ty': sanitizeExcelCell(m.companyCode),
-    'Khu Vực': sanitizeExcelCell(m.areaCode),
-    'Ban Ngành': sanitizeExcelCell(m.departmentCode),
+    'Mã TV': m.code,
+    'Họ và Tên': m.fullName,
+    'Công Ty': m.companyCode,
+    'Khu Vực': m.areaCode,
+    'Ban Ngành': m.departmentCode,
     'Tổng Điểm': m.score,
     'Số Đối Tượng': m.targets?.length || 0,
     'B1 (Kết bạn)': m.results?.s1 || 0,
@@ -328,8 +316,8 @@ export function exportCompetitionToExcel(
   // 2. Sheet Công Ty
   const companyRows = companyRankings.map((c) => ({
     'Hạng': c.rank,
-    'Mã Cty': sanitizeExcelCell(c.companyCode),
-    'Tên Công Ty': sanitizeExcelCell(c.companyName),
+    'Mã Cty': c.companyCode,
+    'Tên Công Ty': c.companyName,
     'Số Thành Viên': c.activeMembersCount,
     'Điểm Trung Bình / TV': c.averageScore,
     'Tổng Điểm Cty': c.totalScore,
@@ -340,9 +328,9 @@ export function exportCompetitionToExcel(
   // 3. Sheet Khu Vực
   const areaRows = areaRankings.map((a) => ({
     'Hạng': a.rank,
-    'Mã Khu Vực': sanitizeExcelCell(a.areaCode),
-    'Tên Khu Vực': sanitizeExcelCell(a.areaName),
-    'Trực Thuộc Cty': sanitizeExcelCell(a.companyCode),
+    'Mã Khu Vực': a.areaCode,
+    'Tên Khu Vực': a.areaName,
+    'Trực Thuộc Cty': a.companyCode,
     'Số Thành Viên': a.activeMembersCount,
     'Điểm Trung Bình / TV': a.averageScore,
     'Tổng Điểm KV': a.totalScore,

@@ -117,28 +117,21 @@
         "title": { "type": "string", "maxLength": 150 },
         "description": { "type": "string", "maxLength": 1000 },
         "rulesText": { "type": "string", "maxLength": 3000 },
-        "bannerUrl": { "type": "string", "maxLength": 300000 },
         "startDate": { "type": "string", "maxLength": 15 },
         "endDate": { "type": "string", "maxLength": 15 },
         "isActive": { "type": "boolean" },
         "isPinned": { "type": "boolean" },
         "restrictParticipants": { "type": "boolean" },
         "participantIds": { "type": "array" },
-        "weights": { "type": "object" },
-        "createdBy": { "type": "string", "maxLength": 100 },
-        "createdAt": { "type": "string", "maxLength": 50 },
-        "updatedAt": { "type": "string", "maxLength": 50 }
+        "weights": { "type": "object" }
       },
       "required": ["title", "startDate", "endDate", "isActive"]
     },
     "SystemConfig": {
       "title": "SystemConfig",
-      "description": "Shared system configuration docs (roles, banner, scoring, appearance, security, vocabulary)",
+      "description": "Shared system configuration docs (roles, banner, scoring, appearance)",
       "type": "object",
       "properties": {
-        "superAdmins": { "type": "array" },
-        "admins": { "type": "array" },
-        "assignments": { "type": "array" },
         "weights": { "type": "object" },
         "fontKey": { "type": "string", "maxLength": 40 },
         "fontScale": { "type": "string", "enum": ["SM", "MD", "LG"] },
@@ -152,7 +145,6 @@
         "autoApprovePreAssigned": { "type": "boolean" },
         "enabled": { "type": "boolean" },
         "rules": { "type": "array" },
-        "clusters": { "type": "array" },
         "updatedAt": { "type": "string", "maxLength": 50 },
         "updatedBy": { "type": "string", "maxLength": 100 }
       }
@@ -301,6 +293,19 @@
         "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["ownerUid", "ownerName", "weekStart", "weekEnd", "sessions", "createdAt", "updatedAt"]
+    },
+    "Area": {
+      "title": "Area",
+      "description": "Organizational area belonging to a Sion/Company",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "maxLength": 80 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "active": { "type": "boolean" },
+        "_order": { "type": "number" }
+      },
+      "required": ["code", "name", "companyCode", "active"]
     }
   },
   "firestore": {
@@ -314,7 +319,7 @@
     },
     "/system_config/{id}": {
       "schema": "SystemConfig",
-      "description": "System-wide configuration (roles, banner, scoring, appearance, security, vocabulary, clusters)"
+      "description": "System-wide configuration (roles, banner, scoring, appearance, security, vocabulary)"
     },
     "/disciples/{discipleId}": {
       "schema": "Disciple",
@@ -359,6 +364,10 @@
     "/personal_planners/{plannerId}": {
       "schema": "PersonalPlanner",
       "description": "Private weekly personal planner records"
+    },
+    "/areas/{areaId}": {
+      "schema": "Area",
+      "description": "Organizational areas under each Sion/Company, publicly readable for registration and creatable by admins, managers, or atomically on user registration"
     }
   }
 }

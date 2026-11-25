@@ -274,7 +274,7 @@ export const PersonalPlannerSection: React.FC<PersonalPlannerSectionProps> = ({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
-                  Kế Hoạch
+                  Lập Kế Hoạch LLV Cá Nhân
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 dark:bg-slate-800 border border-indigo-200 dark:border-indigo-800 text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300">
                   <Lock className="w-3 h-3" />

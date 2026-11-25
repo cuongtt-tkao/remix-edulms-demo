@@ -43,7 +43,6 @@ import {
 import { SPOTLIGHT_COVERS } from './HeroBanner';
 import { compressImageFile } from '../utils/imageUtils';
 import { CustomSelect } from './CustomSelect';
-import { isSafeImageUrl, sanitizeImageUrl } from '../utils/urlSanitizer';
 
 const METRIC_ICON_META: Record<
   DailyMetricKey,
@@ -174,20 +173,15 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   };
 
   const handleAddSlideByUrl = () => {
-    const rawUrl = newSlideUrl.trim();
-    if (!rawUrl) {
+    if (!newSlideUrl.trim()) {
       onShowNotification('Vui lòng nhập link ảnh hoặc chọn file ảnh từ máy.');
-      return;
-    }
-    if (!isSafeImageUrl(rawUrl)) {
-      onShowNotification('Link ảnh không hợp lệ (chỉ hỗ trợ https://, http:// hoặc file ảnh tải lên).');
       return;
     }
     const slide: BannerSlide = {
       id: `slide-${Date.now()}`,
       title: newSlideTitle.trim() || 'Ảnh bìa mới',
       subtitle: newSlideSubtitle.trim() || 'Chiến dịch thi đua Hành Thực Lục',
-      url: sanitizeImageUrl(rawUrl),
+      url: newSlideUrl.trim(),
     };
     setSlides((prev) => [...prev, slide]);
     setNewSlideUrl('');
@@ -223,17 +217,11 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
   };
 
   // ---------- EVENT FORM STATE ----------
-  const toLocalYmd = (d: Date): string => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-  const today = toLocalYmd(new Date());
+  const today = new Date().toISOString().split('T')[0];
   const nextMonth = (() => {
     const d = new Date();
     d.setMonth(d.getMonth() + 1);
-    return toLocalYmd(d);
+    return d.toISOString().split('T')[0];
   })();
 
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
@@ -369,11 +357,6 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
       onShowNotification('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.');
       return;
     }
-    const rawEventBanner = evBannerUrl.trim();
-    if (rawEventBanner && !isSafeImageUrl(rawEventBanner)) {
-      onShowNotification('Link ảnh bìa sự kiện không hợp lệ (chỉ hỗ trợ https://, http:// hoặc file ảnh tải lên).');
-      return;
-    }
 
     setIsSavingEvent(true);
     try {
@@ -384,7 +367,7 @@ export const AdminBannerEventTab: React.FC<AdminBannerEventTabProps> = ({
         title: evTitle.trim(),
         description: evDescription.trim(),
         rulesText: evRulesText.trim(),
-        bannerUrl: sanitizeImageUrl(rawEventBanner) || undefined,
+        bannerUrl: evBannerUrl.trim() || undefined,
         startDate: evStartDate,
         endDate: evEndDate,
         isActive: evIsActive,

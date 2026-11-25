@@ -22,6 +22,20 @@ export interface Area {
   active: boolean;
 }
 
+/**
+ * Địa vực: cấp nằm giữa Sion và Khu vực (Sion -> Địa vực -> Khu vực -> Thành viên).
+ * areaCodes là danh sách mã Khu vực (trong cùng Sion) thuộc địa vực này.
+ * Rule Firestore không phụ thuộc vào regions; Gru vẫn được cấp phạm vi bằng managedAreaCodes.
+ */
+export interface Region {
+  id: string;
+  code: string;
+  name: string;
+  companyCode: string;
+  areaCodes: string[];
+  active: boolean;
+}
+
 export interface OrgCluster {
   id: string;
   code: string; // TH1, ELI, HBC, PER, YSAC

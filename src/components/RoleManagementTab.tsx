@@ -49,13 +49,9 @@ import { CustomSelect } from './CustomSelect';
 import {
   canAssignTargetRole,
   canManageOrgRecord,
-  cleanRawAreaCode,
-  formatAreaDisplayName,
-  formatAreaScopeLabel,
   makeAreaScopeKey,
   normalizeOrgCode,
   parseAreaScopeEntry,
-  resolveClusterCompanyCodes,
   resolveCompanyCodesFromClusterIds,
 } from '../utils/rbac';
 import { isValidPersonalPin } from '../utils/pinSecurity';
@@ -168,7 +164,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('AREA_LEADER');
   const [newNote, setNewNote] = useState('');
-  const [newManagedClusterIds, setNewManagedClusterIds] = useState<string[]>([]);
+  const [newManagedClusters, setNewManagedClusters] = useState<string[]>([]);
   const [newManagedCompanies, setNewManagedCompanies] = useState<string[]>([]);
   const [newManagedAreas, setNewManagedAreas] = useState<string[]>([]);
   const [newManagedUnitsText, setNewManagedUnitsText] = useState('');
@@ -177,7 +173,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   // Scope Config Modal for MANAGER / SION_LEADER / AREA_LEADER / UNI_LEADER
   const [scopeModalUser, setScopeModalUser] = useState<UserAccount | null>(null);
   const [modalRole, setModalRole] = useState<UserRole>('MANAGER');
-  const [modalClusterIds, setModalClusterIds] = useState<string[]>([]);
+  const [modalClusters, setModalClusters] = useState<string[]>([]);
   const [modalCompanies, setModalCompanies] = useState<string[]>([]);
   const [modalAreas, setModalAreas] = useState<string[]>([]);
   const [modalUnitsText, setModalUnitsText] = useState<string>('');
@@ -210,50 +206,39 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     return set;
   }, [currentUser?.managedCompanyCodes, currentUser?.companyCode]);
 
-  const viewerAreaEntries = useMemo(() => {
-    const raw = (currentUser?.managedAreaCodes || []).filter((a) => (a || '').trim().length > 0);
-    if (raw.length > 0) {
-      return raw.map((a) => parseAreaScopeEntry(a)).filter((p) => Boolean(p.areaCode));
+  const viewerAreaScope = useMemo(() => {
+    const set = new Set<string>();
+    (currentUser?.managedAreaCodes || []).forEach((a) => {
+      const n = normalizeOrgCode(a);
+      if (n) set.add(n);
+    });
+    if (set.size === 0 && currentUser?.areaCode) {
+      const n = normalizeOrgCode(currentUser.areaCode);
+      if (n) set.add(n);
     }
-    if (currentUser?.areaCode) {
-      const p = parseAreaScopeEntry(currentUser.areaCode);
-      return p.areaCode ? [p] : [];
-    }
-    return [];
+    return set;
   }, [currentUser?.managedAreaCodes, currentUser?.areaCode]);
 
   const scopedCompaniesForActor = useMemo(() => {
     if (isAdminOrSuperAdmin) return companies;
-    const areaPrefixedComps = new Set(
-      viewerAreaEntries.map((e) => e.companyCode).filter(Boolean)
-    );
-    return companies.filter((c) => {
-      const norm = normalizeOrgCode(c.code);
-      return viewerCompanyScope.has(norm) || areaPrefixedComps.has(norm);
-    });
-  }, [isAdminOrSuperAdmin, companies, viewerCompanyScope, viewerAreaEntries]);
+    return companies.filter((c) => viewerCompanyScope.has(normalizeOrgCode(c.code)));
+  }, [isAdminOrSuperAdmin, companies, viewerCompanyScope]);
 
   const scopedAreasForActor = useMemo(() => {
     if (isAdminOrSuperAdmin) return areas;
-    const matchesAreaEntries = (a: Area, requireCompanyIfNoPrefix: boolean) => {
-      const aComp = normalizeOrgCode(a.companyCode);
-      const aCode = normalizeOrgCode(a.code);
-      return viewerAreaEntries.some((entry) => {
-        if (entry.areaCode !== aCode) return false;
-        if (entry.hasCompanyPrefix) return entry.companyCode === aComp;
-        return !requireCompanyIfNoPrefix || viewerCompanyScope.size === 0 || viewerCompanyScope.has(aComp);
-      });
-    };
-
     if (currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') {
       return areas.filter(
         (a) =>
           viewerCompanyScope.has(normalizeOrgCode(a.companyCode)) ||
-          (currentUser.role === 'MANAGER' && matchesAreaEntries(a, false))
+          (currentUser.role === 'MANAGER' && viewerAreaScope.has(normalizeOrgCode(a.code)))
       );
     }
-    return areas.filter((a) => matchesAreaEntries(a, true));
-  }, [isAdminOrSuperAdmin, areas, viewerCompanyScope, viewerAreaEntries, currentUser?.role]);
+    return areas.filter(
+      (a) =>
+        (viewerCompanyScope.size === 0 || viewerCompanyScope.has(normalizeOrgCode(a.companyCode))) &&
+        viewerAreaScope.has(normalizeOrgCode(a.code))
+    );
+  }, [isAdminOrSuperAdmin, areas, viewerCompanyScope, viewerAreaScope, currentUser?.role]);
 
   const effectiveSecurity: SystemSecurityConfig = {
     requireRegistrationApproval:
@@ -352,164 +337,51 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       .map((s) => s.trim())
       .filter(Boolean);
 
-  const resolveScopedAreaKeysForUser = (
-    rawAreaEntries: string[] | undefined,
-    fallbackCompany?: string,
-    fallbackArea?: string,
-    managedComps?: string[]
-  ): string[] => {
-    const source = rawAreaEntries?.length
-      ? rawAreaEntries
-      : fallbackArea
-      ? [makeAreaScopeKey(fallbackCompany, fallbackArea)]
-      : [];
-    const seen = new Set<string>();
-    const out: string[] = [];
-    const compHints = new Set(
-      [fallbackCompany || '', ...(managedComps || [])].map(normalizeOrgCode).filter(Boolean)
-    );
-
-    source.forEach((raw) => {
-      const p = parseAreaScopeEntry(raw);
-      if (!p.areaCode) return;
-      let resolvedKey = '';
-      if (p.hasCompanyPrefix) {
-        const matched = areas.find(
-          (a) =>
-            normalizeOrgCode(a.companyCode) === p.companyCode &&
-            normalizeOrgCode(a.code) === p.areaCode
-        );
-        resolvedKey = matched
-          ? makeAreaScopeKey(matched.companyCode, matched.code)
-          : makeAreaScopeKey(p.rawCompanyCode, p.rawAreaCode);
-      } else {
-        const matchedByHint = areas.find(
-          (a) => normalizeOrgCode(a.code) === p.areaCode && compHints.has(normalizeOrgCode(a.companyCode))
-        );
-        const allMatches = areas.filter((a) => normalizeOrgCode(a.code) === p.areaCode);
-        const matched = matchedByHint || (allMatches.length === 1 ? allMatches[0] : undefined);
-        resolvedKey = matched
-          ? makeAreaScopeKey(matched.companyCode, matched.code)
-          : fallbackCompany
-          ? makeAreaScopeKey(fallbackCompany, p.rawAreaCode)
-          : p.rawAreaCode;
-      }
-      const normKey = normalizeOrgCode(resolvedKey);
-      if (resolvedKey && !seen.has(normKey)) {
-        seen.add(normKey);
-        out.push(resolvedKey);
-      }
-    });
-    return out;
-  };
-
-  const isAreaSelected = (selectedEntries: string[], area: Area): boolean => {
-    const targetComp = normalizeOrgCode(area.companyCode);
-    const targetCode = normalizeOrgCode(area.code);
-    return selectedEntries.some((entry) => {
-      const p = parseAreaScopeEntry(entry);
-      if (p.areaCode !== targetCode) return false;
-      if (p.hasCompanyPrefix) return p.companyCode === targetComp;
-      return true;
-    });
-  };
-
-  const toggleScopedArea = (
-    list: string[],
-    area: Area,
-    setter: (next: string[]) => void
-  ) => {
-    const compositeKey = makeAreaScopeKey(area.companyCode, area.code);
-    const targetComp = normalizeOrgCode(area.companyCode);
-    const targetCode = normalizeOrgCode(area.code);
-    const exists = list.some((entry) => {
-      const p = parseAreaScopeEntry(entry);
-      return p.areaCode === targetCode && (!p.hasCompanyPrefix || p.companyCode === targetComp);
-    });
-    if (exists) {
-      setter(
-        list.filter((entry) => {
-          const p = parseAreaScopeEntry(entry);
-          return !(p.areaCode === targetCode && (!p.hasCompanyPrefix || p.companyCode === targetComp));
-        })
-      );
-    } else {
-      setter([...list, compositeKey]);
-    }
-  };
-
-  const groupAreasByCompany = (areaList: Area[]) => {
-    const map = new Map<string, { companyCode: string; items: Area[] }>();
-    areaList.forEach((a) => {
-      const norm = normalizeOrgCode(a.companyCode) || 'OTHER';
-      if (!map.has(norm)) {
-        map.set(norm, { companyCode: a.companyCode || 'Khác', items: [] });
-      }
-      map.get(norm)!.items.push(a);
-    });
-    return Array.from(map.values());
-  };
-
-  const toggleClusterSelection = (
-    clusterId: string,
-    currentClusterIds: string[],
-    currentCompanies: string[],
-    setClusterIds: (next: string[]) => void,
-    setCompanies: (next: string[]) => void
-  ) => {
-    const exists = currentClusterIds.includes(clusterId);
-    const nextClusterIds = exists
-      ? currentClusterIds.filter((id) => id !== clusterId)
-      : [...currentClusterIds, clusterId];
-    setClusterIds(nextClusterIds);
-
-    const prevClusterNorms = new Set(
-      resolveCompanyCodesFromClusterIds(currentClusterIds, clusters, companies).map(normalizeOrgCode)
-    );
-    const nextClusterCompanies = resolveCompanyCodesFromClusterIds(
-      nextClusterIds,
-      clusters,
-      companies
-    );
-    const manualExtras = currentCompanies.filter(
-      (c) => !prevClusterNorms.has(normalizeOrgCode(c))
-    );
-    const merged: string[] = [];
-    const seen = new Set<string>();
-    [...nextClusterCompanies, ...manualExtras].forEach((code) => {
-      const norm = normalizeOrgCode(code);
-      if (norm && !seen.has(norm)) {
-        seen.add(norm);
-        merged.push(code);
-      }
-    });
-    setCompanies(merged);
-  };
-
   const openScopeModal = (user: UserAccount, targetRole?: UserRole) => {
     const roleToEdit = targetRole || resolveEffectiveRole(user);
-    const initClusterIds = user.managedClusterIds || [];
-    const clusterResolved = resolveCompanyCodesFromClusterIds(initClusterIds, clusters, companies);
-    const initialCompanies =
-      user.managedCompanyCodes && user.managedCompanyCodes.length > 0
-        ? user.managedCompanyCodes
-        : clusterResolved.length > 0
-        ? clusterResolved
-        : user.companyCode
-        ? [user.companyCode]
-        : [];
     setScopeModalUser(user);
     setModalRole(roleToEdit);
-    setModalClusterIds(initClusterIds);
-    setModalCompanies(initialCompanies);
-    setModalAreas(
-      resolveScopedAreaKeysForUser(
-        user.managedAreaCodes,
-        user.companyCode,
-        user.areaCode,
-        initialCompanies
+    const initialClusters = user.managedClusterIds || [];
+    setModalClusters(initialClusters);
+    const resolvedFromClusters =
+      roleToEdit === 'MANAGER' && initialClusters.length > 0 && clusters.length > 0
+        ? resolveCompanyCodesFromClusterIds(initialClusters, clusters, companies)
+        : [];
+    setModalCompanies(
+      resolvedFromClusters.length > 0
+        ? resolvedFromClusters
+        : user.managedCompanyCodes || (user.companyCode ? [user.companyCode] : [])
+    );
+    const rawModalAreas = user.managedAreaCodes?.length
+      ? user.managedAreaCodes
+      : user.areaCode
+      ? [user.areaCode]
+      : [];
+    const normalizedModalAreas = Array.from(
+      new Set(
+        rawModalAreas.map((entry) => {
+          const parsed = parseAreaScopeEntry(entry);
+          if (parsed.hasCompanyPrefix && parsed.rawCompanyCode && parsed.rawAreaCode) {
+            return makeAreaScopeKey(parsed.rawCompanyCode, parsed.rawAreaCode);
+          }
+          const matchingArea =
+            areas.find(
+              (a) =>
+                normalizeOrgCode(a.code) === parsed.areaCode &&
+                (!user.companyCode ||
+                  normalizeOrgCode(a.companyCode) === normalizeOrgCode(user.companyCode))
+            ) || areas.find((a) => normalizeOrgCode(a.code) === parsed.areaCode);
+          if (matchingArea) {
+            return makeAreaScopeKey(matchingArea.companyCode, matchingArea.code);
+          }
+          if (user.companyCode && parsed.rawAreaCode) {
+            return makeAreaScopeKey(user.companyCode, parsed.rawAreaCode);
+          }
+          return entry;
+        })
       )
     );
+    setModalAreas(normalizedModalAreas);
     const defaultUnits = user.managedUnitCodes?.length
       ? user.managedUnitCodes
       : user.unitCode
@@ -537,36 +409,33 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
 
-    // Nếu chọn QL Cụm -> mở modal chọn Cụm Sion / Sion / Khu vực phụ trách
+    // Nếu chọn QL Cụm -> mở modal chọn các Sion / Khu vực phụ trách
     if (targetRole === 'MANAGER') {
       openScopeModal(targetUser, 'MANAGER');
       return;
     }
 
-    const scopedAreaDefault = targetUser.areaCode
-      ? [makeAreaScopeKey(targetUser.companyCode, targetUser.areaCode)]
-      : [];
+    const targetAreaKey = targetUser.areaCode
+      ? makeAreaScopeKey(targetUser.companyCode, targetUser.areaCode)
+      : '';
 
     const defaultScope: ScopeSelection =
       targetRole === 'SION_LEADER'
         ? {
-            managedClusterIds: [],
             managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
             managedAreaCodes: [],
             managedUnitCodes: [],
           }
         : targetRole === 'AREA_LEADER'
         ? {
-            managedClusterIds: [],
             managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
-            managedAreaCodes: scopedAreaDefault,
+            managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
             managedUnitCodes: targetUser.managedUnitCodes || [],
           }
         : targetRole === 'UNI_LEADER'
         ? {
-            managedClusterIds: [],
-            managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
-            managedAreaCodes: scopedAreaDefault,
+            managedCompanyCodes: [],
+            managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
             managedUnitCodes: targetUser.managedUnitCodes?.length
               ? targetUser.managedUnitCodes
               : targetUser.unitCode
@@ -576,7 +445,6 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               : [],
           }
         : {
-            managedClusterIds: [],
             managedCompanyCodes: [],
             managedAreaCodes: [],
             managedUnitCodes: [],
@@ -603,10 +471,20 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
     const parsedUnits = parseUnitList(modalUnitsText);
+    const effectiveModalCompanies =
+      modalRole === 'MANAGER' && modalClusters.length > 0 && clusters.length > 0
+        ? Array.from(
+            new Set([
+              ...resolveCompanyCodesFromClusterIds(modalClusters, clusters, companies),
+              ...modalCompanies,
+            ])
+          )
+        : modalCompanies;
+
     if (
       modalRole === 'MANAGER' &&
-      modalClusterIds.length === 0 &&
-      modalCompanies.length === 0 &&
+      modalClusters.length === 0 &&
+      effectiveModalCompanies.length === 0 &&
       modalAreas.length === 0
     ) {
       onShowNotification('Vui lòng chọn ít nhất 1 Cụm Sion, Sion hoặc Khu vực phụ trách cho QL Cụm.');
@@ -615,8 +493,8 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     setIsUpdating(scopeModalUser.id);
     try {
       await onUpdateUserRole(scopeModalUser.id, modalRole, scopeModalUser.fullName, {
-        managedClusterIds: modalRole === 'MANAGER' ? modalClusterIds : [],
-        managedCompanyCodes: modalCompanies,
+        managedClusterIds: modalRole === 'MANAGER' ? modalClusters : [],
+        managedCompanyCodes: effectiveModalCompanies,
         managedAreaCodes: modalAreas,
         managedUnitCodes: parsedUnits,
       });
@@ -641,10 +519,21 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     }
 
     const parsedUnits = parseUnitList(newManagedUnitsText);
+    const resolvedClusterComps =
+      newRole === 'MANAGER' && newManagedClusters.length > 0 && clusters.length > 0
+        ? resolveCompanyCodesFromClusterIds(newManagedClusters, clusters, companies)
+        : [];
+    const effectiveNewCompanies =
+      resolvedClusterComps.length > 0
+        ? Array.from(new Set([...resolvedClusterComps, ...newManagedCompanies]))
+        : newManagedCompanies;
+
     const scope: ScopeSelection | undefined = SCOPE_ENABLED_ROLES.includes(newRole)
       ? {
-          managedClusterIds: newRole === 'MANAGER' ? newManagedClusterIds : [],
-          managedCompanyCodes: newManagedCompanies,
+          ...(newRole === 'MANAGER' && newManagedClusters.length > 0
+            ? { managedClusterIds: newManagedClusters }
+            : {}),
+          managedCompanyCodes: effectiveNewCompanies,
           managedAreaCodes: newManagedAreas,
           managedUnitCodes: parsedUnits,
         }
@@ -663,7 +552,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       onShowNotification(`Đã cấp quyền ${ROLE_LABELS[newRole]} cho ${emailClean}`);
       setNewEmail('');
       setNewNote('');
-      setNewManagedClusterIds([]);
+      setNewManagedClusters([]);
       setNewManagedCompanies([]);
       setNewManagedAreas([]);
       setNewManagedUnitsText('');
@@ -675,9 +564,37 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   };
 
   const toggleItem = (list: string[], code: string, setter: (next: string[]) => void) => {
-    const norm = normalizeOrgCode(code);
-    const exists = list.some((c) => normalizeOrgCode(c) === norm);
-    setter(exists ? list.filter((c) => normalizeOrgCode(c) !== norm) : [...list, code]);
+    setter(list.includes(code) ? list.filter((c) => c !== code) : [...list, code]);
+  };
+
+  const isAreaSelected = (list: string[], area: Area): boolean => {
+    const compNorm = normalizeOrgCode(area.companyCode);
+    const areaNorm = normalizeOrgCode(area.code);
+    return list.some((entry) => {
+      const p = parseAreaScopeEntry(entry);
+      return p.hasCompanyPrefix
+        ? p.companyCode === compNorm && p.areaCode === areaNorm
+        : p.areaCode === areaNorm;
+    });
+  };
+
+  const toggleAreaItem = (list: string[], area: Area, setter: (next: string[]) => void) => {
+    const compNorm = normalizeOrgCode(area.companyCode);
+    const areaNorm = normalizeOrgCode(area.code);
+    const canonicalKey = makeAreaScopeKey(area.companyCode, area.code);
+    const already = isAreaSelected(list, area);
+    if (already) {
+      setter(
+        list.filter((entry) => {
+          const p = parseAreaScopeEntry(entry);
+          return p.hasCompanyPrefix
+            ? !(p.companyCode === compNorm && p.areaCode === areaNorm)
+            : p.areaCode !== areaNorm;
+        })
+      );
+    } else {
+      setter([...list, canonicalKey]);
+    }
   };
 
   const handleToggleSecurityFlag = async (
@@ -711,14 +628,11 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     const current = getPendingDraft(u);
     const nextCompany = patch.companyCode ?? current.companyCode;
     let nextArea = patch.areaCode ?? current.areaCode;
-    if (patch.companyCode && normalizeOrgCode(patch.companyCode) !== normalizeOrgCode(current.companyCode)) {
+    if (patch.companyCode && patch.companyCode !== current.companyCode) {
       const matchingAreas = areas.filter(
-        (a) => normalizeOrgCode(a.companyCode) === normalizeOrgCode(nextCompany) && a.active !== false
+        (a) => a.companyCode === nextCompany && a.active !== false
       );
-      if (
-        matchingAreas.length > 0 &&
-        !matchingAreas.some((a) => normalizeOrgCode(a.code) === normalizeOrgCode(nextArea))
-      ) {
+      if (matchingAreas.length > 0 && !matchingAreas.some((a) => a.code === nextArea)) {
         nextArea = matchingAreas[0].code;
       }
     }
@@ -1032,11 +946,9 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
             {pendingUsers.map((u) => {
               const draft = getPendingDraft(u);
               const areasForDraftCompany = areas.filter(
-                (a) =>
-                  normalizeOrgCode(a.companyCode) === normalizeOrgCode(draft.companyCode) &&
-                  a.active !== false
+                (a) => a.companyCode === draft.companyCode && a.active !== false
               );
-              const roleChoices = ROLE_ORDER.filter((r) => isSuperAdmin || getRoleLevel(r) <= 5);
+              const roleChoices = ROLE_ORDER.filter((r) => isSuperAdmin || r !== 'SUPER_ADMIN');
               return (
                 <div
                   key={u.id}
@@ -1097,32 +1009,15 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                         searchable={false}
                         value={draft.areaCode}
                         onChange={(val) => updatePendingDraft(u, { areaCode: val })}
-                        options={(() => {
-                          const baseOpts = areasForDraftCompany.map((a) => ({
-                            value: a.code,
-                            label: formatAreaDisplayName(a.code, a.name),
-                            badge: a.code,
-                          }));
-                          const draftAreaNorm = normalizeOrgCode(cleanRawAreaCode(draft.areaCode));
-                          if (
-                            draftAreaNorm &&
-                            !areasForDraftCompany.some(
-                              (a) => normalizeOrgCode(cleanRawAreaCode(a.code)) === draftAreaNorm
-                            )
-                          ) {
-                            return [
-                              {
-                                value: draft.areaCode,
-                                label: `${formatAreaDisplayName(draft.areaCode)} (Mới)`,
-                                badge: cleanRawAreaCode(draft.areaCode),
-                              },
-                              ...baseOpts,
-                            ];
-                          }
-                          return baseOpts.length > 0
-                            ? baseOpts
-                            : [{ value: draft.areaCode, label: formatAreaDisplayName(draft.areaCode) }];
-                        })()}
+                        options={
+                          areasForDraftCompany.length > 0
+                            ? areasForDraftCompany.map((a) => ({
+                                value: a.code,
+                                label: a.name || `KV ${a.code}`,
+                                badge: a.code,
+                              }))
+                            : [{ value: draft.areaCode, label: `KV ${draft.areaCode}` }]
+                        }
                         ariaLabel="Khu vực"
                       />
                     </div>
@@ -1243,41 +1138,37 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
             {SCOPE_ENABLED_ROLES.includes(newRole) && (
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-3">
                 <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Chọn phạm vi phụ trách (Sion / Khu vực / Đội Uni):
+                  Chọn phạm vi phụ trách (Cụm / Sion / Khu vực / Đội Uni):
                 </div>
                 {newRole === 'MANAGER' && clusters.length > 0 && (
                   <div className="space-y-1.5">
                     <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1">
                       <Layers className="w-3.5 h-3.5" />
-                      <span>Chọn nhanh theo Cụm Sion (tự động đồng bộ khi Cụm thay đổi):</span>
+                      <span>Theo Cụm Sion (chọn nhanh danh sách Sion):</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {clusters.filter((cl) => cl.active !== false).map((cl) => {
-                        const checked = newManagedClusterIds.includes(cl.id);
-                        const resolvedCodes = resolveClusterCompanyCodes(cl, clusters, companies);
+                      {clusters.map((cl) => {
+                        const checked = newManagedClusters.includes(cl.id);
                         return (
                           <button
                             key={cl.id}
                             type="button"
-                            onClick={() =>
-                              toggleClusterSelection(
-                                cl.id,
-                                newManagedClusterIds,
-                                newManagedCompanies,
-                                setNewManagedClusterIds,
-                                setNewManagedCompanies
-                              )
-                            }
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                            onClick={() => {
+                              const next = checked
+                                ? newManagedClusters.filter((id) => id !== cl.id)
+                                : [...newManagedClusters, cl.id];
+                              setNewManagedClusters(next);
+                              setNewManagedCompanies(
+                                resolveCompanyCodesFromClusterIds(next, clusters, companies)
+                              );
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
                               checked
-                                ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                                ? 'bg-amber-600 text-white border-amber-600'
                                 : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                             }`}
                           >
-                            <span>Cụm {cl.name || cl.code}</span>
-                            <span className={`text-[10px] ${checked ? 'text-amber-100' : 'text-slate-400'}`}>
-                              ({cl.isCatchAll ? `Còn lại: ${resolvedCodes.length}` : resolvedCodes.join(', ')})
-                            </span>
+                            {cl.name || cl.code}
                           </button>
                         );
                       })}
@@ -1312,37 +1203,26 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                     </div>
                   )}
                 {(newRole === 'MANAGER' || newRole === 'AREA_LEADER') && areas.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-[11px] font-semibold text-slate-500">
-                      Theo Khu vực (phân tách riêng từng Sion):
-                    </div>
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      {groupAreasByCompany(areas).map((grp) => (
-                        <div key={grp.companyCode} className="space-y-1">
-                          <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                            Sion {grp.companyCode}
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {grp.items.map((a) => {
-                              const checked = isAreaSelected(newManagedAreas, a);
-                              return (
-                                <button
-                                  key={a.id}
-                                  type="button"
-                                  onClick={() => toggleScopedArea(newManagedAreas, a, setNewManagedAreas)}
-                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                                    checked
-                                      ? 'bg-teal-600 text-white border-teal-600'
-                                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                                  }`}
-                                >
-                                  {formatAreaDisplayName(a.code, a.name)}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-semibold text-slate-500">Theo Khu vực:</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {areas.map((a) => {
+                        const checked = isAreaSelected(newManagedAreas, a);
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => toggleAreaItem(newManagedAreas, a, setNewManagedAreas)}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                              checked
+                                ? 'bg-teal-600 text-white border-teal-600'
+                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                            }`}
+                          >
+                            {a.companyCode} / KV {a.code}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1379,20 +1259,9 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-700 text-white">
                       {ROLE_LABELS[pa.role] || pa.role}
                     </span>
-                    {(pa.managedClusterIds?.length ||
-                      pa.managedAreaCodes?.length ||
-                      pa.managedCompanyCodes?.length) ? (
+                    {(pa.managedAreaCodes?.length || pa.managedCompanyCodes?.length) ? (
                       <span className="text-[10px] text-slate-500">
-                        (
-                        {[
-                          ...(pa.managedClusterIds || []).map((cid) => {
-                            const cl = clusters.find((x) => x.id === cid || x.code === cid);
-                            return `Cụm ${cl?.name || cid}`;
-                          }),
-                          ...(pa.managedCompanyCodes || []),
-                          ...(pa.managedAreaCodes || []).map((a) => formatAreaScopeLabel(a)),
-                        ].join(', ')}
-                        )
+                        ({[...(pa.managedCompanyCodes || []), ...(pa.managedAreaCodes || [])].join(', ')})
                       </span>
                     ) : null}
                     {onDeletePreAssignedRole && (
@@ -1516,17 +1385,18 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                   const isBootstrapSuperAdmin = BOOTSTRAP_SUPER_ADMIN_EMAILS.some(
                     (e) => e.toLowerCase() === (user.email || '').toLowerCase().trim()
                   );
-                  const companyObj = companies.find(
-                    (c) => normalizeOrgCode(c.code) === normalizeOrgCode(user.companyCode)
-                  );
+                  const companyObj = companies.find((c) => c.code === user.companyCode);
                   const clusterLabels = (user.managedClusterIds || []).map((cid) => {
-                    const cl = clusters.find((x) => x.id === cid || x.code === cid);
-                    return `Cụm ${cl?.name || cl?.code || cid}`;
+                    const matched = clusters.find(
+                      (cl) =>
+                        cl.id === cid || normalizeOrgCode(cl.code) === normalizeOrgCode(cid)
+                    );
+                    return `Cụm ${matched?.name || matched?.code || cid}`;
                   });
                   const scopeParts = [
                     ...clusterLabels,
                     ...(user.managedCompanyCodes || []).map((c) => `Sion ${c}`),
-                    ...(user.managedAreaCodes || []).map((a) => `KV ${formatAreaScopeLabel(a)}`),
+                    ...(user.managedAreaCodes || []).map((a) => `KV ${a}`),
                     ...(user.managedUnitCodes || []).map((u) => `Uni ${u}`),
                   ];
 
@@ -1849,46 +1719,39 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
             </div>
 
             {modalRole === 'MANAGER' && clusters.length > 0 && (
-              <div className="space-y-2 p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/60">
-                <div className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Chọn nhanh theo Cụm Sion:</span>
+                  <span>Chọn Cụm Sion (chọn nhanh Sion trực thuộc):</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {clusters.filter((cl) => cl.active !== false).map((cl) => {
-                    const selected = modalClusterIds.includes(cl.id);
-                    const resolvedCodes = resolveClusterCompanyCodes(cl, clusters, companies);
+                  {clusters.map((cl) => {
+                    const selected = modalClusters.includes(cl.id);
                     return (
                       <button
                         key={cl.id}
                         type="button"
-                        onClick={() =>
-                          toggleClusterSelection(
-                            cl.id,
-                            modalClusterIds,
-                            modalCompanies,
-                            setModalClusterIds,
-                            setModalCompanies
-                          )
-                        }
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer transition ${
+                        onClick={() => {
+                          const next = selected
+                            ? modalClusters.filter((id) => id !== cl.id)
+                            : [...modalClusters, cl.id];
+                          setModalClusters(next);
+                          setModalCompanies(
+                            resolveCompanyCodesFromClusterIds(next, clusters, companies)
+                          );
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 cursor-pointer ${
                           selected
-                            ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-amber-200 dark:border-slate-700'
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                         }`}
                       >
-                        {selected && <Check className="w-3 h-3 shrink-0" />}
-                        <span>Cụm {cl.name || cl.code}</span>
-                        <span className={`text-[10px] ${selected ? 'text-amber-100' : 'text-slate-400'}`}>
-                          ({cl.isCatchAll ? `Còn lại: ${resolvedCodes.length} Sion` : resolvedCodes.join(', ')})
-                        </span>
+                        {selected && <Check className="w-3 h-3" />}
+                        <span>{cl.name || cl.code}</span>
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
-                  Khi thêm/bớt Sion bên trong Cụm Sion, hệ thống tự động đồng bộ lại quyền cho các QL Cụm đã gán Cụm đó.
-                </p>
               </div>
             )}
 
@@ -1900,9 +1763,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {scopedCompaniesForActor.map((c) => {
-                    const selected = modalCompanies.some(
-                      (mc) => normalizeOrgCode(mc) === normalizeOrgCode(c.code)
-                    );
+                    const selected = modalCompanies.includes(c.code);
                     return (
                       <button
                         key={c.id}
@@ -1929,38 +1790,29 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               <div className="space-y-2">
                 <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Chọn từng Khu vực phụ trách (theo từng Sion):</span>
+                  <span>Chọn từng Khu vực phụ trách:</span>
                 </div>
-                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                  {groupAreasByCompany(scopedAreasForActor).map((grp) => (
-                    <div key={grp.companyCode} className="space-y-1">
-                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                        Sion {grp.companyCode}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                        {grp.items.map((a) => {
-                          const selected = isAreaSelected(modalAreas, a);
-                          return (
-                            <button
-                              key={a.id}
-                              type="button"
-                              onClick={() => toggleScopedArea(modalAreas, a, setModalAreas)}
-                              className={`px-2.5 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1 cursor-pointer ${
-                                selected
-                                  ? 'bg-teal-600 text-white border-teal-600'
-                                  : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                              }`}
-                            >
-                              {selected && <Check className="w-3 h-3 shrink-0" />}
-                              <span className="truncate">
-                                {formatAreaDisplayName(a.code, a.name)}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {scopedAreasForActor.map((a) => {
+                    const selected = isAreaSelected(modalAreas, a);
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => toggleAreaItem(modalAreas, a, setModalAreas)}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1 cursor-pointer ${
+                          selected
+                            ? 'bg-teal-600 text-white border-teal-600'
+                            : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {selected && <Check className="w-3 h-3 shrink-0" />}
+                        <span className="truncate">
+                          {a.companyCode} · KV {a.code}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

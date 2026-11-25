@@ -31,15 +31,11 @@ import {
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
 import {
-  formatAreaDisplayName,
-  formatAreaScopeLabel,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   isAdminRole,
   isSupervisorRole,
-  makeAreaScopeKey,
   normalizeOrgCode,
-  parseAreaScopeEntry,
 } from '../utils/rbac';
 import { exportDisciplesExcel } from '../utils/excelManager';
 
@@ -151,20 +147,15 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
         const compText = currentUser.managedCompanyCodes?.length
           ? currentUser.managedCompanyCodes.join(', ')
           : currentUser.companyCode;
-        const formattedAreas = (currentUser.managedAreaCodes || [])
-          .map((a) => formatAreaScopeLabel(a))
-          .filter(Boolean);
-        const areaText = formattedAreas.length ? ` · KV ${formattedAreas.join(', ')}` : '';
+        const areaText = currentUser.managedAreaCodes?.length
+          ? ` · KV ${currentUser.managedAreaCodes.join(', ')}`
+          : '';
         return `QL Cụm · ${compText}${areaText}`;
       }
       case 'SION_LEADER':
         return `TS, NQ · ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`;
-      case 'AREA_LEADER': {
-        const formattedAreas = (currentUser.managedAreaCodes || [])
-          .map((a) => formatAreaScopeLabel(a))
-          .filter(Boolean);
-        return `Gru · KV ${formattedAreas.length ? formattedAreas.join(', ') : currentUser.areaCode}`;
-      }
+      case 'AREA_LEADER':
+        return `Gru · KV ${currentUser.managedAreaCodes?.join(', ') || currentUser.areaCode}`;
       case 'UNI_LEADER':
         return `Uni · ${currentUser.unitCode || currentUser.departmentCode || `KV ${currentUser.areaCode}`}`;
       default:
@@ -222,11 +213,6 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
     return getScopedAreaOptions(currentUser, areas, companyFilter, disciplePseudoMembers);
   }, [currentUser, isSupervisor, areas, companyFilter, disciplePseudoMembers]);
 
-  const parsedAreaFilter = useMemo(
-    () => (areaFilter !== 'ALL' ? parseAreaScopeEntry(areaFilter) : null),
-    [areaFilter]
-  );
-
   const selectableOwners = useMemo(() => {
     if (!isSupervisor) return [];
     return disciplePseudoMembers
@@ -237,24 +223,13 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
         ) {
           return false;
         }
-        if (parsedAreaFilter) {
-          if (
-            parsedAreaFilter.hasCompanyPrefix &&
-            normalizeOrgCode(m.companyCode) !== parsedAreaFilter.companyCode
-          ) {
-            return false;
-          }
-          if (
-            parsedAreaFilter.areaCode &&
-            normalizeOrgCode(m.areaCode) !== parsedAreaFilter.areaCode
-          ) {
-            return false;
-          }
+        if (areaFilter !== 'ALL' && normalizeOrgCode(m.areaCode) !== normalizeOrgCode(areaFilter)) {
+          return false;
         }
         return true;
       })
       .sort((a, b) => a.fullName.localeCompare(b.fullName, 'vi'));
-  }, [isSupervisor, disciplePseudoMembers, companyFilter, parsedAreaFilter]);
+  }, [isSupervisor, disciplePseudoMembers, companyFilter, areaFilter]);
 
   const showCompanyDropdown =
     isSupervisor && (isAdmin || currentUser?.role === 'MANAGER' || selectableCompanies.length > 1);
@@ -278,19 +253,8 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
         ) {
           return false;
         }
-        if (parsedAreaFilter) {
-          if (
-            parsedAreaFilter.hasCompanyPrefix &&
-            normalizeOrgCode(d.companyCode) !== parsedAreaFilter.companyCode
-          ) {
-            return false;
-          }
-          if (
-            parsedAreaFilter.areaCode &&
-            normalizeOrgCode(d.areaCode) !== parsedAreaFilter.areaCode
-          ) {
-            return false;
-          }
+        if (areaFilter !== 'ALL' && normalizeOrgCode(d.areaCode) !== normalizeOrgCode(areaFilter)) {
+          return false;
         }
         if (ownerFilter !== 'ALL') {
           const matchesOwner =
@@ -652,14 +616,8 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                 options={[
                   { value: 'ALL', label: 'Mọi khu vực', badge: String(selectableAreas.length) },
                   ...selectableAreas.map((a) => ({
-                    value:
-                      companyFilter === 'ALL'
-                        ? makeAreaScopeKey(a.companyCode, a.code)
-                        : a.code,
-                    label:
-                      companyFilter === 'ALL'
-                        ? `${formatAreaDisplayName(a.code, a.name)} (${a.companyCode})`
-                        : formatAreaDisplayName(a.code, a.name),
+                    value: a.code,
+                    label: a.name && a.name !== `KV ${a.code}` ? `KV ${a.code} - ${a.name}` : `KV ${a.code}`,
                   })),
                 ]}
               />

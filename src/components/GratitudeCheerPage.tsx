@@ -77,7 +77,7 @@ interface GratitudeCheerPageProps {
   companies: Company[];
   areas: Area[];
   vocabularyConfig?: SystemVocabularyConfig;
-  onAddHuongKhi: (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => void;
+  onAddHuongKhi: (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => Promise<void> | void;
   onDeleteHuongKhi?: (id: string) => Promise<void> | void;
   onAddTurboJournal?: (payload: { title: string; content: string }) => Promise<void> | void;
   onReactHuongKhi: (id: string, reaction: ReactionType) => void;
@@ -228,7 +228,7 @@ export const GratitudeCheerPage: React.FC<GratitudeCheerPageProps> = ({
         setIsComposerOpen(false);
         onShowNotification('Đã lưu Nhật ký turbo vào mục Bài Viết trong Hồ sơ cá nhân!');
       } else {
-        onAddHuongKhi({
+        await onAddHuongKhi({
           authorId: currentUser.memberId || currentUser.id,
           authorUid: currentUser.id,
           authorName: currentUser.fullName,
@@ -257,6 +257,8 @@ export const GratitudeCheerPage: React.FC<GratitudeCheerPageProps> = ({
         setIsComposerOpen(false);
         onShowNotification('Đã đăng Nhật ký cảm tạ công khai (tự ẩn sau 24 giờ)!');
       }
+    } catch (err: any) {
+      onShowNotification(err?.message || 'Không thể lưu nhật ký lên máy chủ. Vui lòng thử lại.');
     } finally {
       setIsSaving(false);
     }

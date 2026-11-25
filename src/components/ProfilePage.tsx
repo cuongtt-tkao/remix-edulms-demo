@@ -68,13 +68,10 @@ import { CustomSelect } from './CustomSelect';
 import { PersonalPlannerSection } from './PersonalPlannerSection';
 import {
   canAccessMemberReportOverview,
-  formatAreaDisplayName,
-  formatAreaScopeLabel,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   getScopedMemberOptions,
   isAdminRole,
-  makeAreaScopeKey,
 } from '../utils/rbac';
 import { isValidPersonalPin, sanitizePinInput } from '../utils/pinSecurity';
 import {
@@ -88,7 +85,6 @@ import {
   findSensitiveMatches,
   formatRemainingExpiry,
 } from '../utils/wordEncoder';
-import { isSafeImageUrl, sanitizeImageUrl } from '../utils/urlSanitizer';
 
 interface ProfilePageProps {
   currentUser: UserAccount;
@@ -112,7 +108,7 @@ interface ProfilePageProps {
   onNavigateToJournalCheer?: () => void;
   onLogout: () => void;
   onOpenRules: () => void;
-  onAddHuongKhi: (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => void;
+  onAddHuongKhi: (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => Promise<void> | void;
   onDeleteHuongKhi?: (id: string) => Promise<void> | void;
   onAddTurboJournal?: (payload: { title: string; content: string }) => Promise<void> | void;
   onUpdateTurboJournal?: (
@@ -175,8 +171,8 @@ async function compressImageFile(
 
   let quality = initialQuality;
   let result = canvas.toDataURL('image/jpeg', quality);
-  while (result.length > 220_000 && quality > 0.45) {
-    quality -= 0.12;
+  while (result.length > 190_000 && quality > 0.35) {
+    quality -= 0.1;
     result = canvas.toDataURL('image/jpeg', quality);
   }
   return result;
@@ -485,19 +481,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
   ];
 
-  const canEditOrgPlacement = isAdminRole(currentUser.role);
-
   // Dedicated Save Avatar Only
   const handleSaveAvatarOnly = async () => {
     setEditError('');
-    const rawAvatar = editAvatarUrl.trim();
-    if (rawAvatar && !isSafeImageUrl(rawAvatar)) {
-      onShowNotification('Đường dẫn ảnh đại diện không hợp lệ (chỉ hỗ trợ https://, http:// hoặc ảnh tải lên).');
-      return;
-    }
     const saved = await onUpdateProfile({
       fullName: currentUser.fullName,
-      avatarUrl: sanitizeImageUrl(rawAvatar),
+      avatarUrl: editAvatarUrl.trim(),
       companyCode: currentUser.companyCode,
       areaCode: currentUser.areaCode,
       departmentCode: currentUser.departmentCode,
@@ -511,14 +500,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   // Dedicated Save Cover Only
   const handleSaveCoverOnly = async () => {
     setEditError('');
-    const rawCover = editCoverUrl.trim();
-    if (rawCover && !isSafeImageUrl(rawCover)) {
-      onShowNotification('Đường dẫn ảnh bìa không hợp lệ (chỉ hỗ trợ https://, http:// hoặc ảnh tải lên).');
-      return;
-    }
     const saved = await onUpdateProfile({
       fullName: currentUser.fullName,
-      coverUrl: sanitizeImageUrl(rawCover),
+      coverUrl: editCoverUrl.trim(),
       companyCode: currentUser.companyCode,
       areaCode: currentUser.areaCode,
       departmentCode: currentUser.departmentCode,
@@ -571,24 +555,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       setEditError('Họ và tên không được để trống.');
       return;
     }
-    if (editAvatarUrl.trim() && !isSafeImageUrl(editAvatarUrl)) {
-      setEditError('Đường dẫn ảnh đại diện không hợp lệ (chỉ hỗ trợ https://, http:// hoặc ảnh tải lên).');
-      return;
-    }
-    if (editCoverUrl.trim() && !isSafeImageUrl(editCoverUrl)) {
-      setEditError('Đường dẫn ảnh bìa không hợp lệ (chỉ hỗ trợ https://, http:// hoặc ảnh tải lên).');
-      return;
-    }
 
     const saved = await onUpdateProfile({
       fullName: editFullName.trim(),
-      avatarUrl: sanitizeImageUrl(editAvatarUrl),
-      coverUrl: sanitizeImageUrl(editCoverUrl),
+      avatarUrl: editAvatarUrl.trim(),
+      coverUrl: editCoverUrl.trim(),
       bio: editBio.trim(),
-      companyCode: canEditOrgPlacement ? editCompany : currentUser.companyCode,
-      areaCode: canEditOrgPlacement ? editArea : currentUser.areaCode,
-      departmentCode: canEditOrgPlacement ? editDepartment : currentUser.departmentCode,
-      unitCode: canEditOrgPlacement ? editUnitCode.trim() : currentUser.unitCode,
+      companyCode: editCompany,
+      areaCode: editArea,
+      departmentCode: editDepartment,
+      unitCode: editUnitCode.trim(),
     });
     if (saved === false) return;
 
@@ -1127,7 +1103,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             >
               <CalendarDays className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate sm:hidden">KH LLV</span>
-              <span className="truncate hidden sm:inline">Kế hoạch</span>
+              <span className="truncate hidden sm:inline">Kế hoạch LLV</span>
             </button>
 
             <button
@@ -2045,14 +2021,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         options={[
                           { value: 'ALL', label: 'Tất cả Khu vực' },
                           ...exportScopedAreas.map((a) => ({
-                            value:
-                              exportCompanyFilter === 'ALL'
-                                ? makeAreaScopeKey(a.companyCode, a.code)
-                                : a.code,
-                            label:
-                              exportCompanyFilter === 'ALL'
-                                ? `KV ${a.code} (${a.companyCode})`
-                                : `KV ${a.code}`,
+                            value: a.code,
+                            label: `KV ${a.code}`,
                           })),
                         ]}
                       />
@@ -2299,14 +2269,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     : currentUser.role === 'SION_LEADER'
                     ? `Sion ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`
                     : currentUser.role === 'AREA_LEADER'
-                    ? `KV ${
-                        currentUser.managedAreaCodes?.length
-                          ? currentUser.managedAreaCodes
-                              .map((a) => formatAreaScopeLabel(a))
-                              .filter(Boolean)
-                              .join(', ')
-                          : currentUser.areaCode
-                      }`
+                    ? `KV ${currentUser.managedAreaCodes?.join(', ') || currentUser.areaCode}`
                     : currentUser.role === 'UNI_LEADER'
                     ? `Uni ${currentUser.managedUnitCodes?.join(', ') || currentUser.unitCode || currentUser.departmentCode}`
                     : 'Cá nhân · Top 15'}
@@ -2396,111 +2359,88 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
 
               {/* Units: Sion/Công ty, Khu vực, Ban ngành, Đội/Uni */}
-              {canEditOrgPlacement ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                      Sion / Công ty
-                    </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Sion / Công ty
+                  </label>
+                  <CustomSelect
+                    size="sm"
+                    value={editCompany}
+                    onChange={(nextComp) => {
+                      setEditCompany(nextComp);
+                      const validAreas = areas.filter((a) => a.companyCode === nextComp);
+                      if (
+                        validAreas.length > 0 &&
+                        !validAreas.some((a) => a.code === editArea)
+                      ) {
+                        setEditArea(validAreas[0].code);
+                      }
+                    }}
+                    options={companies.map((c) => ({
+                      value: c.code,
+                      label: c.name,
+                      badge: c.code,
+                    }))}
+                    ariaLabel="Chọn Sion / Công ty"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Khu vực
+                  </label>
+                  {areasForEditCompany.length > 0 ? (
                     <CustomSelect
                       size="sm"
-                      value={editCompany}
-                      onChange={(nextComp) => {
-                        setEditCompany(nextComp);
-                        const validAreas = areas.filter((a) => a.companyCode === nextComp);
-                        if (
-                          validAreas.length > 0 &&
-                          !validAreas.some((a) => a.code === editArea)
-                        ) {
-                          setEditArea(validAreas[0].code);
-                        }
-                      }}
-                      options={companies.map((c) => ({
-                        value: c.code,
-                        label: c.name,
-                        badge: c.code,
+                      value={editArea}
+                      onChange={setEditArea}
+                      options={areasForEditCompany.map((a) => ({
+                        value: a.code,
+                        label: a.name,
+                        badge: a.code,
                       }))}
-                      ariaLabel="Chọn Sion / Công ty"
+                      ariaLabel="Chọn Khu vực"
                     />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                      Khu vực
-                    </label>
-                    {areasForEditCompany.length > 0 ? (
-                      <CustomSelect
-                        size="sm"
-                        value={editArea}
-                        onChange={setEditArea}
-                        options={areasForEditCompany.map((a) => ({
-                          value: a.code,
-                          label: formatAreaDisplayName(a.code, a.name),
-                          badge: a.code,
-                        }))}
-                        ariaLabel="Chọn Khu vực"
-                      />
-                    ) : (
-                      <input
-                        type="text"
-                        value={editArea}
-                        onChange={(e) => setEditArea(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100"
-                      />
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                      Ban ngành
-                    </label>
-                    <CustomSelect
-                      size="sm"
-                      value={editDepartment}
-                      onChange={setEditDepartment}
-                      options={departments.map((d) => ({
-                        value: d.code,
-                        label: d.name,
-                      }))}
-                      ariaLabel="Chọn Ban ngành"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                      Đội / Uni (tùy chọn)
-                    </label>
+                  ) : (
                     <input
                       type="text"
-                      value={editUnitCode}
-                      onChange={(e) => setEditUnitCode(e.target.value)}
-                      placeholder="VD: Uni 1, Đội A..."
-                      className="w-full min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                      value={editArea}
+                      onChange={(e) => setEditArea(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100"
                     />
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-1.5">
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200">
-                    <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Đơn vị trực thuộc (chỉ Admin có quyền điều chuyển)</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 dark:text-slate-300">
-                    <div>
-                      Sion: <strong className="text-slate-900 dark:text-white">{currentUser.companyCode || '—'}</strong>
-                    </div>
-                    <div>
-                      Khu vực: <strong className="text-slate-900 dark:text-white">{currentUser.areaCode || '—'}</strong>
-                    </div>
-                    <div>
-                      Ban ngành: <strong className="text-slate-900 dark:text-white">{currentUser.departmentCode || '—'}</strong>
-                    </div>
-                    <div>
-                      Đội / Uni: <strong className="text-slate-900 dark:text-white">{currentUser.unitCode || '—'}</strong>
-                    </div>
-                  </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Ban ngành
+                  </label>
+                  <CustomSelect
+                    size="sm"
+                    value={editDepartment}
+                    onChange={setEditDepartment}
+                    options={departments.map((d) => ({
+                      value: d.code,
+                      label: d.name,
+                    }))}
+                    ariaLabel="Chọn Ban ngành"
+                  />
                 </div>
-              )}
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Đội / Uni (tùy chọn)
+                  </label>
+                  <input
+                    type="text"
+                    value={editUnitCode}
+                    onChange={(e) => setEditUnitCode(e.target.value)}
+                    placeholder="VD: Uni 1, Đội A..."
+                    className="w-full min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                  />
+                </div>
+              </div>
 
               <div className="mt-5 flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
