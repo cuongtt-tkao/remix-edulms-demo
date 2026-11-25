@@ -717,11 +717,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!onSaveClustersConfig) return;
     setIsSavingCluster(true);
     try {
-      await onSaveClustersConfig({
+      const res = await onSaveClustersConfig({
         ...(clustersConfig || {}),
         clusters: nextClusters,
       });
-      onShowNotification(successMsg);
+      const syncSuffix =
+        res?.syncedCount > 0
+          ? ` Đã tự động đồng bộ quyền cho ${res.syncedCount} tài khoản QL Cụm.`
+          : '';
+      onShowNotification(`${successMsg}${syncSuffix}`);
     } catch (err: any) {
       onShowNotification(`Lỗi lưu Cụm Sion: ${err?.message || 'Thao tác thất bại'}`);
     } finally {
@@ -1331,7 +1335,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <span>Danh sách Cụm Sion ({clustersList.length} cụm)</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Gom nhóm các Sion có sẵn thành Cụm. Tính năng tự động đồng bộ quyền đã tắt; quản trị viên tự điều chỉnh phạm vi trực tiếp trong mục Phân quyền.
+                  Gom nhóm các Sion có sẵn thành Cụm. Khi thêm/bớt Sion trong Cụm, quyền của các QL Cụm (MANAGER) gán Cụm đó sẽ tự động đồng bộ.
                 </p>
               </div>
               {isAdmin && (
@@ -1353,7 +1357,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onClick={() =>
                         setConfirmDeleteTarget({
                           title:
-                            'Khôi phục 5 Cụm Sion mẫu (TH1, ÊLI, HBC, PER, YSAC)? Danh sách Cụm hiện tại sẽ được thay thế bằng 5 Cụm mẫu.',
+                            'Khôi phục 5 Cụm Sion mẫu (TH1, ÊLI, HBC, PER, YSAC)? Danh sách Cụm hiện tại sẽ được thay thế bằng 5 Cụm mẫu và tự động đồng bộ lại cho các QL Cụm.',
                           onConfirm: () => {
                             void handleInitDefaultClusters();
                           },
@@ -1687,7 +1691,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={isSyncingOrg}
                     onClick={handleManualOrgSync}
                     className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Quét và bổ sung thủ công các Sion từ Cụm và tài khoản/thành viên hiện có"
+                    title="Tự động tạo các Sion từ 5 Cụm và đồng bộ Khu vực từ tài khoản/thành viên hiện có"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
                     <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ Sion & KV'}</span>
@@ -1952,7 +1956,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={isSyncingOrg}
                     onClick={handleManualOrgSync}
                     className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Quét và bổ sung thủ công các Khu vực & Sion từ danh sách thành viên/tài khoản hiện có"
+                    title="Tự động đồng bộ các Khu vực & Sion từ danh sách thành viên/tài khoản và 5 Cụm"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
                     <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ KV'}</span>
