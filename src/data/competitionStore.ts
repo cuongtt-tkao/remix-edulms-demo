@@ -382,8 +382,7 @@ export function loadCurrentAuthUser(): import('../types/edulms').UserAccount | n
   } catch (e) {
     console.warn('Failed to parse current user', e);
   }
-  // Default to Member account Nguyễn Văn An for instant smooth experience
-  return INITIAL_ACCOUNTS[1];
+  return null;
 }
 
 export function saveCurrentAuthUser(user: import('../types/edulms').UserAccount | null): void {
@@ -561,3 +560,30 @@ export function saveStoredHuongKhi(data: import('../types/edulms').HuongKhiItem[
     console.warn('Failed to save huong khi', e);
   }
 }
+
+import { collection, doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+//import { Member } from './types/edulms';
+
+// Hàm 1: Đẩy dữ liệu một thành viên lên Firebase Firestore
+export const saveMemberToCloud = async (member: Member) => {
+  try {
+    // Lưu vào bảng 'members' với ID chính là id của thành viên đó
+    await setDoc(doc(db, 'members', member.id), member);
+  } catch (error) {
+    console.error("Lỗi đồng bộ lên đám mây: ", error);
+  }
+};
+
+// Hàm 2: Lắng nghe dữ liệu thay đổi theo thời gian thực (Realtime)
+export const subscribeMembersCloud = (callback: (members: Member[]) => void) => {
+  return onSnapshot(collection(db, 'members'), (snapshot) => {
+    const membersList: Member[] = [];
+    snapshot.forEach((doc) => {
+      membersList.push(doc.data() as Member);
+    });
+    if (membersList.length > 0) {
+      callback(membersList);
+    }
+  });
+};

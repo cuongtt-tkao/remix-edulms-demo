@@ -139,10 +139,6 @@ export function useCloudCollection<T extends { id: string }>(
 
       persistDiff(name, prev, next).catch((err) => {
         console.error(`[Firestore] Không ghi được "${name}":`, err);
-        if (itemsRef.current === arranged) {
-          itemsRef.current = prev;
-          setItemsState(prev);
-        }
         onErrorRef.current?.(`Không lưu được lên máy chủ (${name}): ${err.message}`);
       });
     },

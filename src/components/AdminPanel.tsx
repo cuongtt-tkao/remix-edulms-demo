@@ -36,12 +36,10 @@ import {
   BookOpenCheck,
   Layers,
   RefreshCw,
-  MapPinned,
 } from 'lucide-react';
 import {
   Company,
   Area,
-  Region,
   Department,
   Member,
   UserAccount,
@@ -110,7 +108,6 @@ import { AdminBannerEventTab } from './AdminBannerEventTab';
 import { AdminScoringAppearanceTab } from './AdminScoringAppearanceTab';
 import { AdminVocabularyTab } from './AdminVocabularyTab';
 import { CustomSelect } from './CustomSelect';
-import { AdminRegionsTab } from './AdminRegionsTab';
 
 export type AdminSectionId =
   | 'SCORING'
@@ -122,7 +119,6 @@ export type AdminSectionId =
   | 'APPEARANCE_HONORS'
   | 'CLUSTERS'
   | 'COMPANIES'
-  | 'REGIONS'
   | 'AREAS'
   | 'DEPARTMENTS'
   | 'MEMBERS'
@@ -135,10 +131,6 @@ interface AdminPanelProps {
   initialTabTrigger?: number;
   companies: Company[];
   areas: Area[];
-  regions?: Region[];
-  onAddRegion?: (region: Omit<Region, 'id'>) => void;
-  onUpdateRegion?: (region: Region) => void;
-  onDeleteRegion?: (id: string) => void;
   departments: Department[];
   members: Member[];
   onAddCompany: (company: Omit<Company, 'id'>) => void;
@@ -237,10 +229,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   initialTabTrigger = 0,
   companies,
   areas,
-  regions = [],
-  onAddRegion,
-  onUpdateRegion,
-  onDeleteRegion,
   departments,
   members,
   onAddCompany,
@@ -309,7 +297,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
   const supervisorAllowedTabs: AdminSectionId[] = React.useMemo(
-    () => ['CLUSTERS', 'COMPANIES', 'REGIONS', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC'],
+    () => ['CLUSTERS', 'COMPANIES', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC'],
     []
   );
 
@@ -648,10 +636,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newMemberDept, setNewMemberDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
   const [newMemberUnit, setNewMemberUnit] = useState(
     currentUser?.role === 'UNI_LEADER'
-      ? currentUser?.unitCode ||
-          currentUser?.managedUnitCodes?.[0] ||
-          currentUser?.departmentCode ||
-          ''
+      ? currentUser?.unitCode || currentUser?.managedUnitCodes?.[0] || ''
       : ''
   );
 
@@ -667,11 +652,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setNewMemberArea(scopedAreas[0].code);
       }
       if (currentUser?.role === 'UNI_LEADER') {
-        const ownU =
-          currentUser.managedUnitCodes?.[0] ||
-          currentUser.unitCode ||
-          currentUser.departmentCode ||
-          '';
+        const ownU = currentUser.managedUnitCodes?.[0] || currentUser.unitCode || '';
         if (ownU && !viewerUnitScope.has(normalizeOrgCode(newMemberUnit))) {
           setNewMemberUnit(ownU);
         }
@@ -716,11 +697,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!onSaveClustersConfig) return;
     setIsSavingCluster(true);
     try {
-      await onSaveClustersConfig({
+      const res = await onSaveClustersConfig({
         ...(clustersConfig || {}),
         clusters: nextClusters,
       });
-      onShowNotification(successMsg);
+      const syncSuffix =
+        res?.syncedCount > 0
+          ? ` Đã tự động đồng bộ quyền cho ${res.syncedCount} tài khoản QL Cụm.`
+          : '';
+      onShowNotification(`${successMsg}${syncSuffix}`);
     } catch (err: any) {
       onShowNotification(`Lỗi lưu Cụm Sion: ${err?.message || 'Thao tác thất bại'}`);
     } finally {
@@ -923,33 +908,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onShowNotification('Vui lòng điền họ tên cá nhân.');
       return;
     }
-    const resolvedMemberUnit =
-      newMemberUnit.trim() ||
-      (currentUser?.role === 'UNI_LEADER'
-        ? currentUser.unitCode ||
-          currentUser.managedUnitCodes?.[0] ||
-          currentUser.departmentCode ||
-          ''
-        : '');
     onAddMember({
       fullName: newMemberName.trim(),
       companyCode: newMemberCompany,
       areaCode: newMemberArea,
       departmentCode: newMemberDept,
-      unitCode: resolvedMemberUnit || undefined,
+      unitCode: newMemberUnit.trim() || undefined,
       active: true,
       goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
       results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
     });
     setNewMemberName('');
-    setNewMemberUnit(
-      currentUser?.role === 'UNI_LEADER'
-        ? currentUser.unitCode ||
-            currentUser.managedUnitCodes?.[0] ||
-            currentUser.departmentCode ||
-            ''
-        : ''
-    );
+    setNewMemberUnit('');
     setIsAddMemberOpen(false);
     onShowNotification('Đã thêm thành viên mới thành công!');
   };
@@ -1116,7 +1086,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               items: [
                 { id: 'CLUSTERS', label: 'Cụm Sion', icon: Layers, badge: `${clustersList.length}` },
                 { id: 'COMPANIES', label: 'Sion / Công ty', icon: Building2, badge: `${scopedCompanies.length}` },
-                { id: 'REGIONS', label: 'Địa vực', icon: MapPinned, badge: `${regions.filter((r) => scopedCompanies.some((c) => normalizeOrgCode(c.code) === normalizeOrgCode(r.companyCode))).length}` },
                 { id: 'AREAS', label: 'Khu vực', icon: MapPin, badge: `${scopedAreas.length}` },
                 { id: 'DEPARTMENTS', label: 'Ban ngành', icon: Users2, badge: `${departments.length}` },
                 { id: 'MEMBERS', label: 'Thành viên', icon: User, badge: `${scopedMembers.length}` },
@@ -1319,7 +1288,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <span>Danh sách Cụm Sion ({clustersList.length} cụm)</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Gom nhóm các Sion có sẵn thành Cụm. Tính năng tự động đồng bộ quyền đã tắt; quản trị viên tự điều chỉnh phạm vi trực tiếp trong mục Phân quyền.
+                  Gom nhóm các Sion có sẵn thành Cụm. Khi thêm/bớt Sion trong Cụm, quyền của các QL Cụm (MANAGER) gán Cụm đó sẽ tự động đồng bộ.
                 </p>
               </div>
               {isAdmin && (
@@ -1341,7 +1310,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onClick={() =>
                         setConfirmDeleteTarget({
                           title:
-                            'Khôi phục 5 Cụm Sion mẫu (TH1, ÊLI, HBC, PER, YSAC)? Danh sách Cụm hiện tại sẽ được thay thế bằng 5 Cụm mẫu.',
+                            'Khôi phục 5 Cụm Sion mẫu (TH1, ÊLI, HBC, PER, YSAC)? Danh sách Cụm hiện tại sẽ được thay thế bằng 5 Cụm mẫu và tự động đồng bộ lại cho các QL Cụm.',
                           onConfirm: () => {
                             void handleInitDefaultClusters();
                           },
@@ -1675,7 +1644,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={isSyncingOrg}
                     onClick={handleManualOrgSync}
                     className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Quét và bổ sung thủ công các Sion từ Cụm và tài khoản/thành viên hiện có"
+                    title="Tự động tạo các Sion từ 5 Cụm và đồng bộ Khu vực từ tài khoản/thành viên hiện có"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
                     <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ Sion & KV'}</span>
@@ -1866,26 +1835,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         )}
 
         {/* TAB 2: AREAS */}
-        {activeTab === 'REGIONS' && (
-          <AdminRegionsTab
-            regions={regions}
-            companies={scopedCompanies}
-            areas={scopedAreas}
-            members={scopedMembers}
-            isAdmin={isAdmin}
-            canManageCompany={(code) =>
-              isAdmin ||
-              ((currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') &&
-                viewerCompanyScope.has(normalizeOrgCode(code)))
-            }
-            onAddRegion={(r) => onAddRegion?.(r)}
-            onUpdateRegion={(r) => onUpdateRegion?.(r)}
-            onDeleteRegion={(id) => onDeleteRegion?.(id)}
-            onShowNotification={onShowNotification}
-            requestConfirm={setConfirmDeleteTarget}
-          />
-        )}
-
         {activeTab === 'AREAS' && (
           <div className="mt-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-4">
@@ -1919,7 +1868,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={isSyncingOrg}
                     onClick={handleManualOrgSync}
                     className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Quét và bổ sung thủ công các Khu vực & Sion từ danh sách thành viên/tài khoản hiện có"
+                    title="Tự động đồng bộ các Khu vực & Sion từ danh sách thành viên/tài khoản và 5 Cụm"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
                     <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ KV'}</span>
@@ -2037,46 +1986,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <td className="py-3 px-4 text-slate-600 font-semibold">{area.companyCode}</td>
                           <td className="py-3 px-4 text-center font-semibold text-slate-600">{areaMembers.length} người</td>
                           <td className="py-3 px-4 text-center">
-                            <span
-                              className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] ${
-                                area.active !== false
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {area.active !== false ? 'Hoạt động' : 'Tạm ngừng'}
+                            <span className="px-2 py-0.5 rounded-full font-extrabold text-[10px] bg-emerald-100 text-emerald-800">
+                              Hoạt động
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
-                            {editable &&
-                              (isAdmin ||
-                                currentUser?.role === 'MANAGER' ||
-                                currentUser?.role === 'SION_LEADER') && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const nextActive = area.active === false;
-                                    onUpdateArea({ ...area, active: nextActive });
-                                    onShowNotification(
-                                      nextActive
-                                        ? `Đã kích hoạt lại khu vực ${area.code}.`
-                                        : `Đã tạm ngừng hoạt động khu vực ${area.code}.`
-                                    );
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 mr-1 transition cursor-pointer"
-                                  title={
-                                    area.active !== false
-                                      ? 'Tạm ngừng hoạt động khu vực'
-                                      : 'Kích hoạt lại khu vực'
-                                  }
-                                >
-                                  {area.active !== false ? (
-                                    <ToggleRight className="w-4 h-4 text-emerald-600" />
-                                  ) : (
-                                    <ToggleLeft className="w-4 h-4 text-slate-400" />
-                                  )}
-                                </button>
-                              )}
                             {editable ? (
                               <button
                                 onClick={() => setEditingArea(area)}
@@ -2090,25 +2004,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             )}
                             {deletable && (
                               <button
-                                onClick={() => {
-                                  if (!isAdmin && area.active !== false) {
-                                    onShowNotification('Hãy ngừng hoạt động Khu vực trước khi xóa.');
-                                    return;
-                                  }
-                                  if (!isAdmin && areaMembers.length > 0) {
-                                    onShowNotification(
-                                      `Khu vực còn ${areaMembers.length} thành viên. Hãy chuyển họ sang khu vực khác trước khi xóa.`
-                                    );
-                                    return;
-                                  }
+                                onClick={() =>
                                   setConfirmDeleteTarget({
                                     title: `Xóa khu vực ${area.name} (${area.companyCode})?`,
                                     onConfirm: () => {
                                       onDeleteArea(area.id);
                                       onShowNotification(`Đã xóa khu vực ${area.name}.`);
                                     },
-                                  });
-                                }}
+                                  })
+                                }
                                 className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
                                 title="Xóa khu vực"
                               >

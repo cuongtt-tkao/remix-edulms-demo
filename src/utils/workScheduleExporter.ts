@@ -14,7 +14,9 @@ import {
   isAdminRole,
   isMemberInManagerCluster,
   normalizeOrgCode,
+  parseAreaScopeEntry,
 } from './rbac';
+import { sanitizeExcelCell } from './excelSanitizer';
 
 export type WorkScheduleExportPeriod = 'WEEK' | 'MONTH' | 'ALL';
 
@@ -192,7 +194,11 @@ export function exportWorkSchedulesByRbacExcel(
       if (normalizeOrgCode(comp) !== normalizeOrgCode(opts.filterCompanyCode)) return false;
     }
     if (opts.filterAreaCode && opts.filterAreaCode !== 'ALL') {
-      if (normalizeOrgCode(area) !== normalizeOrgCode(opts.filterAreaCode)) return false;
+      const parsedArea = parseAreaScopeEntry(opts.filterAreaCode);
+      if (parsedArea.hasCompanyPrefix && normalizeOrgCode(comp) !== parsedArea.companyCode) {
+        return false;
+      }
+      if (parsedArea.areaCode && normalizeOrgCode(area) !== parsedArea.areaCode) return false;
     }
     return true;
   };
@@ -267,28 +273,30 @@ export function exportWorkSchedulesByRbacExcel(
       .map((k) => WORK_WEEK_DAYS.find((d) => d.key === k)?.shortLabel || k)
       .join(', ');
 
-    const dayColumns: Record<string, string> = {};
+    const dayColumns: Record<string, string | number> = {};
     WORK_WEEK_DAYS.forEach((d) => {
-      dayColumns[`${d.shortLabel} (S/C/T)`] = formatDaySessionsCompact(rec.sessions?.[d.key]);
+      dayColumns[`${d.shortLabel} (S/C/T)`] = sanitizeExcelCell(
+        formatDaySessionsCompact(rec.sessions?.[d.key])
+      );
     });
 
     return {
       STT: idx + 1,
       'Tuần (CN → T7)': `${formatDayMonthVN(rec.weekStart)} – ${formatDateVN(rec.weekEnd)}`,
-      'Họ và Tên': rec.ownerName,
-      Sion: rec.companyCode || '',
-      'Khu Vực': rec.areaCode || '',
-      'Đội / Uni': rec.ownerUnitCode || '',
+      'Họ và Tên': sanitizeExcelCell(rec.ownerName),
+      Sion: sanitizeExcelCell(rec.companyCode || ''),
+      'Khu Vực': sanitizeExcelCell(rec.areaCode || ''),
+      'Đội / Uni': sanitizeExcelCell(rec.ownerUnitCode || ''),
       'Buổi thường (/21)': countRegularFilled(rec),
       ...(includeWs
         ? {
             'Buổi WS': countWsFilled(rec),
-            'Ngày bật WS': activeWsLabels || '—',
+            'Ngày bật WS': sanitizeExcelCell(activeWsLabels || '—'),
           }
         : {}),
       ...dayColumns,
-      ...(includeWs ? { 'Chi tiết Lịch WS': formatWsSummary(rec) } : {}),
-      'Ghi chú cá nhân': rec.noteLegend || '',
+      ...(includeWs ? { 'Chi tiết Lịch WS': sanitizeExcelCell(formatWsSummary(rec)) } : {}),
+      'Ghi chú cá nhân': sanitizeExcelCell(rec.noteLegend || ''),
       'Cập nhật lúc': rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('vi-VN') : '',
     };
   });
@@ -318,19 +326,19 @@ export function exportWorkSchedulesByRbacExcel(
         'Tuần': weekLabel,
         'Thứ': d.fullLabel,
         'Ngày': formatDateVN(dateStr),
-        'Họ và Tên': rec.ownerName,
-        Sion: rec.companyCode || '',
-        'Khu Vực': rec.areaCode || '',
-        'Đội / Uni': rec.ownerUnitCode || '',
-        'Sáng': (sEntry?.morning || '').trim() || '',
-        'Chiều': (sEntry?.afternoon || '').trim() || '',
-        'Tối': (sEntry?.evening || '').trim() || '',
+        'Họ và Tên': sanitizeExcelCell(rec.ownerName),
+        Sion: sanitizeExcelCell(rec.companyCode || ''),
+        'Khu Vực': sanitizeExcelCell(rec.areaCode || ''),
+        'Đội / Uni': sanitizeExcelCell(rec.ownerUnitCode || ''),
+        'Sáng': sanitizeExcelCell((sEntry?.morning || '').trim() || ''),
+        'Chiều': sanitizeExcelCell((sEntry?.afternoon || '').trim() || ''),
+        'Tối': sanitizeExcelCell((sEntry?.evening || '').trim() || ''),
         ...(includeWs
           ? {
               'Có WS': isWsDay ? 'Có' : '',
-              'WS Sáng': isWsDay ? (wEntry?.morning || '').trim() : '',
-              'WS Chiều': isWsDay ? (wEntry?.afternoon || '').trim() : '',
-              'WS Tối': isWsDay ? (wEntry?.evening || '').trim() : '',
+              'WS Sáng': isWsDay ? sanitizeExcelCell((wEntry?.morning || '').trim()) : '',
+              'WS Chiều': isWsDay ? sanitizeExcelCell((wEntry?.afternoon || '').trim()) : '',
+              'WS Tối': isWsDay ? sanitizeExcelCell((wEntry?.evening || '').trim()) : '',
             }
           : {}),
       });
@@ -360,10 +368,10 @@ export function exportWorkSchedulesByRbacExcel(
       matrixAoA.push([
         `LỊCH LÀM VIỆC TUẦN: ${formatDayMonthVN(rec.weekStart)} – ${formatDateVN(rec.weekEnd)}`,
         '',
-        `Họ tên: ${rec.ownerName}`,
-        `Sion: ${rec.companyCode || '—'}`,
-        `KV: ${rec.areaCode || '—'}`,
-        rec.ownerUnitCode ? `Uni: ${rec.ownerUnitCode}` : '',
+        String(sanitizeExcelCell(`Họ tên: ${rec.ownerName}`)),
+        String(sanitizeExcelCell(`Sion: ${rec.companyCode || '—'}`)),
+        String(sanitizeExcelCell(`KV: ${rec.areaCode || '—'}`)),
+        rec.ownerUnitCode ? String(sanitizeExcelCell(`Uni: ${rec.ownerUnitCode}`)) : '',
       ]);
       matrixAoA.push([
         'Khung giờ / Hạng mục',
@@ -379,7 +387,9 @@ export function exportWorkSchedulesByRbacExcel(
       sessionDefs.forEach((sDef) => {
         matrixAoA.push([
           sDef.label,
-          ...WORK_WEEK_DAYS.map((d) => (rec.sessions?.[d.key]?.[sDef.key] || '').trim() || '—'),
+          ...WORK_WEEK_DAYS.map((d) =>
+            String(sanitizeExcelCell((rec.sessions?.[d.key]?.[sDef.key] || '').trim() || '—'))
+          ),
         ]);
       });
 
@@ -390,14 +400,16 @@ export function exportWorkSchedulesByRbacExcel(
           matrixAoA.push([
             `WS · ${sDef.label.split(' ')[0]}`,
             ...WORK_WEEK_DAYS.map((d) =>
-              activeWsSet.has(d.key) ? (rec.ws?.[d.key]?.[sDef.key] || '').trim() || '—' : 'Không bật'
+              activeWsSet.has(d.key)
+                ? String(sanitizeExcelCell((rec.ws?.[d.key]?.[sDef.key] || '').trim() || '—'))
+                : 'Không bật'
             ),
           ]);
         });
       }
 
       if (rec.noteLegend) {
-        matrixAoA.push(['Ghi chú quy ước số', rec.noteLegend]);
+        matrixAoA.push(['Ghi chú quy ước số', String(sanitizeExcelCell(rec.noteLegend))]);
       }
     });
 

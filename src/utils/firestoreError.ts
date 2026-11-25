@@ -1,5 +1,5 @@
 import { doc, getDocFromServer } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth, db, FIRESTORE_DATABASE_ID } from '../firebase';
 
 export enum OperationType {
   CREATE = 'create',
@@ -57,8 +57,10 @@ export async function testFirestoreConnection(): Promise<void> {
   try {
     await getDocFromServer(doc(db, 'system_config', 'banner'));
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Firestore đang ngoại tuyến hoặc cấu hình kết nối chưa sẵn sàng.');
-    }
+    const code = (error as { code?: string })?.code || '';
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[Firestore:${FIRESTORE_DATABASE_ID}] Không kiểm tra được kết nối máy chủ (${code || 'unknown'}): ${msg}`
+    );
   }
 }

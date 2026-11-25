@@ -34,8 +34,7 @@ import {
   canModifyEduRecord,
   canViewEduRecord,
   canViewMemberDetail,
-  getScopedAreaOptions,
-  getScopedCompanyOptions,
+  formatAreaDisplayName,
   isAdminRole,
 } from '../utils/rbac';
 
@@ -405,16 +404,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
     );
   }
 
-  const scopedCompanyOptionsForAssign = useMemo(
-    () => getScopedCompanyOptions(currentUser, companies, members),
-    [currentUser, companies, members]
-  );
-
-  const areaOptionsForAssign = useMemo(
-    () => getScopedAreaOptions(currentUser, areas, aCompanyCode, members),
-    [currentUser, areas, aCompanyCode, members]
-  );
-
+  const areaOptionsForAssign = areas.filter((a) => a.companyCode === aCompanyCode);
   const memberCandidatesForAssign = members.filter(
     (m) =>
       canViewMemberDetail(currentUser, m) &&
@@ -1071,7 +1061,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                       .filter((a) => a.companyCode === tCompanyCode)
                       .map((a) => ({
                         value: a.code,
-                        label: `KV ${a.code} — ${a.name}`,
+                        label: formatAreaDisplayName(a.code, a.name),
                         badge: a.code,
                       })),
                   ]}
@@ -1177,14 +1167,13 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                 </label>
                 <CustomSelect
                   size="sm"
-                  disabled={!isAdmin && scopedCompanyOptionsForAssign.length <= 1}
                   value={aCompanyCode}
                   onChange={(nextComp) => {
                     setACompanyCode(nextComp);
-                    const allowedAreas = getScopedAreaOptions(currentUser, areas, nextComp, members);
-                    if (allowedAreas[0]?.code) setAAreaCode(allowedAreas[0].code);
+                    const firstArea = areas.find((a) => a.companyCode === nextComp)?.code;
+                    if (firstArea) setAAreaCode(firstArea);
                   }}
-                  options={scopedCompanyOptionsForAssign.map((c) => ({
+                  options={companies.map((c) => ({
                     value: c.code,
                     label: c.name,
                     badge: c.code,
@@ -1200,17 +1189,11 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                 {areaOptionsForAssign.length > 0 ? (
                   <CustomSelect
                     size="sm"
-                    disabled={
-                      !isAdmin &&
-                      currentUser.role !== 'MANAGER' &&
-                      currentUser.role !== 'SION_LEADER' &&
-                      areaOptionsForAssign.length <= 1
-                    }
                     value={aAreaCode}
                     onChange={setAAreaCode}
                     options={areaOptionsForAssign.map((a) => ({
                       value: a.code,
-                      label: `KV ${a.code} (${a.name})`,
+                      label: formatAreaDisplayName(a.code, a.name),
                       badge: a.code,
                     }))}
                     ariaLabel="Chọn Khu vực"
@@ -1219,11 +1202,10 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                   <input
                     type="text"
                     required
-                    disabled={currentUser.role === 'MEMBER' || currentUser.role === 'UNI_LEADER'}
                     value={aAreaCode}
                     onChange={(e) => setAAreaCode(e.target.value)}
                     placeholder="Ví dụ: 1.1"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold disabled:opacity-60"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
                   />
                 )}
               </div>

@@ -9,7 +9,6 @@ import {
   setDoc,
   deleteDoc,
   writeBatch,
-  runTransaction,
   getDocFromServer,
   deleteField,
 } from 'firebase/firestore';
@@ -26,7 +25,6 @@ import {
 import {
   Company,
   Area,
-  Region,
   Department,
   Member,
   UserAccount,
@@ -98,6 +96,7 @@ import {
   makeDeterministicCompanyId,
   makeDeterministicAreaId,
   parseAreaScopeEntry,
+  resolveCompanyCodesFromClusterIds,
 } from './utils/rbac';
 import { hashPersonalPin, verifyPersonalPin, isValidPersonalPin } from './utils/pinSecurity';
 import {
@@ -132,7 +131,7 @@ import { RegionalDetailModal } from './components/RegionalDetailModal';
 import { RulesModal } from './components/RulesModal';
 import { GratitudeCheerPage } from './components/GratitudeCheerPage';
 import { Footer } from './components/Footer';
-import { Shield, Lock, ArrowRight, Calendar, Award, Users, Sliders, Bell, X, AlertTriangle } from 'lucide-react';
+import { Shield, Lock, ArrowRight, Calendar, Award, Users, Sliders } from 'lucide-react';
 import {
   auth,
   db,
@@ -141,18 +140,11 @@ import {
   logOutFirebase,
   registerWithEmail,
   changeCurrentPassword,
-  resendVerificationEmail,
-  reloadCurrentAuthUser,
   describeAuthError,
   BOOTSTRAP_SUPER_ADMIN_EMAILS,
   isBootstrapSuperAdminEmail,
   FIRESTORE_DATABASE_ID,
 } from './firebase';
-import { diagnoseWriteDenied } from './utils/rulesDiagnostics';
-import {
-  playRegistrationChime,
-  showBrowserRegistrationNotification,
-} from './utils/registrationAlert';
 
 function getAreaLeaderQueryPairs(
   compCodes: string[],
@@ -188,6 +180,13 @@ function getAreaLeaderQueryPairs(
   return Array.from(pairs.values());
 }
 
+function areCodeListsEqual(a?: string[], b?: string[]): boolean {
+  const normA = (a || []).map((x) => normalizeOrgCode(x)).filter(Boolean).sort();
+  const normB = (b || []).map((x) => normalizeOrgCode(x)).filter(Boolean).sort();
+  if (normA.length !== normB.length) return false;
+  return normA.every((val, idx) => val === normB[idx]);
+}
+
 export default function App() {
   // ---------- Đăng nhập (Firebase Authentication) & Khóa Mã cá nhân 6 số ----------
   const [authReady, setAuthReady] = useState<boolean>(false);
@@ -206,8 +205,7 @@ export default function App() {
   const signedIn = !!firebaseUser;
 
   const currentEmailLower = (firebaseUser?.email || currentUser?.email || '').trim().toLowerCase();
-  const isSelfBootstrapSuperAdmin =
-    isBootstrapSuperAdminEmail(currentEmailLower) && !!firebaseUser?.emailVerified;
+  const isSelfBootstrapSuperAdmin = isBootstrapSuperAdminEmail(currentEmailLower);
   const currentApprovalStatus = useMemo(() => {
     if (isSelfBootstrapSuperAdmin) return 'APPROVED' as const;
     return resolveUserApprovalStatus(currentUser);
@@ -247,26 +245,9 @@ export default function App() {
 
   // ---------- Toast ----------
   const [notification, setNotification] = useState<string | null>(null);
-  const [rulesSyncWarning, setRulesSyncWarning] = useState<string | null>(null);
-  const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showNotification = useCallback((msg: string, durationMs = 3500) => {
-    if (notificationTimerRef.current) {
-      clearTimeout(notificationTimerRef.current);
-      notificationTimerRef.current = null;
-    }
+  const showNotification = useCallback((msg: string) => {
     setNotification(msg);
-    notificationTimerRef.current = setTimeout(() => {
-      setNotification(null);
-      notificationTimerRef.current = null;
-    }, durationMs);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (notificationTimerRef.current) {
-        clearTimeout(notificationTimerRef.current);
-      }
-    };
+    setTimeout(() => setNotification(null), 3500);
   }, []);
 
   // ---------- Dữ liệu dùng chung (Cloud Firestore) ----------
@@ -278,11 +259,6 @@ export default function App() {
     onError: reportError,
   });
   const [areas, setAreas, areasLoaded] = useCloudCollection<Area>('areas', {
-    enabled: true,
-    ordered: true,
-    onError: reportError,
-  });
-  const [regions, setRegions] = useCloudCollection<Region>('regions', {
     enabled: true,
     ordered: true,
     onError: reportError,
@@ -528,23 +504,7 @@ export default function App() {
           .sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
         setPersonalPlanners(list);
       },
-      (err) => {
-        console.warn('[Firestore] Lỗi đọc personal_planners:', err);
-        // Chẩn đoán: hiển thị database đang dùng và claim trong token để đối chiếu với Rules
-        auth.currentUser
-          ?.getIdTokenResult(true)
-          .then((t) =>
-            console.warn('[Chẩn đoán personal_planners]', {
-              database: FIRESTORE_DATABASE_ID,
-              uid: auth.currentUser?.uid,
-              email: t.claims.email,
-              email_verified: t.claims.email_verified,
-              approvalStatus: currentUser?.approvalStatus ?? '(không có trường)',
-              role: currentUser?.role,
-            })
-          )
-          .catch(() => undefined);
-      }
+      (err) => console.warn('[Firestore] Lỗi đọc personal_planners:', err)
     );
     return unsubscribe;
   }, [dataUnlocked, firebaseUser?.uid]);
@@ -608,84 +568,44 @@ export default function App() {
   const managedAreaKeyEarly = JSON.stringify(currentUser?.managedAreaCodes || []);
   const managedUnitKeyEarly = JSON.stringify(currentUser?.managedUnitCodes || []);
 
-  // Listener danh sách users cho Admin / Tổng Quản trị (tách riêng để không bị reset khi đổi thông tin tổ chức)
   useEffect(() => {
-    if (!dataUnlocked || !firebaseUser?.uid || !canReadAdminRolesConfig) {
-      if (!dataUnlocked || !firebaseUser?.uid) {
-        setUsersList([]);
-        setUsersLoaded(false);
-        seenPendingUidsRef.current = null;
-      }
+    if (!dataUnlocked || !firebaseUser?.uid) {
+      setUsersList([]);
+      setUsersLoaded(false);
+      seenPendingUidsRef.current = null;
       return;
     }
 
-    const unsubscribe = onSnapshot(
-      collection(db, 'users'),
-      (snap) => {
-        const list: UserAccount[] = snap.docs.map((d) => ({
-          ...(d.data() as Omit<UserAccount, 'id'>),
-          id: d.id,
-        }));
-        setUsersList(list);
-        if (!snap.metadata.fromCache) setUsersLoaded(true);
+    if (canReadAdminRolesConfig) {
+      const unsubscribe = onSnapshot(
+        collection(db, 'users'),
+        (snap) => {
+          const list: UserAccount[] = snap.docs.map((d) => ({
+            ...(d.data() as Omit<UserAccount, 'id'>),
+            id: d.id,
+          }));
+          setUsersList(list);
+          if (!snap.metadata.fromCache) setUsersLoaded(true);
 
-        const currentPending = list
-          .filter((u) => resolveUserApprovalStatus(u) === 'PENDING')
-          .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        const currentPendingSet = new Set(currentPending.map((u) => u.id));
-
-        if (seenPendingUidsRef.current === null) {
-          // Chờ snapshot xác thực từ máy chủ (hoặc nếu cache đã có dữ liệu) mới chốt mốc ban đầu
-          if (!snap.metadata.fromCache) {
+          const currentPending = list.filter((u) => resolveUserApprovalStatus(u) === 'PENDING');
+          const currentPendingSet = new Set(currentPending.map((u) => u.id));
+          if (seenPendingUidsRef.current === null) {
             seenPendingUidsRef.current = currentPendingSet;
-            if (currentPending.length > 0) {
-              const first = currentPending[0];
-              const extra =
-                currentPending.length > 1 ? ` (+${currentPending.length - 1} khác)` : '';
+          } else {
+            const newlyArrived = currentPending.filter((u) => !seenPendingUidsRef.current!.has(u.id));
+            seenPendingUidsRef.current = currentPendingSet;
+            if (newlyArrived.length > 0) {
+              const first = newlyArrived[0];
+              const extra = newlyArrived.length > 1 ? ` (+${newlyArrived.length - 1} khác)` : '';
               showNotification(
-                `Có ${currentPending.length} đăng ký chờ duyệt: ${first.fullName} (${first.companyCode} · KV ${first.areaCode})${extra}`,
-                7000
+                `Đăng ký mới chờ duyệt: ${first.fullName} (${first.companyCode} · KV ${first.areaCode})${extra}`
               );
-              playRegistrationChime();
             }
           }
-          return;
-        }
-
-        const newlyArrived = currentPending.filter(
-          (u) => !seenPendingUidsRef.current!.has(u.id)
-        );
-        seenPendingUidsRef.current = currentPendingSet;
-
-        if (newlyArrived.length > 0) {
-          const first = newlyArrived[0];
-          const extra =
-            newlyArrived.length > 1 ? ` (+${newlyArrived.length - 1} khác)` : '';
-          const msg = `Đăng ký mới chờ duyệt: ${first.fullName} (${first.companyCode} · KV ${first.areaCode})${extra}`;
-          showNotification(msg, 7500);
-          playRegistrationChime();
-          showBrowserRegistrationNotification('Hành Thực Lục — Đăng ký mới', msg, () => {
-            setAdminNavTab('ROLES');
-            setAdminNavTrigger((n) => n + 1);
-            setActiveTab('ADMIN');
-          });
-        }
-      },
-      (err) => {
-        console.warn('[Firestore] Lỗi đọc danh sách users:', err);
-        showNotification(
-          `Không tải được danh sách đăng ký chờ duyệt: ${err?.message || 'Kiểm tra Firestore Rules'}`,
-          6000
-        );
-      }
-    );
-    return unsubscribe;
-  }, [dataUnlocked, firebaseUser?.uid, canReadAdminRolesConfig, showNotification]);
-
-  // Listener danh sách users theo phạm vi cho Cấp 2 -> 5
-  useEffect(() => {
-    if (!dataUnlocked || !firebaseUser?.uid || canReadAdminRolesConfig) {
-      return;
+        },
+        (err) => console.warn('[Firestore] Lỗi đọc danh sách users:', err)
+      );
+      return unsubscribe;
     }
 
     setUsersLoaded(false);
@@ -781,11 +701,7 @@ export default function App() {
       );
     } else if (role === 'UNI_LEADER') {
       const ownUnit = currentUser.unitCode || '';
-      const ownDept = currentUser.departmentCode || '';
-      const useDeptFallback = unitCodes.length === 0 && !ownUnit && Boolean(ownDept);
-      const effectiveUnits = Array.from(
-        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : []), ...(useDeptFallback ? [ownDept] : [])].filter(Boolean))
-      );
+      const effectiveUnits = Array.from(new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean)));
       if (currentUser.companyCode && currentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
           attachUserQuery(
@@ -797,17 +713,6 @@ export default function App() {
               where('unitCode', '==', uCode)
             )
           );
-          if (useDeptFallback && uCode === ownDept) {
-            attachUserQuery(
-              `dept_${uCode}`,
-              query(
-                collection(db, 'users'),
-                where('companyCode', '==', currentUser.companyCode),
-                where('areaCode', '==', currentUser.areaCode),
-                where('departmentCode', '==', uCode)
-              )
-            );
-          }
         });
       }
     }
@@ -826,23 +731,15 @@ export default function App() {
     currentUser?.companyCode,
     currentUser?.areaCode,
     currentUser?.unitCode,
-    currentUser?.departmentCode,
     managedCompKeyEarly,
     managedAreaKeyEarly,
     managedUnitKeyEarly,
+    showNotification,
   ]);
 
   const pendingApprovalUsers = useMemo(
-    () =>
-      usersList
-        .filter((u) => resolveUserApprovalStatus(u) === 'PENDING')
-        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    () => usersList.filter((u) => resolveUserApprovalStatus(u) === 'PENDING'),
     [usersList]
-  );
-  const [dismissedPendingSignature, setDismissedPendingSignature] = useState<string>('');
-  const pendingApprovalSignature = useMemo(
-    () => pendingApprovalUsers.map((u) => u.id).sort().join(','),
-    [pendingApprovalUsers]
   );
 
   // Theme Dark/Light mode
@@ -1126,58 +1023,20 @@ export default function App() {
       const existing = await getDocFromServer(userRef);
       if (existing.exists()) {
         pendingRegistrationRef.current = null;
-        creatingProfileRef.current = false;
         return;
       }
 
       const email = (firebaseUser.email || reg.email || '').trim();
-      const fullName = (
-        reg.fullName ||
-        firebaseUser.displayName ||
-        email.split('@')[0] ||
-        'Thành viên mới'
-      )
-        .trim()
-        .slice(0, 100);
-      const companyCode = (reg.companyCode || effectiveCompanies[0]?.code || 'Th1')
-        .trim()
-        .slice(0, 30);
-      const rawAreaCode =
+      const fullName =
+        reg.fullName || firebaseUser.displayName || email.split('@')[0] || 'Thành viên mới';
+      const companyCode = (reg.companyCode || effectiveCompanies[0]?.code || 'Th1').trim();
+      const areaCode =
         cleanRawAreaCode(reg.areaCode) ||
         cleanRawAreaCode(
           effectiveAreas.find((a) => normalizeOrgCode(a.companyCode) === normalizeOrgCode(companyCode))
             ?.code
         ) ||
         '1.1';
-      const cleanArea = rawAreaCode.slice(0, 30);
-      const existingAreaDoc = areas.find(
-        (a) =>
-          normalizeOrgCode(a.companyCode) === normalizeOrgCode(companyCode) &&
-          normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
-      );
-      let areaCode = existingAreaDoc ? existingAreaDoc.code : cleanArea;
-      let areaRefToCreate: ReturnType<typeof doc> | null = null;
-      if (!existingAreaDoc && companyCode && areaCode) {
-        const candidateId = makeDeterministicAreaId(companyCode, areaCode);
-        const candidateRef = doc(db, 'areas', candidateId);
-        let alreadyOnServer = false;
-        try {
-          const areaSnap = await getDocFromServer(candidateRef);
-          if (areaSnap.exists()) {
-            alreadyOnServer = true;
-            const serverCode = areaSnap.data()?.code;
-            if (typeof serverCode === 'string' && serverCode.trim()) {
-              areaCode = serverCode.trim().slice(0, 30);
-            }
-          }
-        } catch {
-          // Bỏ qua nếu không kiểm tra được trước
-        }
-        if (!alreadyOnServer) {
-          areaRefToCreate = candidateRef;
-        }
-      }
-
       const departmentCode = reg.departmentCode || effectiveDepartments[0]?.code || 'Thanh Niên Nam';
       const unitCode = reg.unitCode?.trim() || undefined;
       const nowIso = new Date().toISOString();
@@ -1263,17 +1122,6 @@ export default function App() {
       const batch = writeBatch(db);
       batch.set(userRef, account);
       batch.set(doc(db, 'members', memberId), member);
-      if (areaRefToCreate) {
-        const finalAreaName =
-          (reg.areaName || '').trim().slice(0, 80) || `Khu vực ${areaCode}`;
-        batch.set(areaRefToCreate, {
-          code: areaCode,
-          name: finalAreaName,
-          companyCode,
-          active: true,
-          _order: Date.now(),
-        });
-      }
       await batch.commit();
 
       pendingRegistrationRef.current = null;
@@ -1288,15 +1136,12 @@ export default function App() {
       );
     };
 
-    createProfile()
-      .catch((err) => {
-        console.error('[Firestore] Không tạo được hồ sơ:', err);
-        showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
-        pendingRegistrationRef.current = null;
-      })
-      .finally(() => {
-        creatingProfileRef.current = false;
-      });
+    createProfile().catch((err) => {
+      console.error('[Firestore] Không tạo được hồ sơ:', err);
+      showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
+      pendingRegistrationRef.current = null;
+      creatingProfileRef.current = false;
+    });
   }, [
     firebaseUser,
     profileState,
@@ -1305,7 +1150,6 @@ export default function App() {
     effectiveSecurityConfig,
     effectiveCompanies,
     effectiveAreas,
-    areas,
     effectiveDepartments,
     showNotification,
   ]);
@@ -1372,20 +1216,6 @@ export default function App() {
       role: effectiveRole,
     };
   }, [currentUser, isSuperAdminUser, isAdminUser]);
-
-  // Cập nhật tiêu đề tab trình duyệt khi có đăng ký chờ duyệt để Admin dễ nhận biết
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const baseTitle = 'Hành Thực Lục — Hệ thống Báo cáo & Thi đua';
-    if (dataUnlocked && isAdminUser && pendingApprovalUsers.length > 0) {
-      document.title = `(${pendingApprovalUsers.length} chờ duyệt) ${baseTitle}`;
-    } else {
-      document.title = baseTitle;
-    }
-    return () => {
-      document.title = baseTitle;
-    };
-  }, [dataUnlocked, isAdminUser, pendingApprovalUsers.length]);
 
   // Đồng bộ role & emailVerified lên Firestore
   useEffect(() => {
@@ -1466,73 +1296,6 @@ export default function App() {
     preAssignedRoles,
     ownRoleClaim,
   ]);
-
-  // Chẩn đoán: so sánh quyền hiển thị trên giao diện với quyền thật trong Firestore (rule chỉ đọc quyền thật)
-  useEffect(() => {
-    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) {
-      setRulesSyncWarning(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const snap = await getDocFromServer(doc(db, 'users', firebaseUser.uid));
-        if (cancelled || !snap.exists()) return;
-        const server = snap.data() as any;
-        const tokenResult = await firebaseUser.getIdTokenResult(true);
-        const info = {
-          database: FIRESTORE_DATABASE_ID,
-          uiRole: effectiveCurrentUser.role,
-          serverRole: server.role,
-          serverApproval: server.approvalStatus ?? '(không có trường)',
-          serverCompany: server.companyCode,
-          serverArea: server.areaCode,
-          serverManagedCompanies: server.managedCompanyCodes ?? [],
-          serverManagedAreas: server.managedAreaCodes ?? [],
-          tokenEmailVerified: tokenResult.claims.email_verified,
-        };
-        if (info.uiRole !== info.serverRole) {
-          console.warn(
-            '[Chẩn đoán] LỆCH QUYỀN: giao diện đang là',
-            info.uiRole,
-            'nhưng Firestore lưu',
-            info.serverRole,
-            '- rule sẽ từ chối các truy vấn cấp quản lý.',
-            info
-          );
-        } else {
-          console.info('[Chẩn đoán] Quyền khớp', info);
-        }
-
-        // Kiểm tra thêm xem Firestore Rules trên database hiện tại đã được cập nhật đúng bản mới chưa
-        const serverApproved = !server.approvalStatus || server.approvalStatus === 'APPROVED';
-        if (serverApproved) {
-          try {
-            await getDocFromServer(doc(db, 'events', '_probe_'));
-            if (!cancelled) setRulesSyncWarning(null);
-          } catch (probeErr: any) {
-            const probeMsg = `${probeErr?.code || ''} ${probeErr?.message || ''}`.toLowerCase();
-            if (probeMsg.includes('permission-denied') || probeMsg.includes('insufficient permissions')) {
-              console.error(
-                `[Chẩn đoán Firestore Rules] Hồ sơ users/${firebaseUser.uid} đã được duyệt (APPROVED) nhưng Firestore (${FIRESTORE_DATABASE_ID}) vẫn từ chối đọc dữ liệu. Hãy mở Firebase Console → Firestore Database → chọn đúng database "${FIRESTORE_DATABASE_ID}" → tab Rules → dán toàn bộ file firestore.rules mới nhất và bấm Publish.`,
-                info
-              );
-              if (!cancelled) {
-                setRulesSyncWarning(
-                  `Tài khoản đã được duyệt, nhưng Firestore Rules đang chạy trên database "${FIRESTORE_DATABASE_ID}" là phiên bản cũ hoặc đã Publish nhầm sang database khác. Quản trị viên cần vào Firebase Console → Firestore Database → chọn đúng "${FIRESTORE_DATABASE_ID}" → tab Rules → dán toàn bộ firestore.rules mới nhất và bấm Publish.`
-                );
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Chẩn đoán] Không đọc được users/{uid}:', e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [dataUnlocked, firebaseUser?.uid, effectiveCurrentUser?.role]);
 
   // Tính điểm thi đua trực tiếp từ Báo cáo hằng ngày (bảo toàn score lưu sẵn trên members cho Top-15 khi TĐ chỉ tải báo cáo cá nhân)
   const computedAllMembers = useMemo(() => {
@@ -1726,15 +1489,8 @@ export default function App() {
       attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
       const ownUnit = effectiveCurrentUser.unitCode || '';
-      const ownDept = effectiveCurrentUser.departmentCode || '';
       const effectiveUnits = Array.from(
-        new Set(
-          [
-            ...unitCodes,
-            ...(ownUnit ? [ownUnit] : []),
-            ...(unitCodes.length === 0 && !ownUnit && ownDept ? [ownDept] : []),
-          ].filter(Boolean)
-        )
+        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
       );
       if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
@@ -1763,7 +1519,6 @@ export default function App() {
     effectiveCurrentUser?.companyCode,
     effectiveCurrentUser?.areaCode,
     effectiveCurrentUser?.unitCode,
-    effectiveCurrentUser?.departmentCode,
     managedCompKey,
     managedAreaKey,
     managedUnitKey,
@@ -1892,15 +1647,8 @@ export default function App() {
       attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
       const ownUnit = effectiveCurrentUser.unitCode || '';
-      const ownDept = effectiveCurrentUser.departmentCode || '';
       const effectiveUnits = Array.from(
-        new Set(
-          [
-            ...unitCodes,
-            ...(ownUnit ? [ownUnit] : []),
-            ...(unitCodes.length === 0 && !ownUnit && ownDept ? [ownDept] : []),
-          ].filter(Boolean)
-        )
+        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
       );
       if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
@@ -1929,7 +1677,6 @@ export default function App() {
     effectiveCurrentUser?.companyCode,
     effectiveCurrentUser?.areaCode,
     effectiveCurrentUser?.unitCode,
-    effectiveCurrentUser?.departmentCode,
     managedCompKey,
     managedAreaKey,
     managedUnitKey,
@@ -2042,15 +1789,8 @@ export default function App() {
       attachQuery('own', query(collection(db, 'dailyReports'), where('uid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
       const ownUnit = effectiveCurrentUser.unitCode || '';
-      const ownDept = effectiveCurrentUser.departmentCode || '';
       const effectiveUnits = Array.from(
-        new Set(
-          [
-            ...unitCodes,
-            ...(ownUnit ? [ownUnit] : []),
-            ...(unitCodes.length === 0 && !ownUnit && ownDept ? [ownDept] : []),
-          ].filter(Boolean)
-        )
+        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
       );
       if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
@@ -2079,7 +1819,6 @@ export default function App() {
     effectiveCurrentUser?.companyCode,
     effectiveCurrentUser?.areaCode,
     effectiveCurrentUser?.unitCode,
-    effectiveCurrentUser?.departmentCode,
     managedCompKey,
     managedAreaKey,
     managedUnitKey,
@@ -2386,14 +2125,13 @@ export default function App() {
     const memberId = currentUser.memberId || `m-${uid}`;
     const [year, month] = date.split('-');
     const reportId = `${uid}_${date}`;
-    const resolvedUnit = (currentUser.unitCode || currentUser.departmentCode || '').trim();
     const payload: Omit<DailyReportRecord, 'id'> = JSON.parse(
       JSON.stringify({
         uid,
         memberId,
         companyCode: currentUser.companyCode,
         areaCode: currentUser.areaCode,
-        ...(resolvedUnit ? { unitCode: resolvedUnit } : {}),
+        ...(currentUser.unitCode ? { unitCode: currentUser.unitCode } : {}),
         date,
         month: `${year}-${month}`,
         year,
@@ -2403,12 +2141,7 @@ export default function App() {
       })
     );
 
-    try {
-      await setDoc(doc(db, 'dailyReports', reportId), payload);
-    } catch (err) {
-      void diagnoseWriteDenied('dailyReports', reportId, payload as Record<string, any>, err);
-      throw err;
-    }
+    await setDoc(doc(db, 'dailyReports', reportId), payload);
 
     // Cập nhật tức thì tổng điểm lên document member để đồng bộ dữ liệu
     const mergedReports = [
@@ -2423,36 +2156,11 @@ export default function App() {
     const weights = activeEvent?.weights || effectiveDefaultWeights;
     const newScore = computeDailyMetricsScore(aggregated, weights);
 
-    const hasMemberDoc = members.some((m) => m.id === memberId);
-    const memberSyncOp = hasMemberDoc
-      ? updateDoc(doc(db, 'members', memberId), {
-          dailyResults: aggregated,
-          dailyGoals: goals,
-          score: newScore,
-        })
-      : setDoc(
-          doc(db, 'members', memberId),
-          JSON.parse(
-            JSON.stringify({
-              code: `MEM-${uid.slice(0, 6).toUpperCase()}`,
-              fullName: currentUser.fullName,
-              companyCode: currentUser.companyCode,
-              areaCode: currentUser.areaCode,
-              departmentCode: currentUser.departmentCode,
-              ...(currentUser.unitCode ? { unitCode: currentUser.unitCode } : {}),
-              active: true,
-              score: newScore,
-              dailyResults: aggregated,
-              dailyGoals: goals,
-              goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
-              results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
-              targets: [],
-              createdAt: new Date().toISOString().split('T')[0],
-            })
-          ),
-          { merge: true }
-        );
-    memberSyncOp.catch((err) => console.warn('Cập nhật điểm member:', err));
+    updateDoc(doc(db, 'members', memberId), {
+      dailyResults: aggregated,
+      dailyGoals: goals,
+      score: newScore,
+    }).catch((err) => console.warn('Cập nhật điểm member:', err));
     setLastUpdated(getCurrentFormattedTime());
   };
 
@@ -2464,19 +2172,13 @@ export default function App() {
     if (!firebaseUser) return;
     const uid = firebaseUser.uid;
     const goalId = `${uid}_${periodType}_${periodKey}`;
-    const goalPayload = {
+    await setDoc(doc(db, 'periodGoals', goalId), {
       uid,
       periodType,
       periodKey,
       goals,
       updatedAt: new Date().toISOString(),
-    };
-    try {
-      await setDoc(doc(db, 'periodGoals', goalId), goalPayload);
-    } catch (err) {
-      void diagnoseWriteDenied('periodGoals', goalId, goalPayload, err);
-      throw err;
-    }
+    });
   };
 
   // ---------- CRUD Trang thông tin MĐ (disciples) ----------
@@ -2709,6 +2411,121 @@ export default function App() {
     await setDoc(doc(db, 'system_config', 'vocabulary'), clean);
   };
 
+  // Đồng bộ tự động managedCompanyCodes cho các QL Cụm (MANAGER) đang gắn với Cụm Sion
+  const syncManagerClusters = useCallback(
+    async (nextClusters: OrgCluster[], nextCompanies: Company[]): Promise<number> => {
+      if (!isAdminUser) return 0;
+      const nowIso = new Date().toISOString();
+      const batch = writeBatch(db);
+      let syncedUsersCount = 0;
+
+      const updatedUsersMap = new Map<string, string[]>();
+      usersList.forEach((u) => {
+        if (u.role !== 'MANAGER' || !u.managedClusterIds?.length) return;
+        const resolvedComps = resolveCompanyCodesFromClusterIds(
+          u.managedClusterIds,
+          nextClusters,
+          nextCompanies
+        );
+        if (!areCodeListsEqual(u.managedCompanyCodes, resolvedComps)) {
+          batch.update(doc(db, 'users', u.id), {
+            managedCompanyCodes: resolvedComps,
+          });
+          updatedUsersMap.set(u.id, resolvedComps);
+          syncedUsersCount += 1;
+
+          const cleanEmail = (u.email || '').trim().toLowerCase();
+          if (isSuperAdminUser && cleanEmail) {
+            batch.set(
+              doc(db, 'role_claims', cleanEmail),
+              {
+                email: cleanEmail,
+                role: u.role,
+                managedClusterIds: u.managedClusterIds,
+                managedCompanyCodes: resolvedComps,
+                updatedAt: nowIso,
+              },
+              { merge: true }
+            );
+          }
+        }
+      });
+
+      let nextPreAssigned: RoleAssignment[] | null = null;
+      if (isSuperAdminUser && preAssignedRoles.length > 0) {
+        let claimChanged = false;
+        const mapped = preAssignedRoles.map((a) => {
+          if (a.role !== 'MANAGER' || !a.managedClusterIds?.length) return a;
+          const resolvedComps = resolveCompanyCodesFromClusterIds(
+            a.managedClusterIds,
+            nextClusters,
+            nextCompanies
+          );
+          if (!areCodeListsEqual(a.managedCompanyCodes, resolvedComps)) {
+            claimChanged = true;
+            const cleanEmail = a.email.trim().toLowerCase();
+            batch.set(
+              doc(db, 'role_claims', cleanEmail),
+              {
+                email: cleanEmail,
+                role: a.role,
+                managedClusterIds: a.managedClusterIds,
+                managedCompanyCodes: resolvedComps,
+                updatedAt: nowIso,
+              },
+              { merge: true }
+            );
+            return { ...a, managedCompanyCodes: resolvedComps };
+          }
+          return a;
+        });
+        if (claimChanged) {
+          nextPreAssigned = mapped;
+          batch.set(
+            doc(db, 'system_config', 'roles'),
+            {
+              assignments: mapped,
+              updatedAt: nowIso,
+              updatedBy: effectiveCurrentUser?.fullName || 'Admin',
+            },
+            { merge: true }
+          );
+        }
+      }
+
+      if (syncedUsersCount > 0 || nextPreAssigned) {
+        await batch.commit();
+        if (updatedUsersMap.size > 0) {
+          setUsersList((prev) =>
+            prev.map((u) =>
+              updatedUsersMap.has(u.id)
+                ? { ...u, managedCompanyCodes: updatedUsersMap.get(u.id)! }
+                : u
+            )
+          );
+          if (currentUser && updatedUsersMap.has(currentUser.id)) {
+            setCurrentUser((prev) =>
+              prev ? { ...prev, managedCompanyCodes: updatedUsersMap.get(prev.id)! } : null
+            );
+          }
+        }
+        if (nextPreAssigned) {
+          setPreAssignedRoles(nextPreAssigned);
+        }
+      }
+
+      return syncedUsersCount;
+    },
+    [
+      isAdminUser,
+      isSuperAdminUser,
+      usersList,
+      preAssignedRoles,
+      effectiveCurrentUser?.fullName,
+      currentUser,
+    ]
+  );
+
   const handleSaveClustersConfig = async (
     nextConfig: SystemClustersConfig
   ): Promise<{ syncedCount: number }> => {
@@ -2721,12 +2538,14 @@ export default function App() {
       })
     );
     await setDoc(doc(db, 'system_config', 'clusters'), clean);
-    return { syncedCount: 0 };
+    const syncedCount = await syncManagerClusters(nextConfig.clusters, effectiveCompanies);
+    return { syncedCount };
   };
 
-  // Bổ sung thủ công các Sion (từ Cụm + users + members) và Khu vực còn thiếu lên Firestore khi Admin bấm nút
-  // Chỉ bổ sung những Sion/KV chưa có, không chạy tự động nền và không xóa hay ghi đè dữ liệu hiện có.
+  // Đồng bộ tự động các Sion (từ 5 Cụm + users + members) và Khu vực còn thiếu lên Firestore (default)
+  // Chỉ bổ sung những Sion/KV chưa có, tuyệt đối không xóa hay ghi đè dữ liệu hiện có.
   const orgSyncInFlightRef = useRef<boolean>(false);
+  const lastOrgSyncSigRef = useRef<string>('');
 
   const computeMissingOrgPayload = useCallback(() => {
     const existingCompByNorm = new Map<string, Company>();
@@ -2798,7 +2617,16 @@ export default function App() {
       .filter((m) => m.active !== false)
       .forEach((m) => ensureArea(m.companyCode, m.areaCode));
 
-    return { missingCompanies, missingAreas, compOrderBase };
+    const signature = [
+      ...missingCompanies.map((c) => `C:${normalizeOrgCode(c.code)}`),
+      ...missingAreas.map(
+        (a) => `A:${normalizeOrgCode(a.companyCode)}::${normalizeOrgCode(a.code)}`
+      ),
+    ]
+      .sort()
+      .join('|');
+
+    return { missingCompanies, missingAreas, compOrderBase, signature };
   }, [companies, areas, usersList, members, clustersConfig?.clusters]);
 
   const syncMissingOrgData = useCallback(
@@ -2808,17 +2636,18 @@ export default function App() {
       if (!isAdminUser || orgSyncInFlightRef.current) {
         return { addedCompanies: 0, addedAreas: 0 };
       }
-      const { missingCompanies, missingAreas, compOrderBase } =
+      const { missingCompanies, missingAreas, compOrderBase, signature } =
         computeMissingOrgPayload();
 
       if (missingCompanies.length === 0 && missingAreas.length === 0) {
         if (!options?.silent) {
-          showNotification('Tất cả Sion và Khu vực từ dữ liệu đã đầy đủ.');
+          showNotification('Tất cả Sion (5 Cụm) và Khu vực từ dữ liệu đã đồng bộ đầy đủ.');
         }
         return { addedCompanies: 0, addedAreas: 0 };
       }
 
       orgSyncInFlightRef.current = true;
+      lastOrgSyncSigRef.current = signature;
       try {
         const ops: Array<{ col: 'companies' | 'areas'; id: string; data: Record<string, unknown> }> = [];
         missingCompanies.forEach((c, idx) => {
@@ -2846,7 +2675,16 @@ export default function App() {
           await batch.commit();
         }
 
-        const msg = `Đã bổ sung ${missingCompanies.length} Sion và ${missingAreas.length} Khu vực còn thiếu!`;
+        if (missingCompanies.length > 0) {
+          const activeClusters = clustersConfig?.clusters || [];
+          if (activeClusters.some((cl) => cl.isCatchAll && cl.active !== false)) {
+            syncManagerClusters(activeClusters, [...companies, ...missingCompanies]).catch((err) =>
+              console.warn('[Clusters] Lỗi đồng bộ QL Cụm sau khi thêm Sion:', err)
+            );
+          }
+        }
+
+        const msg = `Đã đồng bộ thêm ${missingCompanies.length} Sion và ${missingAreas.length} Khu vực còn thiếu!`;
         if (!options?.silent || missingCompanies.length > 0 || missingAreas.length > 0) {
           showNotification(msg);
         }
@@ -2861,9 +2699,42 @@ export default function App() {
     [
       isAdminUser,
       computeMissingOrgPayload,
+      clustersConfig?.clusters,
+      companies,
+      syncManagerClusters,
       showNotification,
     ]
   );
+
+  // Tự động chạy đồng bộ nền khi Admin mở ứng dụng & toàn bộ dữ liệu server đã tải xong
+  useEffect(() => {
+    if (
+      !isAdminUser ||
+      !dataUnlocked ||
+      !companiesLoaded ||
+      !areasLoaded ||
+      !usersLoaded ||
+      !membersLoaded
+    ) {
+      return;
+    }
+    const { missingCompanies, missingAreas, signature } = computeMissingOrgPayload();
+    if (missingCompanies.length === 0 && missingAreas.length === 0) return;
+    if (lastOrgSyncSigRef.current === signature) return;
+
+    void syncMissingOrgData({ silent: true }).catch((err) => {
+      console.warn('[OrgSync] Lỗi tự động đồng bộ Sion/Khu vực:', err);
+    });
+  }, [
+    isAdminUser,
+    dataUnlocked,
+    companiesLoaded,
+    areasLoaded,
+    usersLoaded,
+    membersLoaded,
+    computeMissingOrgPayload,
+    syncMissingOrgData,
+  ]);
 
   const handleApproveUser = async (
     targetUser: UserAccount,
@@ -2956,6 +2827,40 @@ export default function App() {
     batch.update(doc(db, 'users', targetUser.id), userPatch);
     batch.set(doc(db, 'members', memberId), memberPayload, { merge: true });
 
+    // Cách 2: Tự động tạo Sion & Khu vực nếu tài khoản mới được duyệt khai báo KV/Sion chưa có trong danh mục
+    const orderStamp = Date.now();
+    if (nextCompany && !matchedExistingComp) {
+      batch.set(
+        doc(db, 'companies', makeDeterministicCompanyId(nextCompany)),
+        {
+          code: nextCompany,
+          name: getDefaultCompanyDisplayName(nextCompany),
+          active: true,
+          _order: orderStamp,
+        },
+        { merge: true }
+      );
+    }
+
+    const areaAlreadyExists = areas.some(
+      (a) =>
+        normalizeOrgCode(a.companyCode) === normalizeOrgCode(nextCompany) &&
+        normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(nextArea)
+    );
+    if (nextCompany && nextArea && !areaAlreadyExists) {
+      batch.set(
+        doc(db, 'areas', makeDeterministicAreaId(nextCompany, nextArea)),
+        {
+          code: nextArea,
+          name: nextArea,
+          companyCode: nextCompany,
+          active: true,
+          _order: orderStamp,
+        },
+        { merge: true }
+      );
+    }
+
     await batch.commit();
 
     setUsersList((prev) =>
@@ -2975,7 +2880,11 @@ export default function App() {
           : u
       )
     );
-    showNotification(`Đã phê duyệt tài khoản "${targetUser.fullName}"!`);
+    showNotification(
+      !areaAlreadyExists && nextArea
+        ? `Đã phê duyệt "${targetUser.fullName}" và tự động thêm KV ${nextArea} (${nextCompany})!`
+        : `Đã phê duyệt tài khoản "${targetUser.fullName}"!`
+    );
   };
 
   const handleRejectUser = async (targetUser: UserAccount, reason?: string) => {
@@ -3231,13 +3140,7 @@ export default function App() {
       throw err;
     }
 
-    const linkedMemberId =
-      usersList.find((u) => u.id === targetUserId)?.memberId || `m-${targetUserId}`;
     setUsersList((prev) => prev.filter((u) => u.id !== targetUserId));
-    setMembers((prev) => prev.filter((m) => m.id !== linkedMemberId));
-    deleteDoc(doc(db, 'members', linkedMemberId)).catch((e) =>
-      console.warn('[Firestore] Lỗi xóa member sau khi xóa TK:', e)
-    );
 
     const cleanEmail = (targetEmail || '').trim().toLowerCase();
     if (cleanEmail) {
@@ -3392,39 +3295,9 @@ export default function App() {
     const cleanEmail = email.trim().toLowerCase();
     const updated = preAssignedRoles.filter((a) => a.email.toLowerCase() !== cleanEmail);
 
-    await deleteDoc(doc(db, 'role_claims', cleanEmail)).catch((err) =>
+    deleteDoc(doc(db, 'role_claims', cleanEmail)).catch((err) =>
       console.warn('Lỗi xóa role_claims:', err)
     );
-
-    const linkedUser = usersList.find((u) => (u.email || '').toLowerCase().trim() === cleanEmail);
-    if (
-      linkedUser &&
-      linkedUser.id !== currentUser?.id &&
-      !isBootstrapSuperAdminEmail(cleanEmail) &&
-      linkedUser.role !== 'MEMBER'
-    ) {
-      setUsersList((prev) =>
-        prev.map((u) =>
-          u.id === linkedUser.id
-            ? {
-                ...u,
-                role: 'MEMBER',
-                managedClusterIds: [],
-                managedCompanyCodes: [],
-                managedAreaCodes: [],
-                managedUnitCodes: [],
-              }
-            : u
-        )
-      );
-      updateDoc(doc(db, 'users', linkedUser.id), {
-        role: 'MEMBER',
-        managedClusterIds: [],
-        managedCompanyCodes: [],
-        managedAreaCodes: [],
-        managedUnitCodes: [],
-      }).catch((err) => console.warn('Lỗi hạ quyền tài khoản sau khi thu hồi:', err));
-    }
 
     const superAdmins = Array.from(
       new Set([
@@ -3510,47 +3383,17 @@ export default function App() {
     const today = nowIso.split('T')[0];
     const memberId = `m-${firebaseUser.uid}`;
     const pinHash = await hashPersonalPin(firebaseUser.uid, data.pin);
-    const companyCode = data.companyCode.trim().slice(0, 30);
-    const rawCleanArea = (cleanRawAreaCode(data.areaCode) || '1.1').slice(0, 30);
-    const existingAreaDoc = areas.find(
-      (a) =>
-        normalizeOrgCode(a.companyCode) === normalizeOrgCode(companyCode) &&
-        normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(rawCleanArea)
-    );
-    let cleanArea = existingAreaDoc ? existingAreaDoc.code : rawCleanArea;
-    let areaRefToCreate: ReturnType<typeof doc> | null = null;
-    if (!existingAreaDoc && companyCode && cleanArea) {
-      const candidateId = makeDeterministicAreaId(companyCode, cleanArea);
-      const candidateRef = doc(db, 'areas', candidateId);
-      let alreadyOnServer = false;
-      try {
-        const areaSnap = await getDocFromServer(candidateRef);
-        if (areaSnap.exists()) {
-          alreadyOnServer = true;
-          const serverCode = areaSnap.data()?.code;
-          if (typeof serverCode === 'string' && serverCode.trim()) {
-            cleanArea = serverCode.trim().slice(0, 30);
-          }
-        }
-      } catch {
-        // Bỏ qua nếu không kiểm tra được trước
-      }
-      if (!alreadyOnServer) {
-        areaRefToCreate = candidateRef;
-      }
-    }
-
     const unitCode = data.unitCode?.trim() || undefined;
 
     const account = JSON.parse(
       JSON.stringify({
         username: email.split('@')[0] || `user_${Date.now()}`,
         email,
-        fullName: data.fullName.trim().slice(0, 100),
+        fullName: data.fullName,
         role: initialRole,
         memberId,
-        companyCode,
-        areaCode: cleanArea,
+        companyCode: data.companyCode,
+        areaCode: data.areaCode,
         departmentCode: data.departmentCode,
         unitCode,
         ...(preMatch?.managedClusterIds?.length
@@ -3574,8 +3417,8 @@ export default function App() {
       JSON.stringify({
         code: `MEM-${firebaseUser.uid.slice(0, 6).toUpperCase()}`,
         fullName: data.fullName,
-        companyCode,
-        areaCode: cleanArea,
+        companyCode: data.companyCode,
+        areaCode: data.areaCode,
         departmentCode: data.departmentCode,
         unitCode,
         active: shouldAutoApprove,
@@ -3591,27 +3434,12 @@ export default function App() {
     const batch = writeBatch(db);
     batch.set(userRef, account);
     batch.set(doc(db, 'members', memberId), member);
-    if (areaRefToCreate) {
-      const finalAreaName =
-        (data.areaName || '').trim().slice(0, 80) || `Khu vực ${cleanArea}`;
-      batch.set(areaRefToCreate, {
-        code: cleanArea,
-        name: finalAreaName,
-        companyCode,
-        active: true,
-        _order: Date.now(),
-      });
-    }
     await batch.commit();
 
     if (shouldAutoApprove) {
       setPinUnlockedUid(firebaseUser.uid);
       setActiveTab('ENTRY');
-      showNotification(
-        areaRefToCreate
-          ? `Hoàn tất hồ sơ và đã tạo thêm Khu vực ${cleanArea} (${companyCode})!`
-          : 'Hoàn tất hồ sơ & thiết lập Mã cá nhân thành công!'
-      );
+      showNotification('Hoàn tất hồ sơ & thiết lập Mã cá nhân thành công!');
     } else {
       setPinUnlockedUid(null);
       showNotification('Đã gửi hồ sơ! Tài khoản của bạn đang chờ Admin phê duyệt.');
@@ -3712,97 +3540,63 @@ export default function App() {
         : currentUser.unitCode || ''
       : currentUser.unitCode || '';
 
-    const wantsClearAvatar = updated.avatarUrl === '';
-    const wantsClearCover = updated.coverUrl === '';
-    const resolvedAvatarUrl =
-      updated.avatarUrl === undefined ? currentUser.avatarUrl : updated.avatarUrl || undefined;
-    const resolvedCoverUrl =
-      updated.coverUrl === undefined ? currentUser.coverUrl : updated.coverUrl || undefined;
-    const resolvedBio = updated.bio !== undefined ? updated.bio : currentUser.bio;
-
-    const orgPatch: Record<string, unknown> = canEditOrg
-      ? {
-          companyCode: effectiveCompanyCode,
-          areaCode: effectiveAreaCode,
-          departmentCode: effectiveDepartmentCode,
-          ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
-        }
-      : {};
-
-    const userPatch: Record<string, unknown> = {
-      fullName: updated.fullName,
-      ...(wantsClearAvatar
-        ? { avatarUrl: deleteField() }
-        : resolvedAvatarUrl
-        ? { avatarUrl: resolvedAvatarUrl }
-        : {}),
-      ...(wantsClearCover
-        ? { coverUrl: deleteField() }
-        : resolvedCoverUrl
-        ? { coverUrl: resolvedCoverUrl }
-        : {}),
-      ...(resolvedBio !== undefined ? { bio: resolvedBio } : {}),
-      ...orgPatch,
-    };
-
-    const memberId = currentUser.memberId || `m-${currentUser.id}`;
-    const hasMemberDoc = members.some((m) => m.id === memberId);
-
-    try {
-      // Đồng bộ nguyên tử hồ sơ tài khoản & thành viên
-      const batch = writeBatch(db);
-      batch.update(doc(db, 'users', currentUser.id), userPatch);
-
-      if (hasMemberDoc) {
-        batch.update(doc(db, 'members', memberId), userPatch);
-      } else {
-        batch.set(
-          doc(db, 'members', memberId),
-          JSON.parse(
-            JSON.stringify({
-              code: `MEM-${currentUser.id.slice(0, 6).toUpperCase()}`,
-              fullName: updated.fullName,
+    const patch = JSON.parse(
+      JSON.stringify({
+        fullName: updated.fullName,
+        avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
+        coverUrl: updated.coverUrl || currentUser.coverUrl,
+        bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
+        ...(canEditOrg
+          ? {
               companyCode: effectiveCompanyCode,
               areaCode: effectiveAreaCode,
               departmentCode: effectiveDepartmentCode,
               ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
-              active: resolveUserApprovalStatus(currentUser) === 'APPROVED',
-              score: 0,
-              ...(resolvedAvatarUrl ? { avatarUrl: resolvedAvatarUrl } : {}),
-              ...(resolvedCoverUrl ? { coverUrl: resolvedCoverUrl } : {}),
-              ...(resolvedBio !== undefined ? { bio: resolvedBio } : {}),
-              goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
-              results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
-              targets: [],
-              createdAt: currentUser.createdAt || new Date().toISOString().split('T')[0],
+            }
+          : {}),
+      })
+    );
+
+    try {
+      // Đồng bộ nguyên tử hồ sơ tài khoản, thành viên và các MĐ của chính mình để không lệch khu vực / Uni
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'users', currentUser.id), patch);
+
+      if (currentUser.memberId) {
+        batch.set(
+          doc(db, 'members', currentUser.memberId),
+          JSON.parse(
+            JSON.stringify({
+              fullName: updated.fullName,
+              avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
+              coverUrl: updated.coverUrl || currentUser.coverUrl,
+              bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
+              ...(canEditOrg
+                ? {
+                    companyCode: effectiveCompanyCode,
+                    areaCode: effectiveAreaCode,
+                    departmentCode: effectiveDepartmentCode,
+                    ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
+                  }
+                : {}),
             })
           ),
           { merge: true }
         );
       }
 
-      await batch.commit();
-    } catch (err: any) {
-      console.error(err);
-      showNotification(`Không lưu được hồ sơ: ${err.message}`);
-      return false;
-    }
+      const orgOrNameChanged =
+        (canEditOrg &&
+          (effectiveCompanyCode !== currentUser.companyCode ||
+            effectiveAreaCode !== currentUser.areaCode ||
+            nextUnitCode !== (currentUser.unitCode || ''))) ||
+        updated.fullName !== currentUser.fullName;
 
-    // Đồng bộ phụ sang Sổ tay MĐ & Lịch làm việc (không làm hỏng việc lưu hồ sơ nếu có bản ghi cũ)
-    const orgOrNameChanged =
-      (canEditOrg &&
-        (effectiveCompanyCode !== currentUser.companyCode ||
-          effectiveAreaCode !== currentUser.areaCode ||
-          nextUnitCode !== (currentUser.unitCode || ''))) ||
-      updated.fullName !== currentUser.fullName;
-
-    if (orgOrNameChanged) {
-      try {
-        const syncBatch = writeBatch(db);
-        const syncedUnit = (nextUnitCode || effectiveDepartmentCode || '').slice(0, 50);
+      if (orgOrNameChanged) {
         const ownDisciples = disciples.filter((d) => d.ownerUid === currentUser.id);
+        const syncedUnit = (nextUnitCode || effectiveDepartmentCode || '').slice(0, 50);
         ownDisciples.slice(0, 350).forEach((d) => {
-          syncBatch.update(doc(db, 'disciples', d.id), {
+          batch.update(doc(db, 'disciples', d.id), {
             ...(canEditOrg
               ? {
                   companyCode: effectiveCompanyCode,
@@ -3817,7 +3611,7 @@ export default function App() {
 
         const ownSchedules = workSchedules.filter((w) => w.ownerUid === currentUser.id);
         ownSchedules.slice(0, 100).forEach((w) => {
-          syncBatch.update(doc(db, 'work_schedules', w.id), {
+          batch.update(doc(db, 'work_schedules', w.id), {
             ...(canEditOrg
               ? {
                   companyCode: effectiveCompanyCode,
@@ -3829,23 +3623,23 @@ export default function App() {
             updatedAt: new Date().toISOString(),
           });
         });
-
-        if (ownDisciples.length > 0 || ownSchedules.length > 0) {
-          await syncBatch.commit();
-        }
-      } catch (syncErr) {
-        console.warn('[Firestore] Đồng bộ phụ sang MĐ/LLV gặp cảnh báo:', syncErr);
       }
+
+      await batch.commit();
+    } catch (err: any) {
+      console.error(err);
+      showNotification(`Không lưu được hồ sơ: ${err.message}`);
+      return false;
     }
 
     return true;
   };
 
   // ---------- Nhật ký Cảm tạ (24h công khai) & Nhật ký Turbo (cá nhân) & Kế hoạch LLV ----------
-  const handleAddHuongKhi = async (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => {
+  const handleAddHuongKhi = (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => {
     if (!currentUser) {
       showNotification('Vui lòng đăng nhập để đăng Nhật ký cảm tạ.');
-      throw new Error('Vui lòng đăng nhập để đăng Nhật ký cảm tạ.');
+      return;
     }
     const createdMs = Date.now();
     const createdAtIso = new Date(createdMs).toISOString();
@@ -3860,38 +3654,30 @@ export default function App() {
       vocabularyConfig.rules,
       vocabularyConfig.enabled
     ).slice(0, 4000);
-    const id = `hk-${createdMs}`;
 
-    const docBody = JSON.parse(
-      JSON.stringify({
-        ...item,
-        title: encodedTitle,
-        content: encodedContent,
-        authorId: currentUser.memberId || `m-${currentUser.id}`,
-        authorUid: currentUser.id,
-        journalType: 'GRATITUDE',
-        category: 'GRATITUDE',
-        createdAtIso,
-        expiresAtIso,
-        likesCount: 1,
-        reactions: item.reactions || {
-          heart: 1,
-          pray: 1,
-          praise: 0,
-          fire: 0,
-          blessing: 0,
-          like: 0,
-        },
-        comments: item.comments || [],
-      })
-    );
-
-    try {
-      await setDoc(doc(db, 'huongKhi', id), docBody);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `huongKhi/${id}`);
-      throw err;
-    }
+    const newItem: HuongKhiItem = {
+      ...item,
+      title: encodedTitle,
+      content: encodedContent,
+      authorId: currentUser.memberId || item.authorId,
+      authorUid: currentUser.id,
+      journalType: 'GRATITUDE',
+      category: 'GRATITUDE',
+      createdAtIso,
+      expiresAtIso,
+      id: `hk-${createdMs}`,
+      likesCount: 1,
+      reactions: item.reactions || {
+        heart: 1,
+        pray: 1,
+        praise: 0,
+        fire: 0,
+        blessing: 0,
+        like: 0,
+      },
+      comments: item.comments || [],
+    };
+    setHuongKhiList((prev) => [newItem, ...prev]);
   };
 
   const handleDeleteHuongKhi = async (id: string) => {
@@ -3905,12 +3691,8 @@ export default function App() {
       showNotification('Bạn chỉ có thể xóa bài viết do chính mình đăng.');
       return;
     }
-    try {
-      await deleteDoc(doc(db, 'huongKhi', id));
-      showNotification('Đã xóa bài Nhật ký cảm tạ.');
-    } catch (err: any) {
-      showNotification(`Không xóa được bài viết: ${err?.message || 'Lỗi quyền'}`);
-    }
+    setHuongKhiList((prev) => prev.filter((item) => item.id !== id));
+    showNotification('Đã xóa bài Nhật ký cảm tạ.');
   };
 
   const handleAddTurboJournal = async (payload: { title: string; content: string }) => {
@@ -4007,19 +3789,18 @@ export default function App() {
     }
   };
 
-  const handleReactHuongKhi = async (id: string, reaction: ReactionType) => {
+  const handleReactHuongKhi = (id: string, reaction: ReactionType) => {
     if (!currentUser) {
       showNotification('Vui lòng đăng nhập để bày tỏ cảm xúc.');
       setIsAuthModalOpen(true);
       return;
     }
     const uid = currentUser.id;
-    try {
-      await runTransaction(db, async (tx) => {
-        const ref = doc(db, 'huongKhi', id);
-        const snap = await tx.get(ref);
-        if (!snap.exists()) return;
-        const hk = snap.data() as Omit<HuongKhiItem, 'id'>;
+
+    setHuongKhiList((prev) =>
+      prev.map((hk) => {
+        if (hk.id !== id) return hk;
+
         const reactions: ReactionCounts = {
           heart: 0,
           pray: 0,
@@ -4031,7 +3812,7 @@ export default function App() {
         };
         const userReactions: Record<string, ReactionType> = { ...(hk.userReactions || {}) };
         const prevUserReaction = userReactions[uid];
-        let likesCount = Number(hk.likesCount) || 0;
+        let likesCount = hk.likesCount;
 
         if (prevUserReaction === reaction) {
           reactions[reaction] = Math.max(0, (reactions[reaction] || 1) - 1);
@@ -4047,16 +3828,13 @@ export default function App() {
           userReactions[uid] = reaction;
         }
 
-        tx.update(ref, { reactions, userReactions, likesCount });
-      });
-      showNotification('Đã bày tỏ cảm xúc thành công!');
-    } catch (err: any) {
-      console.warn('[Firestore] Lỗi bày tỏ cảm xúc:', err);
-      showNotification(`Không lưu được cảm xúc: ${err?.message || 'Vui lòng thử lại'}`);
-    }
+        return { ...hk, reactions, userReactions, likesCount };
+      })
+    );
+    showNotification('Đã bày tỏ cảm xúc thành công!');
   };
 
-  const handleAddComment = async (huongKhiId: string, content: string) => {
+  const handleAddComment = (huongKhiId: string, content: string) => {
     if (!content.trim()) return;
     if (!currentUser) {
       showNotification('Vui lòng đăng nhập để bình luận.');
@@ -4064,50 +3842,101 @@ export default function App() {
       return;
     }
 
-    const newComment: HuongKhiComment = JSON.parse(
-      JSON.stringify({
-        id: `c-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        authorId: currentUser.id,
-        authorName: currentUser.fullName,
-        authorAvatar: currentUser.avatarUrl,
-        companyCode: currentUser.companyCode,
-        areaCode: currentUser.areaCode,
-        content: content.trim(),
-        createdAt: getCurrentFormattedTime(),
+    const newComment: HuongKhiComment = {
+      id: `c-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      authorId: currentUser.id,
+      authorName: currentUser.fullName,
+      authorAvatar: currentUser.avatarUrl,
+      companyCode: currentUser.companyCode,
+      areaCode: currentUser.areaCode,
+      content: content.trim(),
+      createdAt: getCurrentFormattedTime(),
+    };
+
+    setHuongKhiList((prev) =>
+      prev.map((hk) => {
+        if (hk.id !== huongKhiId) return hk;
+        return {
+          ...hk,
+          comments: [...(hk.comments || []), newComment],
+        };
       })
     );
-
-    try {
-      await runTransaction(db, async (tx) => {
-        const ref = doc(db, 'huongKhi', huongKhiId);
-        const snap = await tx.get(ref);
-        if (!snap.exists()) return;
-        const currentComments = Array.isArray(snap.data()?.comments)
-          ? (snap.data()?.comments as HuongKhiComment[])
-          : [];
-        if (currentComments.length >= 200) {
-          throw new Error('Bài viết đã đạt tối đa 200 bình luận.');
-        }
-        tx.update(ref, { comments: [...currentComments, newComment] });
-      });
-      showNotification('Đã đăng bình luận khích lệ thành công!');
-    } catch (err: any) {
-      console.warn('[Firestore] Lỗi đăng bình luận:', err);
-      showNotification(`Không gửi được bình luận: ${err?.message || 'Vui lòng thử lại'}`);
-    }
+    showNotification('Đã đăng bình luận khích lệ thành công!');
   };
 
   // Admin CRUD functions
+  const triggerCatchAllClusterSync = (nextCompanies: Company[]) => {
+    const activeClusters = clustersConfig?.clusters || [];
+    if (isAdminUser && activeClusters.some((cl) => cl.isCatchAll && cl.active !== false)) {
+      syncManagerClusters(activeClusters, nextCompanies).catch((err) =>
+        console.warn('[Clusters] Lỗi đồng bộ QL Cụm theo danh sách Sion mới:', err)
+      );
+    }
+  };
+
   const handleAddCompany = (company: Omit<Company, 'id'>) => {
     const newComp: Company = { ...company, id: `c-${Date.now()}` };
-    setCompanies([...companies, newComp]);
+    const nextList = [...companies, newComp];
+    setCompanies(nextList);
+    triggerCatchAllClusterSync(nextList);
   };
   const handleUpdateCompany = (company: Company) => {
-    setCompanies(companies.map((c) => (c.id === company.id ? company : c)));
+    const nextList = companies.map((c) => (c.id === company.id ? company : c));
+    setCompanies(nextList);
+    triggerCatchAllClusterSync(nextList);
   };
   const handleDeleteCompany = (id: string) => {
-    setCompanies(companies.filter((c) => c.id !== id));
+    const nextList = companies.filter((c) => c.id !== id);
+    setCompanies(nextList);
+    triggerCatchAllClusterSync(nextList);
   };
+
+  const ensureAreaExistsForOrg = useCallback(
+    (rawCompanyCode?: string, rawAreaCode?: string) => {
+      const cleanArea = cleanRawAreaCode(rawAreaCode);
+      const cleanComp = (rawCompanyCode || '').trim();
+      if (!cleanArea || !cleanComp) return;
+      const canCreateArea =
+        isAdminUser ||
+        effectiveCurrentUser?.role === 'MANAGER' ||
+        effectiveCurrentUser?.role === 'SION_LEADER';
+      if (!canCreateArea) return;
+
+      const exists = areas.some(
+        (a) =>
+          normalizeOrgCode(a.companyCode) === normalizeOrgCode(cleanComp) &&
+          normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
+      );
+      if (exists) return;
+
+      const canonicalComp =
+        companies.find((c) => normalizeOrgCode(c.code) === normalizeOrgCode(cleanComp))?.code ||
+        cleanComp;
+      setAreas((prev) => {
+        if (
+          prev.some(
+            (a) =>
+              normalizeOrgCode(a.companyCode) === normalizeOrgCode(canonicalComp) &&
+              normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
+          )
+        ) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: makeDeterministicAreaId(canonicalComp, cleanArea),
+            code: cleanArea,
+            name: cleanArea,
+            companyCode: canonicalComp,
+            active: true,
+          },
+        ];
+      });
+    },
+    [areas, companies, isAdminUser, effectiveCurrentUser?.role, setAreas]
+  );
 
   const handleAddArea = (area: Omit<Area, 'id'>) => {
     const cleanCode = cleanRawAreaCode(area.code);
@@ -4120,31 +3949,6 @@ export default function App() {
   };
   const handleDeleteArea = (id: string) => {
     setAreas((prev) => prev.filter((a) => a.id !== id));
-  };
-
-  const makeRegionId = (companyCode: string, code: string) => {
-    const slug = (v: string) =>
-      (v || '')
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-    return `r-${slug(companyCode) || 'x'}-${slug(code) || 'x'}`;
-  };
-  const handleAddRegion = (region: Omit<Region, 'id'>) => {
-    const code = (region.code || '').trim();
-    const id = makeRegionId(region.companyCode, code);
-    setRegions((prev) =>
-      prev.some((r) => r.id === id)
-        ? prev
-        : [...prev, { ...region, code, name: (region.name || '').trim() || code, id }]
-    );
-  };
-  const handleUpdateRegion = (region: Region) => {
-    setRegions((prev) => prev.map((r) => (r.id === region.id ? region : r)));
-  };
-  const handleDeleteRegion = (id: string) => {
-    setRegions((prev) => prev.filter((r) => r.id !== id));
   };
 
   const handleAddDepartment = (dept: Omit<Department, 'id'>) => {
@@ -4171,6 +3975,7 @@ export default function App() {
       createdAt: new Date().toISOString().split('T')[0],
     };
     setMembers((prev) => [newMem, ...prev]);
+    ensureAreaExistsForOrg(member.companyCode, cleanArea);
   };
   const handleUpdateMember = (member: Member) => {
     setMembers((prev) => prev.map((m) => (m.id === member.id ? member : m)));
@@ -4191,7 +3996,8 @@ export default function App() {
       nextResult = Array.from(map.values());
     }
     setCompanies(nextResult);
-    showNotification(`Đã cập nhật ${newCompanies.length} công ty từ file Excel!`);
+    triggerCatchAllClusterSync(nextResult);
+    showNotification(`Đã đồng bộ ${newCompanies.length} công ty từ file Excel!`);
   };
 
   const handleBatchUpdateAreas = (newAreas: Area[], mode: 'MERGE' | 'REPLACE' = 'MERGE') => {
@@ -4220,19 +4026,8 @@ export default function App() {
   };
 
   const handleBatchUpdateMembers = (newMembers: Member[], mode: 'MERGE' | 'REPLACE' = 'MERGE') => {
-    const registeredMemberIds = new Set(usersList.map((u) => u.memberId || `m-${u.id}`));
     setMembers((prev) => {
-      if (mode === 'REPLACE') {
-        const importedIds = new Set(newMembers.map((m) => m.id));
-        const importedCodes = new Set(newMembers.map((m) => m.code).filter(Boolean));
-        const preservedRegistered = prev.filter(
-          (m) =>
-            registeredMemberIds.has(m.id) &&
-            !importedIds.has(m.id) &&
-            !(m.code && importedCodes.has(m.code))
-        );
-        return [...newMembers, ...preservedRegistered];
-      }
+      if (mode === 'REPLACE') return newMembers;
       const map = new Map(prev.map((m) => [m.code, m]));
       newMembers.forEach((m) => {
         const existing = map.get(m.code);
@@ -4299,18 +4094,6 @@ export default function App() {
             if (firebaseUser?.uid) setPinUnlockedUid(firebaseUser.uid);
           }}
           onRetryProfile={handleRetryProfile}
-          onResendVerificationEmail={async () => {
-            await resendVerificationEmail();
-            showNotification('Đã gửi lại thư xác thực tới email của bạn.');
-          }}
-          onCheckEmailVerified={async () => {
-            const res = await reloadCurrentAuthUser();
-            if (res.emailVerified) {
-              setFirebaseUser(auth.currentUser);
-              setProfileRetryTick((n) => n + 1);
-            }
-            return res.emailVerified;
-          }}
           onLogout={handleLogout}
         />
 
@@ -4390,81 +4173,6 @@ export default function App() {
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
-          {rulesSyncWarning && (
-            <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full pt-2.5">
-              <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-700/70 px-3.5 py-2.5 shadow-sm flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                  <p className="text-xs font-semibold text-rose-900 dark:text-rose-100 leading-relaxed">
-                    {rulesSyncWarning}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setRulesSyncWarning(null)}
-                  aria-label="Đóng cảnh báo"
-                  className="p-1 rounded-lg text-rose-500 hover:text-rose-800 dark:text-rose-300 dark:hover:text-white hover:bg-rose-100 dark:hover:bg-rose-900/50 transition cursor-pointer shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
-          {/* Actionable Real-Time Pending Registration Alert Banner for Admin/SuperAdmin */}
-          {isAdminUser &&
-            pendingApprovalUsers.length > 0 &&
-            dismissedPendingSignature !== pendingApprovalSignature &&
-            !(activeTab === 'ADMIN' && adminNavTab === 'ROLES') && (
-              <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full pt-2.5">
-                <div className="rounded-2xl bg-gradient-to-r from-amber-50 via-rose-50 to-amber-50 dark:from-amber-950/60 dark:via-rose-950/50 dark:to-amber-950/60 border border-amber-300 dark:border-amber-700/70 px-3.5 py-2.5 shadow-sm flex flex-wrap items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
-                      <Bell className="w-4 h-4 animate-pulse" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                        <span>
-                          {pendingApprovalUsers.length} đăng ký mới đang chờ phê duyệt
-                        </span>
-                        <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 truncate">
-                          · {pendingApprovalUsers[0].fullName} ({pendingApprovalUsers[0].companyCode} · KV{' '}
-                          {pendingApprovalUsers[0].areaCode})
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
-                        {pendingApprovalUsers[0].email}
-                        {pendingApprovalUsers.length > 1
-                          ? ` và ${pendingApprovalUsers.length - 1} tài khoản khác`
-                          : ''}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAdminNavTab('ROLES');
-                        setAdminNavTrigger((n) => n + 1);
-                        setActiveTab('ADMIN');
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold flex items-center gap-1 shadow-xs transition cursor-pointer"
-                    >
-                      <span>Xem &amp; Duyệt ngay</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDismissedPendingSignature(pendingApprovalSignature)}
-                      aria-label="Ẩn thông báo tạm thời"
-                      title="Ẩn tạm thời"
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
           {/* TAB: BÁO CÁO HẰNG NGÀY (Trang chủ mặc định) */}
           {activeTab === 'ENTRY' && (
@@ -5022,10 +4730,6 @@ export default function App() {
                   onAddCompany={handleAddCompany}
                   onUpdateCompany={handleUpdateCompany}
                   onDeleteCompany={handleDeleteCompany}
-                  regions={regions}
-                  onAddRegion={handleAddRegion}
-                  onUpdateRegion={handleUpdateRegion}
-                  onDeleteRegion={handleDeleteRegion}
                   onAddArea={handleAddArea}
                   onUpdateArea={handleUpdateArea}
                   onDeleteArea={handleDeleteArea}
@@ -5152,7 +4856,6 @@ export default function App() {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        pendingApprovalCount={isAdminUser ? pendingApprovalUsers.length : 0}
       />
     </div>
   );

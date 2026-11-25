@@ -19,7 +19,6 @@ import {
   Clock,
   XCircle,
   RefreshCw,
-  Mail,
 } from 'lucide-react';
 import {
   Company,
@@ -37,12 +36,16 @@ import {
   sanitizePinInput,
   isValidPersonalPin,
 } from '../utils/pinSecurity';
-import { cleanRawAreaCode, normalizeOrgCode } from '../utils/rbac';
+import {
+  cleanRawAreaCode,
+  formatAreaDisplayName,
+  normalizeOrgCode,
+} from '../utils/rbac';
 
 export type SecurityGateMode =
   | 'LOADING'
-  | 'UNAUTHENTICATED'
   | 'PROFILE_ERROR'
+  | 'UNAUTHENTICATED'
   | 'ONBOARDING'
   | 'PENDING_APPROVAL'
   | 'REJECTED_APPROVAL'
@@ -53,8 +56,6 @@ export interface OnboardingSubmitData {
   fullName: string;
   companyCode: string;
   areaCode: string;
-  areaName?: string;
-  isNewArea?: boolean;
   departmentCode: string;
   unitCode?: string;
   pin: string;
@@ -74,49 +75,41 @@ interface SecurityGateScreenProps {
   onSetupPin: (pinHash: string) => Promise<void>;
   onPinUnlocked: () => void;
   onRetryProfile?: () => void;
-  onResendVerificationEmail?: () => Promise<void>;
-  onCheckEmailVerified?: () => Promise<boolean>;
   onLogout: () => void;
 }
 
 const MAX_PIN_ATTEMPTS = 5;
-const LOCKOUT_BASE_SECONDS = 30;
-const LOCKOUT_MAX_SECONDS = 300;
-const PIN_LOCK_STORAGE_PREFIX = 'htl_pin_lock_';
+const LOCKOUT_SECONDS = 30;
+const PIN_GUARD_STORAGE_PREFIX = 'htl_pin_guard_';
 
-interface PinLockStorageState {
-  failedAttempts: number;
-  lockoutUntilMs: number;
-  lockoutCount: number;
+interface PinGuardState {
+  fails: number;
+  lockedUntilMs: number;
+  lockCount: number;
 }
 
-function readPinLockState(uid?: string): PinLockStorageState {
-  if (!uid || typeof window === 'undefined') {
-    return { failedAttempts: 0, lockoutUntilMs: 0, lockoutCount: 0 };
-  }
+function readPinGuardState(uid?: string | null): PinGuardState {
+  if (!uid) return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
   try {
-    const raw = window.localStorage.getItem(`${PIN_LOCK_STORAGE_PREFIX}${uid}`);
-    if (!raw) return { failedAttempts: 0, lockoutUntilMs: 0, lockoutCount: 0 };
-    const parsed = JSON.parse(raw) as Partial<PinLockStorageState>;
+    const raw = localStorage.getItem(`${PIN_GUARD_STORAGE_PREFIX}${uid}`);
+    if (!raw) return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
+    const parsed = JSON.parse(raw);
     return {
-      failedAttempts: Number(parsed.failedAttempts) || 0,
-      lockoutUntilMs: Number(parsed.lockoutUntilMs) || 0,
-      lockoutCount: Number(parsed.lockoutCount) || 0,
+      fails: Number(parsed?.fails) || 0,
+      lockedUntilMs: Number(parsed?.lockedUntilMs) || 0,
+      lockCount: Number(parsed?.lockCount) || 0,
     };
   } catch {
-    return { failedAttempts: 0, lockoutUntilMs: 0, lockoutCount: 0 };
+    return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
   }
 }
 
-function writePinLockState(uid: string | undefined, state: PinLockStorageState | null): void {
-  if (!uid || typeof window === 'undefined') return;
+function writePinGuardState(uid: string | undefined | null, state: PinGuardState | null): void {
+  if (!uid) return;
   try {
-    const key = `${PIN_LOCK_STORAGE_PREFIX}${uid}`;
-    if (!state) {
-      window.localStorage.removeItem(key);
-    } else {
-      window.localStorage.setItem(key, JSON.stringify(state));
-    }
+    const key = `${PIN_GUARD_STORAGE_PREFIX}${uid}`;
+    if (!state) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(state));
   } catch {
     // Ignore storage quota errors
   }
@@ -136,21 +129,27 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   onSetupPin,
   onPinUnlocked,
   onRetryProfile,
-  onResendVerificationEmail,
-  onCheckEmailVerified,
   onLogout,
 }) => {
   // ---------- Auth Gate (Google quick sign-in) ----------
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [gateError, setGateError] = useState('');
+  const [loadingTakingLong, setLoadingTakingLong] = useState(false);
+
+  useEffect(() => {
+    if (mode !== 'LOADING') {
+      setLoadingTakingLong(false);
+      return;
+    }
+    const timer = setTimeout(() => setLoadingTakingLong(true), 3500);
+    return () => clearTimeout(timer);
+  }, [mode]);
 
   // ---------- Onboarding state ----------
   const [obFullName, setObFullName] = useState('');
   const [obCompany, setObCompany] = useState(companies[0]?.code || 'Th1');
   const [obArea, setObArea] = useState('');
-  const [isCreatingNewArea, setIsCreatingNewArea] = useState(false);
-  const [obNewAreaCode, setObNewAreaCode] = useState('');
-  const [obNewAreaName, setObNewAreaName] = useState('');
+  const [isCustomObArea, setIsCustomObArea] = useState(false);
   const [obDept, setObDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
   const [obUnitCode, setObUnitCode] = useState('');
   const [obPin, setObPin] = useState('');
@@ -167,19 +166,9 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   const [unlockPin, setUnlockPin] = useState('');
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockoutCount, setLockoutCount] = useState(0);
+  const [lockCount, setLockCount] = useState(0);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const unlockInputRef = useRef<HTMLInputElement | null>(null);
-
-  // ---------- Email verification helper state ----------
-  const [isResendingEmail, setIsResendingEmail] = useState(false);
-  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
-  const [emailVerifyMessage, setEmailVerifyMessage] = useState('');
-  const needsEmailVerification = Boolean(
-    firebaseUser &&
-      !firebaseUser.emailVerified &&
-      firebaseUser.providerData?.some((p) => p.providerId === 'password')
-  );
 
   // Sync defaults when companies/areas/departments load or onboarding opens
   useEffect(() => {
@@ -191,7 +180,10 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
         (firebaseUser?.email ? firebaseUser.email.split('@')[0] : '') ||
         ''
       );
-      if (companies.length > 0 && !companies.some((c) => c.code === obCompany)) {
+      if (
+        companies.length > 0 &&
+        !companies.some((c) => normalizeOrgCode(c.code) === normalizeOrgCode(obCompany))
+      ) {
         setObCompany(companies[0].code);
       }
       if (departments.length > 0 && !departments.some((d) => d.code === obDept)) {
@@ -200,47 +192,53 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
     }
   }, [mode, firebaseUser?.displayName, firebaseUser?.email, companies, departments]);
 
-  const areasForSelectedCompany = useMemo(
-    () =>
-      areas.filter(
-        (a) =>
-          normalizeOrgCode(a.companyCode) === normalizeOrgCode(obCompany) &&
-          a.active !== false
-      ),
-    [areas, obCompany]
-  );
+  const areasForSelectedCompany = useMemo(() => {
+    const targetComp = normalizeOrgCode(obCompany);
+    return areas.filter(
+      (a) => normalizeOrgCode(a.companyCode) === targetComp && a.active !== false
+    );
+  }, [areas, obCompany]);
 
   useEffect(() => {
     if (areasForSelectedCompany.length > 0) {
-      if (!areasForSelectedCompany.some((a) => a.code === obArea)) {
-        setObArea(areasForSelectedCompany[0].code);
+      if (!isCustomObArea) {
+        const matched = areasForSelectedCompany.find(
+          (a) => normalizeOrgCode(a.code) === normalizeOrgCode(obArea)
+        );
+        if (!matched) {
+          setObArea(areasForSelectedCompany[0].code);
+        }
       }
     } else {
-      setObArea('');
+      setIsCustomObArea(true);
+      if (areas.some((a) => normalizeOrgCode(a.code) === normalizeOrgCode(obArea))) {
+        setObArea('');
+      }
     }
-  }, [areasForSelectedCompany, obCompany]);
+  }, [areasForSelectedCompany, areas, obCompany]);
 
-  // Reset / restore PIN lockout state when switching modes or account
+  // Restore persisted PIN lockout & reset fields when switching modes/users
   useEffect(() => {
     setGateError('');
-    setEmailVerifyMessage('');
     setUnlockPin('');
     setSetupPin('');
     setSetupPinConfirm('');
-    const stored = readPinLockState(currentUser?.id);
-    const now = Date.now();
-    const remainSec =
-      stored.lockoutUntilMs > now ? Math.ceil((stored.lockoutUntilMs - now) / 1000) : 0;
-    setLockoutCount(stored.lockoutCount);
-    if (remainSec > 0) {
-      setCooldownRemaining(remainSec);
-      setFailedAttempts(stored.failedAttempts);
-    } else {
-      setCooldownRemaining(0);
-      setFailedAttempts(stored.failedAttempts >= MAX_PIN_ATTEMPTS ? 0 : stored.failedAttempts);
-    }
-    if (mode === 'PIN_LOCKED') {
+    if (mode === 'PIN_LOCKED' && currentUser?.id) {
+      const saved = readPinGuardState(currentUser.id);
+      const remainingSec =
+        saved.lockedUntilMs > Date.now()
+          ? Math.ceil((saved.lockedUntilMs - Date.now()) / 1000)
+          : 0;
+      setFailedAttempts(remainingSec > 0 ? 0 : saved.fails);
+      setLockCount(saved.lockCount);
+      setCooldownRemaining(remainingSec);
+      if (remainingSec > 0) {
+        setGateError(`Bạn đã nhập sai quá số lần quy định. Vui lòng chờ ${remainingSec} giây hoặc đăng xuất.`);
+      }
       setTimeout(() => unlockInputRef.current?.focus(), 80);
+    } else {
+      setFailedAttempts(0);
+      setCooldownRemaining(0);
     }
   }, [mode, currentUser?.id]);
 
@@ -250,21 +248,17 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
     const t = setInterval(() => {
       setCooldownRemaining((prev) => {
         if (prev <= 1) {
-          setFailedAttempts(0);
           if (currentUser?.id) {
-            writePinLockState(currentUser.id, {
-              failedAttempts: 0,
-              lockoutUntilMs: 0,
-              lockoutCount,
-            });
+            writePinGuardState(currentUser.id, { fails: 0, lockedUntilMs: 0, lockCount });
           }
+          setFailedAttempts(0);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [cooldownRemaining, currentUser?.id, lockoutCount]);
+  }, [cooldownRemaining, currentUser?.id, lockCount]);
 
   // Verify PIN helper
   const handleVerifyUnlockPin = async (candidatePin: string) => {
@@ -282,36 +276,35 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       const ok = await verifyPersonalPin(currentUser.id, clean, currentUser.pinHash);
       if (ok) {
         setFailedAttempts(0);
-        setLockoutCount(0);
+        setLockCount(0);
         setCooldownRemaining(0);
-        writePinLockState(currentUser.id, null);
+        writePinGuardState(currentUser.id, null);
         setUnlockPin('');
         onPinUnlocked();
       } else {
         const nextFails = failedAttempts + 1;
-        setFailedAttempts(nextFails);
         setUnlockPin('');
         if (nextFails >= MAX_PIN_ATTEMPTS) {
-          const lockSec = Math.min(
-            LOCKOUT_MAX_SECONDS,
-            LOCKOUT_BASE_SECONDS * Math.pow(2, lockoutCount)
-          );
-          const nextLockCount = lockoutCount + 1;
-          setLockoutCount(nextLockCount);
-          setCooldownRemaining(lockSec);
-          writePinLockState(currentUser.id, {
-            failedAttempts: nextFails,
-            lockoutUntilMs: Date.now() + lockSec * 1000,
-            lockoutCount: nextLockCount,
+          const nextLockCount = Math.min(4, lockCount + 1);
+          const durationSec = LOCKOUT_SECONDS * Math.pow(2, nextLockCount - 1);
+          const lockedUntilMs = Date.now() + durationSec * 1000;
+          setFailedAttempts(0);
+          setLockCount(nextLockCount);
+          setCooldownRemaining(durationSec);
+          writePinGuardState(currentUser.id, {
+            fails: 0,
+            lockedUntilMs,
+            lockCount: nextLockCount,
           });
           setGateError(
-            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${lockSec} giây hoặc đăng xuất.`
+            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${durationSec} giây hoặc đăng xuất.`
           );
         } else {
-          writePinLockState(currentUser.id, {
-            failedAttempts: nextFails,
-            lockoutUntilMs: 0,
-            lockoutCount,
+          setFailedAttempts(nextFails);
+          writePinGuardState(currentUser.id, {
+            fails: nextFails,
+            lockedUntilMs: 0,
+            lockCount,
           });
           setGateError(
             `Mã cá nhân chưa đúng (còn ${MAX_PIN_ATTEMPTS - nextFails} lần thử).`
@@ -322,78 +315,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       setIsVerifyingPin(false);
     }
   };
-
-  const handleResendEmailClick = async () => {
-    if (!onResendVerificationEmail || isResendingEmail) return;
-    setIsResendingEmail(true);
-    setEmailVerifyMessage('');
-    try {
-      await onResendVerificationEmail();
-      setEmailVerifyMessage('Đã gửi lại email xác thực. Hãy kiểm tra Hộp thư đến và mục Spam.');
-    } catch (err: any) {
-      setEmailVerifyMessage(err?.message || 'Không gửi lại được email lúc này. Thử lại sau.');
-    } finally {
-      setIsResendingEmail(false);
-    }
-  };
-
-  const handleCheckEmailClick = async () => {
-    if (!onCheckEmailVerified || isCheckingEmail) return;
-    setIsCheckingEmail(true);
-    setEmailVerifyMessage('');
-    try {
-      const verified = await onCheckEmailVerified();
-      setEmailVerifyMessage(
-        verified
-          ? 'Email đã được xác thực thành công!'
-          : 'Email vẫn chưa được xác thực. Hãy bấm vào liên kết trong hộp thư rồi thử lại.'
-      );
-    } catch (err: any) {
-      setEmailVerifyMessage(err?.message || 'Không kiểm tra được trạng thái xác thực.');
-    } finally {
-      setIsCheckingEmail(false);
-    }
-  };
-
-  const emailVerificationBanner =
-    needsEmailVerification && (onResendVerificationEmail || onCheckEmailVerified) ? (
-      <div className="p-3 rounded-2xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-950 dark:text-indigo-100 space-y-2">
-        <div className="font-extrabold flex items-center gap-1.5 text-indigo-800 dark:text-indigo-200">
-          <Mail className="w-4 h-4 shrink-0" />
-          <span>Email chưa xác thực</span>
-        </div>
-        <p className="text-[11px] text-indigo-800/90 dark:text-indigo-200/90 leading-relaxed">
-          Nếu tài khoản đã được cấp quyền trước, hệ thống chỉ tự kích hoạt vai trò đó sau khi bạn xác thực địa chỉ email.
-        </p>
-        {emailVerifyMessage && (
-          <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-100 bg-white/70 dark:bg-slate-900/60 px-2.5 py-1.5 rounded-xl border border-indigo-200/80 dark:border-indigo-800">
-            {emailVerifyMessage}
-          </div>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {onResendVerificationEmail && (
-            <button
-              type="button"
-              disabled={isResendingEmail}
-              onClick={handleResendEmailClick}
-              className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-200 text-[11px] font-bold cursor-pointer disabled:opacity-50"
-            >
-              {isResendingEmail ? 'Đang gửi...' : 'Gửi lại email xác thực'}
-            </button>
-          )}
-          {onCheckEmailVerified && (
-            <button
-              type="button"
-              disabled={isCheckingEmail}
-              onClick={handleCheckEmailClick}
-              className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
-            >
-              {isCheckingEmail ? 'Đang kiểm tra...' : 'Tôi đã xác thực · Kiểm tra lại'}
-            </button>
-          )}
-        </div>
-      </div>
-    ) : null;
 
   // Auto-submit when 6 digits entered on PIN_LOCKED
   useEffect(() => {
@@ -425,16 +346,9 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       setGateError('Vui lòng chọn Sion / Công ty.');
       return;
     }
-    const creatingAreaMode = isCreatingNewArea || areasForSelectedCompany.length === 0;
-    const rawAreaInput = creatingAreaMode ? obNewAreaCode : obArea;
-    const cleanArea = cleanRawAreaCode(rawAreaInput);
-
+    const cleanArea = cleanRawAreaCode(obArea);
     if (!cleanArea) {
-      setGateError(creatingAreaMode ? 'Vui lòng nhập mã Khu vực mới.' : 'Vui lòng chọn Khu vực.');
-      return;
-    }
-    if (cleanArea.length > 30) {
-      setGateError('Mã Khu vực tối đa 30 ký tự.');
+      setGateError('Vui lòng chọn hoặc nhập mã Khu vực.');
       return;
     }
     if (!isValidPersonalPin(obPin)) {
@@ -446,22 +360,12 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       return;
     }
 
-    const matchedExistingArea = areasForSelectedCompany.find(
-      (a) => normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
-    );
-    const resolvedAreaCode = matchedExistingArea ? matchedExistingArea.code : cleanArea;
-    const resolvedAreaName = matchedExistingArea
-      ? matchedExistingArea.name
-      : (obNewAreaName.trim().slice(0, 80) || `Khu vực ${cleanArea}`);
-
     setIsSubmittingOb(true);
     try {
       await onCompleteOnboarding({
         fullName: obFullName.trim(),
         companyCode: obCompany.trim(),
-        areaCode: resolvedAreaCode,
-        areaName: resolvedAreaName,
-        isNewArea: !matchedExistingArea,
+        areaCode: cleanArea,
         departmentCode: obDept.trim(),
         unitCode: obUnitCode.trim() || undefined,
         pin: obPin,
@@ -553,60 +457,84 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
         {/* Main Card */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-white/15 dark:border-slate-800 p-5 sm:p-6 space-y-4">
           {mode === 'LOADING' && (
-            <div className="py-10 flex flex-col items-center justify-center text-center space-y-3">
+            <div className="py-8 flex flex-col items-center justify-center text-center space-y-3">
               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
               <div className="text-sm font-bold text-slate-800 dark:text-white">
                 Đang kiểm tra xác thực bảo mật...
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Vui lòng chờ trong giây lát.
+                {firebaseUser?.email
+                  ? `Đang tải hồ sơ ${firebaseUser.email} từ Firestore (default)...`
+                  : 'Vui lòng chờ trong giây lát.'}
               </p>
+              {loadingTakingLong && (
+                <div className="pt-2 w-full space-y-2 border-t border-slate-100 dark:border-slate-800">
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                    Quá trình kiểm tra đang mất thời gian hơn bình thường.
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    {onRetryProfile && (
+                      <button
+                        type="button"
+                        onClick={onRetryProfile}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 transition-colors"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Thử lại</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onLogout}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 transition-colors"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Đăng xuất</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {mode === 'PROFILE_ERROR' && (
-            <div className="space-y-4">
+            <div className="py-4 space-y-4">
               <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70">
-                <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs sm:text-sm font-extrabold text-rose-900 dark:text-rose-200">
-                    Không thể tải hồ sơ tài khoản
+                <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <div className="min-w-0 space-y-1">
+                  <div className="text-xs font-extrabold text-rose-800 dark:text-rose-200">
+                    Không thể hoàn tất kiểm tra xác thực
                   </div>
-                  <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1 leading-relaxed whitespace-pre-line break-words">
+                  {firebaseUser?.email && (
+                    <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 truncate">
+                      Tài khoản: {firebaseUser.email}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed whitespace-pre-line">
                     {profileError ||
-                      'Đã xảy ra lỗi khi đọc dữ liệu hồ sơ từ Firestore. Vui lòng thử lại.'}
+                      'Không thể kết nối tới cơ sở dữ liệu Firestore (default). Vui lòng thử lại hoặc đăng xuất.'}
                   </p>
                 </div>
               </div>
 
-              {firebaseUser?.email && (
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 text-center truncate">
-                  Tài khoản đang đăng nhập: <strong>{firebaseUser.email}</strong>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 {onRetryProfile && (
                   <button
                     type="button"
                     onClick={onRetryProfile}
-                    className="py-2.5 px-3 rounded-2xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold shadow-sm transition-colors"
                   >
                     <RefreshCw className="w-4 h-4" />
-                    <span>Thử lại</span>
+                    <span>Thử kết nối lại</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={onLogout}
-                  className={`${
-                    onRetryProfile ? '' : 'col-span-2'
-                  } py-2.5 px-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-200 border border-rose-200 dark:border-rose-800 text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer`}
+                  className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
-                  <span>Đăng xuất</span>
+                  <span>Đăng xuất / Đổi tài khoản</span>
                 </button>
               </div>
             </div>
@@ -727,9 +655,9 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   </label>
                   <CustomSelect
                     value={obCompany}
-                    onChange={(val) => {
-                      setObCompany(val);
-                      setIsCreatingNewArea(false);
+                    onChange={(nextComp) => {
+                      setObCompany(nextComp);
+                      setIsCustomObArea(false);
                     }}
                     size="sm"
                     leadingIcon={<Building2 className="w-3.5 h-3.5" />}
@@ -743,32 +671,30 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Khu vực *
-                    </label>
-                    {areasForSelectedCompany.length > 0 && (
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                    <span>Khu vực *</span>
+                    {isCustomObArea && areasForSelectedCompany.length > 0 && (
                       <button
                         type="button"
                         onClick={() => {
-                          setIsCreatingNewArea((prev) => !prev);
-                          setGateError('');
+                          setIsCustomObArea(false);
+                          setObArea(areasForSelectedCompany[0]?.code || '');
                         }}
-                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
                       >
-                        {isCreatingNewArea ? 'Chọn có sẵn' : '+ Tạo mới'}
+                        Chọn có sẵn
                       </button>
                     )}
-                  </div>
-                  {!isCreatingNewArea && areasForSelectedCompany.length > 0 ? (
+                  </label>
+                  {areasForSelectedCompany.length > 0 && !isCustomObArea ? (
                     <CustomSelect
                       value={obArea}
                       onChange={(val) => {
-                        if (val === '__CREATE_NEW_AREA__') {
-                          setIsCreatingNewArea(true);
-                          setObNewAreaCode('');
-                          setObNewAreaName('');
+                        if (val === '__NEW__') {
+                          setIsCustomObArea(true);
+                          setObArea('');
                         } else {
+                          setIsCustomObArea(false);
                           setObArea(val);
                         }
                       }}
@@ -777,13 +703,12 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                       options={[
                         ...areasForSelectedCompany.map((a) => ({
                           value: a.code,
-                          label: a.name || `Khu vực ${a.code}`,
+                          label: formatAreaDisplayName(a.code, a.name),
                           badge: a.code,
                         })),
                         {
-                          value: '__CREATE_NEW_AREA__',
-                          label: '+ Tạo khu vực mới...',
-                          description: 'Nhập mã/tên nếu chưa có trong danh sách',
+                          value: '__NEW__',
+                          label: '+ Nhập Khu vực mới...',
                         },
                       ]}
                       ariaLabel="Chọn Khu vực"
@@ -791,47 +716,15 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   ) : (
                     <input
                       type="text"
-                      maxLength={30}
-                      value={obNewAreaCode}
-                      onChange={(e) => setObNewAreaCode(e.target.value)}
-                      placeholder="Nhập mã KV mới (VD: 1.5)"
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-blue-400 dark:border-blue-600 text-xs font-semibold text-slate-900 dark:text-white"
+                      value={obArea}
+                      onChange={(e) => setObArea(e.target.value)}
+                      placeholder="Chỉ nhập số/mã (VD: 1.1)"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
                       required
                     />
                   )}
                 </div>
               </div>
-
-              {(isCreatingNewArea || areasForSelectedCompany.length === 0) && (
-                <div className="p-2.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="text-[11px] font-bold text-blue-900 dark:text-blue-200">
-                      Tên hiển thị Khu vực mới (tuỳ chọn)
-                    </label>
-                    <span className="text-[10px] text-blue-700 dark:text-blue-300 font-semibold">
-                      Sion {obCompany}
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    maxLength={80}
-                    value={obNewAreaName}
-                    onChange={(e) => setObNewAreaName(e.target.value)}
-                    placeholder={`VD: Khu vực ${cleanRawAreaCode(obNewAreaCode) || '1.5'} (để trống sẽ tự đặt)`}
-                    className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 text-xs font-semibold text-slate-900 dark:text-white"
-                  />
-                  {cleanRawAreaCode(obNewAreaCode) &&
-                    areasForSelectedCompany.some(
-                      (a) =>
-                        normalizeOrgCode(cleanRawAreaCode(a.code)) ===
-                        normalizeOrgCode(cleanRawAreaCode(obNewAreaCode))
-                    ) && (
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold">
-                        Mã khu vực này đã tồn tại trong Sion {obCompany} — hệ thống sẽ tự chọn khu vực sẵn có.
-                      </p>
-                    )}
-                </div>
-              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -956,8 +849,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 </p>
               </div>
 
-              {emailVerificationBanner}
-
               <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500 dark:text-slate-400">Họ và tên:</span>
@@ -1063,8 +954,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   <div className="text-slate-500 dark:text-slate-400">{roleMeta.scopeSummary}</div>
                 </div>
               )}
-
-              {emailVerificationBanner}
 
               {gateError && (
                 <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs font-semibold">
@@ -1179,8 +1068,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   </span>
                 </div>
               )}
-
-              {emailVerificationBanner}
 
               <div className="text-center space-y-1">
                 <div className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center justify-center gap-1.5">

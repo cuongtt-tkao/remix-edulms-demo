@@ -25,14 +25,9 @@ import {
   ChevronDown,
   BarChart3,
   Sparkles,
-  BellRing,
 } from 'lucide-react';
 import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel } from '../types/edulms';
-import {
-  getBrowserNotificationPermission,
-  requestBrowserNotificationPermission,
-  BrowserNotificationPermission,
-} from '../utils/registrationAlert';
+import { formatAreaScopeLabel } from '../utils/rbac';
 
 export type AppTab =
   | 'ENTRY'
@@ -89,23 +84,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const [isSpinning, setIsSpinning] = React.useState(false);
   const [isBellOpen, setIsBellOpen] = React.useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = React.useState(false);
-  const [browserNotifPermission, setBrowserNotifPermission] =
-    React.useState<BrowserNotificationPermission>(() => getBrowserNotificationPermission());
   const bellWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
-
-  const sortedPendingApprovals = React.useMemo(
-    () =>
-      [...pendingApprovals].sort((a, b) =>
-        (b.createdAt || '').localeCompare(a.createdAt || '')
-      ),
-    [pendingApprovals]
-  );
-
-  const handleEnableBrowserNotif = async () => {
-    const next = await requestBrowserNotificationPermission();
-    setBrowserNotifPermission(next);
-  };
 
   React.useEffect(() => {
     if (!isBellOpen && !isAccountMenuOpen) return;
@@ -284,7 +264,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                   )}
                 </div>
 
-                {sortedPendingApprovals.length === 0 ? (
+                {pendingApprovals.length === 0 ? (
                   <div className="py-5 text-center space-y-1">
                     <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
                     <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
@@ -296,7 +276,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
-                    {sortedPendingApprovals.slice(0, 8).map((u) => (
+                    {pendingApprovals.slice(0, 6).map((u) => (
                       <button
                         key={u.id}
                         type="button"
@@ -321,17 +301,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                       </button>
                     ))}
                   </div>
-                )}
-
-                {browserNotifPermission === 'default' && (
-                  <button
-                    type="button"
-                    onClick={handleEnableBrowserNotif}
-                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 text-[11px] font-bold transition cursor-pointer"
-                  >
-                    <BellRing className="w-3.5 h-3.5" />
-                    <span>Bật thông báo trình duyệt khi có ĐK mới</span>
-                  </button>
                 )}
               </div>
             )}
@@ -558,8 +527,12 @@ function getRoleSubtitle(user: UserAccount): string {
       }`;
     case 'SION_LEADER':
       return `TS, NQ · Sion ${user.managedCompanyCodes?.join(', ') || user.companyCode}`;
-    case 'AREA_LEADER':
-      return `Gru · KV ${user.managedAreaCodes?.join(', ') || user.areaCode}`;
+    case 'AREA_LEADER': {
+      const areaLabels = (user.managedAreaCodes || [])
+        .map((a) => formatAreaScopeLabel(a))
+        .filter(Boolean);
+      return `Gru · KV ${areaLabels.length ? areaLabels.join(', ') : user.areaCode}`;
+    }
     case 'UNI_LEADER':
       return `Uni · ${user.unitCode || user.departmentCode || `KV ${user.areaCode}`}`;
     default:
@@ -651,7 +624,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         {
           id: 'WORK_SCHEDULE',
           label: 'Lịch làm việc',
-          subLabel: 'Hoạt động buổi & WS',
+          subLabel: 'Hoạt động LLV',
           icon: CalendarCheck2,
           accent: 'text-emerald-400',
           visible: true,
@@ -937,14 +910,12 @@ interface MobileBottomNavProps {
   activeTab: AppTab;
   onSelectTab: (tab: AppTab) => void;
   onOpenMobileDrawer: () => void;
-  pendingApprovalCount?: number;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   activeTab,
   onSelectTab,
   onOpenMobileDrawer,
-  pendingApprovalCount = 0,
 }) => {
   const handleCenterAction = () => {
     if (activeTab !== 'ENTRY') {
@@ -1016,16 +987,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <button
           type="button"
           onClick={onOpenMobileDrawer}
-          className="relative flex flex-col items-center justify-center gap-0.5 py-1 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer transition-colors"
+          className="flex flex-col items-center justify-center gap-0.5 py-1 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer transition-colors"
         >
-          <div className="relative">
-            <Menu className="w-5 h-5" />
-            {pendingApprovalCount > 0 && (
-              <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center leading-none">
-                {pendingApprovalCount > 99 ? '99+' : pendingApprovalCount}
-              </span>
-            )}
-          </div>
+          <Menu className="w-5 h-5" />
           <span className="text-[10px] leading-tight">Toàn thể</span>
         </button>
       </div>

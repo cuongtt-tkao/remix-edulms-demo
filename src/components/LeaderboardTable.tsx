@@ -22,6 +22,7 @@ import { Member, CompanyRankItem, AreaRankItem } from '../types/edulms';
 import { exportCompetitionToExcel, printCompetitionReport } from '../utils/reportExporter';
 import { TrendingChartsModal } from './TrendingChartsModal';
 import { CustomSelect } from './CustomSelect';
+import { formatAreaDisplayName } from '../utils/rbac';
 
 interface LeaderboardRbacInfo {
   scopeBadge: string;
@@ -395,7 +396,9 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                         </div>
                       </td>
                       <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.companyCode}</td>
-                      <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">{mem.areaCode}</td>
+                      <td className="py-3.5 px-3 font-semibold text-slate-700 dark:text-slate-300">
+                        {formatAreaDisplayName(mem.areaCode)}
+                      </td>
                       <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 text-xs">{mem.unitCode || mem.departmentCode}</td>
                       <td className="py-3.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">
                         {canInspect ? (mem.targets?.length || 0) : '—'}
@@ -446,7 +449,9 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                         className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: area.color || '#3b82f6' }}
                       />
-                      <span className="truncate">{area.areaName} ({area.areaCode})</span>
+                      <span className="truncate">
+                        {formatAreaDisplayName(area.areaCode, area.areaName)}
+                      </span>
                     </div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400">
                       {area.companyCode} • {area.activeMembersCount} thành viên • Tổng {formatNumber(area.totalScore)} đ
@@ -492,7 +497,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                           style={{ backgroundColor: area.color || '#3b82f6' }}
                         />
                         <span className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-400 transition">
-                          {area.areaName} ({area.areaCode})
+                          {formatAreaDisplayName(area.areaCode, area.areaName)}
                         </span>
                       </div>
                     </td>

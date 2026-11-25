@@ -46,15 +46,17 @@ export const auth = getAuth(app);
  * Chỉ sử dụng database "(default)" theo cấu hình chốt của hệ thống
  * (có thể ghi đè qua biến môi trường VITE_FIRESTORE_DATABASE_ID nếu cần).
  */
-export const FIRESTORE_DATABASE_ID: string =
+const databaseId: string =
   ((import.meta as any).env?.VITE_FIRESTORE_DATABASE_ID as string | undefined) || '(default)';
+
+export const FIRESTORE_DATABASE_ID = databaseId;
 
 export const db = initializeFirestore(
   app,
   {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   },
-  FIRESTORE_DATABASE_ID
+  databaseId
 );
 
 export const googleProvider = new GoogleAuthProvider();
@@ -96,22 +98,6 @@ export async function changeCurrentPassword(newPassword: string): Promise<'OK' |
   if (!hasPassword) return 'NO_PASSWORD_PROVIDER';
   await updatePassword(user, newPassword);
   return 'OK';
-}
-
-/** Gửi lại email xác thực cho tài khoản đang đăng nhập */
-export async function resendVerificationEmail(): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Chưa đăng nhập.');
-  await sendEmailVerification(user);
-}
-
-/** Tải lại trạng thái tài khoản Auth để cập nhật emailVerified và token mới nhất */
-export async function reloadCurrentAuthUser(): Promise<{ emailVerified: boolean }> {
-  const user = auth.currentUser;
-  if (!user) return { emailVerified: false };
-  await user.reload();
-  await user.getIdToken(true);
-  return { emailVerified: Boolean(user.emailVerified) };
 }
 
 /** Đăng xuất */
