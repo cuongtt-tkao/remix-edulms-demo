@@ -35,7 +35,6 @@ import {
   CalendarDays,
   BookOpenCheck,
   Layers,
-  RefreshCw,
 } from 'lucide-react';
 import {
   Company,
@@ -76,8 +75,6 @@ import {
   isMemberInManagerCluster,
   makeAreaScopeKey,
   normalizeOrgCode,
-  cleanRawAreaCode,
-  formatAreaDisplayName,
   parseAreaScopeEntry,
   resolveClusterCompanyCodes,
 } from '../utils/rbac';
@@ -149,7 +146,6 @@ interface AdminPanelProps {
   onBatchUpdateAreas?: (areas: Area[], mode?: 'MERGE' | 'REPLACE') => void;
   onBatchUpdateDepartments?: (departments: Department[], mode?: 'MERGE' | 'REPLACE') => void;
   onBatchUpdateMembers?: (members: Member[], mode?: 'MERGE' | 'REPLACE') => void;
-  onSyncOrgFromData?: () => Promise<{ addedCompanies: number; addedAreas: number }>;
   onResetData: () => void;
   onShowNotification: (msg: string) => void;
   currentUser?: UserAccount | null;
@@ -247,7 +243,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBatchUpdateAreas,
   onBatchUpdateDepartments,
   onBatchUpdateMembers,
-  onSyncOrgFromData,
   onResetData,
   onShowNotification,
   currentUser,
@@ -285,17 +280,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 }) => {
   const isAdmin = isAdminRole(currentUser?.role);
   const actorRoleLevel = getRoleLevel(currentUser?.role);
-  const [isSyncingOrg, setIsSyncingOrg] = useState(false);
-
-  const handleManualOrgSync = async () => {
-    if (!onSyncOrgFromData || isSyncingOrg) return;
-    setIsSyncingOrg(true);
-    try {
-      await onSyncOrgFromData();
-    } finally {
-      setIsSyncingOrg(false);
-    }
-  };
   const supervisorAllowedTabs: AdminSectionId[] = React.useMemo(
     () => ['CLUSTERS', 'COMPANIES', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC'],
     []
@@ -812,10 +796,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Handlers for Area (tách độc lập theo từng Sion — cho phép trùng mã/tên giữa các Sion khác nhau)
   const handleSaveArea = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanCode = cleanRawAreaCode(newAreaCode);
-    const cleanName = newAreaName.trim() || cleanCode;
-    if (!cleanCode) {
-      onShowNotification('Vui lòng điền mã/số khu vực (VD: 1.1).');
+    const cleanCode = newAreaCode.trim();
+    const cleanName = newAreaName.trim();
+    if (!cleanCode || !cleanName) {
+      onShowNotification('Vui lòng điền đủ mã và tên khu vực.');
       return;
     }
     const targetCompNorm = normalizeOrgCode(newAreaCompany);
@@ -823,7 +807,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const duplicateInSameSion = areas.find(
       (a) =>
         normalizeOrgCode(a.companyCode) === targetCompNorm &&
-        normalizeOrgCode(cleanRawAreaCode(a.code)) === targetCodeNorm
+        normalizeOrgCode(a.code) === targetCodeNorm
     );
     if (duplicateInSameSion) {
       onShowNotification(
@@ -840,16 +824,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setNewAreaCode('');
     setNewAreaName('');
     setIsAddAreaOpen(false);
-    onShowNotification(`Đã thêm ${formatAreaDisplayName(cleanCode, cleanName)} cho Sion ${newAreaCompany}!`);
+    onShowNotification(`Đã thêm khu vực "${cleanName}" cho Sion ${newAreaCompany}!`);
   };
 
   const handleUpdateAreaSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingArea) return;
-    const cleanCode = cleanRawAreaCode(editingArea.code);
-    const cleanName = editingArea.name.trim() || cleanCode;
-    if (!cleanCode) {
-      onShowNotification('Vui lòng điền mã/số khu vực.');
+    const cleanCode = editingArea.code.trim();
+    const cleanName = editingArea.name.trim();
+    if (!cleanCode || !cleanName) {
+      onShowNotification('Vui lòng điền đủ mã và tên khu vực.');
       return;
     }
     const targetCompNorm = normalizeOrgCode(editingArea.companyCode);
@@ -858,7 +842,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       (a) =>
         a.id !== editingArea.id &&
         normalizeOrgCode(a.companyCode) === targetCompNorm &&
-        normalizeOrgCode(cleanRawAreaCode(a.code)) === targetCodeNorm
+        normalizeOrgCode(a.code) === targetCodeNorm
     );
     if (duplicateInSameSion) {
       onShowNotification(
@@ -1635,31 +1619,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* TAB 1: COMPANIES */}
         {activeTab === 'COMPANIES' && (
           <div>
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-sm text-slate-800">Danh sách các Sion / Công ty</h3>
-              <div className="flex flex-wrap items-center gap-2">
-                {isAdmin && onSyncOrgFromData && (
-                  <button
-                    type="button"
-                    disabled={isSyncingOrg}
-                    onClick={handleManualOrgSync}
-                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Tự động tạo các Sion từ 5 Cụm và đồng bộ Khu vực từ tài khoản/thành viên hiện có"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ Sion & KV'}</span>
-                  </button>
-                )}
-                {canCreateCompany && (
-                  <button
-                    onClick={() => setIsAddCompanyOpen(true)}
-                    className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Thêm Công ty</span>
-                  </button>
-                )}
-              </div>
+              {canCreateCompany && (
+                <button
+                  onClick={() => setIsAddCompanyOpen(true)}
+                  className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Thêm Công ty</span>
+                </button>
+              )}
             </div>
 
             {/* Add Company Form */}
@@ -1862,18 +1832,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     ]}
                   />
                 </div>
-                {isAdmin && onSyncOrgFromData && (
-                  <button
-                    type="button"
-                    disabled={isSyncingOrg}
-                    onClick={handleManualOrgSync}
-                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Tự động đồng bộ các Khu vực & Sion từ danh sách thành viên/tài khoản và 5 Cụm"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ KV'}</span>
-                  </button>
-                )}
                 {canCreateArea && (
                   <button
                     onClick={() => {
@@ -1910,7 +1868,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Số / Mã KV (VD: 1.1, 2.1...)</label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Mã KV (VD: 1.1, KV1, Nội thành...)</label>
                     <input
                       type="text"
                       value={newAreaCode}
@@ -1920,12 +1878,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Tên riêng (tùy chọn, mặc định = mã KV)</label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Tên Khu vực</label>
                     <input
                       type="text"
                       value={newAreaName}
                       onChange={(e) => setNewAreaName(e.target.value)}
-                      placeholder="Để trống sẽ lưu là 1.1 (hiển thị KV 1.1)"
+                      placeholder="Khu vực 1.1"
                       className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
                     />
                   </div>
@@ -1980,9 +1938,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       return (
                         <tr key={area.id} className="hover:bg-slate-50/80 transition">
                           <td className="py-3 px-4 font-black text-blue-700">{area.code}</td>
-                          <td className="py-3 px-4 font-bold text-slate-900">
-                            {formatAreaDisplayName(area.code, area.name)}
-                          </td>
+                          <td className="py-3 px-4 font-bold text-slate-900">{area.name}</td>
                           <td className="py-3 px-4 text-slate-600 font-semibold">{area.companyCode}</td>
                           <td className="py-3 px-4 text-center font-semibold text-slate-600">{areaMembers.length} người</td>
                           <td className="py-3 px-4 text-center">
@@ -2323,10 +2279,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         onChange={setNewMemberArea}
                         options={(scopedAreas.length > 0
                           ? scopedAreas
-                          : [{ id: 'own', code: currentUser?.areaCode || newMemberArea, name: currentUser?.areaCode || newMemberArea, companyCode: newMemberCompany, active: true }]
+                          : [{ id: 'own', code: currentUser?.areaCode || newMemberArea, name: `KV ${currentUser?.areaCode || newMemberArea}`, companyCode: newMemberCompany, active: true }]
                         ).map((a) => ({
                           value: a.code,
-                          label: formatAreaDisplayName(a.code, a.name),
+                          label: a.name || `KV ${a.code}`,
                           badge: a.code,
                         }))}
                       />
@@ -2421,9 +2377,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="text-[10px] text-slate-400">{mem.code || ''}</div>
                         </td>
                         <td className="py-3 px-4 font-semibold text-slate-700">{mem.companyCode || '-'}</td>
-                        <td className="py-3 px-4 font-semibold text-slate-700">
-                          {mem.areaCode ? formatAreaDisplayName(mem.areaCode) : '-'}
-                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-700">{mem.areaCode || '-'}</td>
                         <td className="py-3 px-4 text-slate-600">{mem.departmentCode || '-'}</td>
                         <td className="py-3 px-4 text-center">
                           <button

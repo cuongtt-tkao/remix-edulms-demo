@@ -1,7 +1,6 @@
 import React from 'react';
 import { BarChart3, ChevronRight } from 'lucide-react';
 import { AreaRankItem } from '../types/edulms';
-import { formatAreaDisplayName } from '../utils/rbac';
 
 interface RegionalStatsProps {
   areaRankings: AreaRankItem[];
@@ -51,7 +50,7 @@ export const RegionalStats: React.FC<RegionalStatsProps> = ({
       {selectedAreaCode && (
         <div className="mb-3 flex items-center justify-between px-3 py-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-800 dark:text-blue-200">
           <span>
-            Đang lọc: <strong>{formatAreaDisplayName(selectedAreaCode)}</strong>
+            Đang lọc: <strong>Khu vực {selectedAreaCode}</strong>
           </span>
           <button
             type="button"
@@ -86,7 +85,7 @@ export const RegionalStats: React.FC<RegionalStatsProps> = ({
                     style={{ backgroundColor: area.color || '#3b82f6' }}
                   />
                   <span className="font-bold text-slate-800 dark:text-slate-100 truncate">
-                    {formatAreaDisplayName(area.areaCode, area.areaName)}
+                    {area.areaName} ({area.areaCode})
                   </span>
                   <span className="text-[10px] text-slate-400 shrink-0">({area.companyCode})</span>
                 </span>

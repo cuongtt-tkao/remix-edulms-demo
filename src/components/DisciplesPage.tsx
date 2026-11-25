@@ -31,7 +31,6 @@ import {
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
 import {
-  formatAreaDisplayName,
   formatAreaScopeLabel,
   getScopedAreaOptions,
   getScopedCompanyOptions,
@@ -658,8 +657,10 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                         : a.code,
                     label:
                       companyFilter === 'ALL'
-                        ? `${formatAreaDisplayName(a.code, a.name)} (${a.companyCode})`
-                        : formatAreaDisplayName(a.code, a.name),
+                        ? `${a.name && a.name !== `KV ${a.code}` ? `KV ${a.code} - ${a.name}` : `KV ${a.code}`} (${a.companyCode})`
+                        : a.name && a.name !== `KV ${a.code}`
+                        ? `KV ${a.code} - ${a.name}`
+                        : `KV ${a.code}`,
                   })),
                 ]}
               />

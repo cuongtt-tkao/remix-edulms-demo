@@ -20,63 +20,6 @@ export function normalizeOrgCode(code?: string | null): string {
   return (code || '').trim().toUpperCase();
 }
 
-export function slugifyOrgCode(val?: string | null): string {
-  return (
-    (val || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[đĐ]/g, 'd')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'x'
-  );
-}
-
-/**
- * Chuẩn hóa mã Khu vực về dạng gọn (chủ yếu chữ số/mã ngắn như "1.1", "2.1"),
- * tự động bóc tiền tố thừa "KV " / "Khu vực " nếu người dùng gõ kèm.
- */
-export function cleanRawAreaCode(raw?: string | null): string {
-  const trimmed = (raw || '').trim();
-  if (!trimmed) return '';
-  const stripped = trimmed.replace(/^(?:khu\s*v[ựư]c|kv)\s*[-:.\s]+(.+)$/i, '$1').trim();
-  return stripped || trimmed;
-}
-
-/**
- * Định dạng hiển thị Khu vực trên giao diện web:
- * luôn có chữ "KV" phía trước để dễ nhận biết (VD: "KV 1.1"),
- * đồng thời giữ tên riêng nếu khác mã (VD: "KV 1.1 · Nội thành").
- */
-export function formatAreaDisplayName(
-  areaCode?: string | null,
-  areaName?: string | null
-): string {
-  const cleanCode = cleanRawAreaCode(areaCode);
-  const cleanName = (areaName || '').trim();
-  const strippedName = cleanRawAreaCode(cleanName);
-
-  if (!cleanCode && !cleanName) return '';
-  if (!cleanCode) {
-    return /^(?:khu\s*v[ựư]c|kv)\b/i.test(cleanName) ? cleanName : `KV ${cleanName}`;
-  }
-  if (!cleanName || normalizeOrgCode(strippedName) === normalizeOrgCode(cleanCode)) {
-    return `KV ${cleanCode}`;
-  }
-  if (/^(?:khu\s*v[ựư]c|kv)\b/i.test(cleanName)) {
-    return cleanName;
-  }
-  return `KV ${cleanCode} · ${cleanName}`;
-}
-
-export function makeDeterministicCompanyId(companyCode: string): string {
-  return `c-${slugifyOrgCode(companyCode)}`;
-}
-
-export function makeDeterministicAreaId(companyCode: string, areaCode: string): string {
-  return `a-${slugifyOrgCode(companyCode)}-${slugifyOrgCode(cleanRawAreaCode(areaCode))}`;
-}
-
 export function makeAreaScopeKey(companyCode?: string | null, areaCode?: string | null): string {
   const cleanArea = (areaCode || '').trim();
   if (!cleanArea) return '';
@@ -1207,45 +1150,3 @@ export function resolveCompanyCodesFromClusterIds(
 
   return merged;
 }
-
-const KNOWN_COMPANY_DISPLAY_NAMES: Record<string, string> = {
-  TH1: 'Thương Hội 1',
-  TH2: 'Thương Hội 2',
-  TH3: 'Thương Hội 3',
-  HT: 'Hội Thánh',
-  NC: 'Nam Cali',
-  QN: 'Quảng Nam',
-};
-
-export function getDefaultCompanyDisplayName(code: string): string {
-  const clean = (code || '').trim();
-  if (!clean) return '';
-  return KNOWN_COMPANY_DISPLAY_NAMES[normalizeOrgCode(clean)] || clean;
-}
-
-/**
- * Trích xuất toàn bộ mã Sion xuất hiện trong 5 Cụm mẫu + cấu hình Cụm hiện tại
- * (đảm bảo luôn giữ nguyên thứ tự và không trùng lặp theo normalizeOrgCode).
- */
-export function getClusterSeedCompanyCodes(clusters?: OrgCluster[] | null): string[] {
-  const seen = new Set<string>();
-  const codes: string[] = [];
-  const pushCode = (raw?: string | null) => {
-    const clean = (raw || '').trim();
-    const norm = normalizeOrgCode(clean);
-    if (!norm || seen.has(norm)) return;
-    seen.add(norm);
-    codes.push(clean);
-  };
-
-  const sourceClusters =
-    clusters && clusters.length > 0 ? clusters : DEFAULT_INITIAL_CLUSTERS;
-
-  sourceClusters.forEach((cl) => {
-    if (cl.active === false) return;
-    (cl.companyCodes || []).forEach(pushCode);
-  });
-
-  return codes;
-}
-

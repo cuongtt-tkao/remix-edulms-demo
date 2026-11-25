@@ -68,7 +68,6 @@ import { CustomSelect } from './CustomSelect';
 import { PersonalPlannerSection } from './PersonalPlannerSection';
 import {
   canAccessMemberReportOverview,
-  formatAreaDisplayName,
   formatAreaScopeLabel,
   getScopedAreaOptions,
   getScopedCompanyOptions,
@@ -1127,7 +1126,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             >
               <CalendarDays className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate sm:hidden">KH LLV</span>
-              <span className="truncate hidden sm:inline">Kế hoạch</span>
+              <span className="truncate hidden sm:inline">Kế hoạch LLV</span>
             </button>
 
             <button
@@ -2435,7 +2434,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         onChange={setEditArea}
                         options={areasForEditCompany.map((a) => ({
                           value: a.code,
-                          label: formatAreaDisplayName(a.code, a.name),
+                          label: a.name,
                           badge: a.code,
                         }))}
                         ariaLabel="Chọn Khu vực"

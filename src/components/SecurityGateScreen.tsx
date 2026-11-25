@@ -36,11 +36,6 @@ import {
   sanitizePinInput,
   isValidPersonalPin,
 } from '../utils/pinSecurity';
-import {
-  cleanRawAreaCode,
-  formatAreaDisplayName,
-  normalizeOrgCode,
-} from '../utils/rbac';
 
 export type SecurityGateMode =
   | 'LOADING'
@@ -149,7 +144,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   const [obFullName, setObFullName] = useState('');
   const [obCompany, setObCompany] = useState(companies[0]?.code || 'Th1');
   const [obArea, setObArea] = useState('');
-  const [isCustomObArea, setIsCustomObArea] = useState(false);
   const [obDept, setObDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
   const [obUnitCode, setObUnitCode] = useState('');
   const [obPin, setObPin] = useState('');
@@ -180,10 +174,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
         (firebaseUser?.email ? firebaseUser.email.split('@')[0] : '') ||
         ''
       );
-      if (
-        companies.length > 0 &&
-        !companies.some((c) => normalizeOrgCode(c.code) === normalizeOrgCode(obCompany))
-      ) {
+      if (companies.length > 0 && !companies.some((c) => c.code === obCompany)) {
         setObCompany(companies[0].code);
       }
       if (departments.length > 0 && !departments.some((d) => d.code === obDept)) {
@@ -192,28 +183,18 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
     }
   }, [mode, firebaseUser?.displayName, firebaseUser?.email, companies, departments]);
 
-  const areasForSelectedCompany = useMemo(() => {
-    const targetComp = normalizeOrgCode(obCompany);
-    return areas.filter(
-      (a) => normalizeOrgCode(a.companyCode) === targetComp && a.active !== false
-    );
-  }, [areas, obCompany]);
+  const areasForSelectedCompany = useMemo(
+    () => areas.filter((a) => a.companyCode === obCompany && a.active !== false),
+    [areas, obCompany]
+  );
 
   useEffect(() => {
     if (areasForSelectedCompany.length > 0) {
-      if (!isCustomObArea) {
-        const matched = areasForSelectedCompany.find(
-          (a) => normalizeOrgCode(a.code) === normalizeOrgCode(obArea)
-        );
-        if (!matched) {
-          setObArea(areasForSelectedCompany[0].code);
-        }
+      if (!areasForSelectedCompany.some((a) => a.code === obArea)) {
+        setObArea(areasForSelectedCompany[0].code);
       }
-    } else {
-      setIsCustomObArea(true);
-      if (areas.some((a) => normalizeOrgCode(a.code) === normalizeOrgCode(obArea))) {
-        setObArea('');
-      }
+    } else if (!obArea && areas.length > 0) {
+      setObArea(areas[0].code);
     }
   }, [areasForSelectedCompany, areas, obCompany]);
 
@@ -346,9 +327,8 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       setGateError('Vui lòng chọn Sion / Công ty.');
       return;
     }
-    const cleanArea = cleanRawAreaCode(obArea);
-    if (!cleanArea) {
-      setGateError('Vui lòng chọn hoặc nhập mã Khu vực.');
+    if (!obArea.trim()) {
+      setGateError('Vui lòng chọn Khu vực.');
       return;
     }
     if (!isValidPersonalPin(obPin)) {
@@ -365,7 +345,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       await onCompleteOnboarding({
         fullName: obFullName.trim(),
         companyCode: obCompany.trim(),
-        areaCode: cleanArea,
+        areaCode: obArea.trim(),
         departmentCode: obDept.trim(),
         unitCode: obUnitCode.trim() || undefined,
         pin: obPin,
@@ -655,10 +635,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   </label>
                   <CustomSelect
                     value={obCompany}
-                    onChange={(nextComp) => {
-                      setObCompany(nextComp);
-                      setIsCustomObArea(false);
-                    }}
+                    onChange={setObCompany}
                     size="sm"
                     leadingIcon={<Building2 className="w-3.5 h-3.5" />}
                     options={companies.map((c) => ({
@@ -671,46 +648,20 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                    <span>Khu vực *</span>
-                    {isCustomObArea && areasForSelectedCompany.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsCustomObArea(false);
-                          setObArea(areasForSelectedCompany[0]?.code || '');
-                        }}
-                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
-                      >
-                        Chọn có sẵn
-                      </button>
-                    )}
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Khu vực *
                   </label>
-                  {areasForSelectedCompany.length > 0 && !isCustomObArea ? (
+                  {areasForSelectedCompany.length > 0 ? (
                     <CustomSelect
                       value={obArea}
-                      onChange={(val) => {
-                        if (val === '__NEW__') {
-                          setIsCustomObArea(true);
-                          setObArea('');
-                        } else {
-                          setIsCustomObArea(false);
-                          setObArea(val);
-                        }
-                      }}
+                      onChange={setObArea}
                       size="sm"
                       leadingIcon={<MapPin className="w-3.5 h-3.5" />}
-                      options={[
-                        ...areasForSelectedCompany.map((a) => ({
-                          value: a.code,
-                          label: formatAreaDisplayName(a.code, a.name),
-                          badge: a.code,
-                        })),
-                        {
-                          value: '__NEW__',
-                          label: '+ Nhập Khu vực mới...',
-                        },
-                      ]}
+                      options={areasForSelectedCompany.map((a) => ({
+                        value: a.code,
+                        label: a.name || `Khu vực ${a.code}`,
+                        badge: a.code,
+                      }))}
                       ariaLabel="Chọn Khu vực"
                     />
                   ) : (
@@ -718,7 +669,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                       type="text"
                       value={obArea}
                       onChange={(e) => setObArea(e.target.value)}
-                      placeholder="Chỉ nhập số/mã (VD: 1.1)"
+                      placeholder="VD: 1.1"
                       className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
                       required
                     />

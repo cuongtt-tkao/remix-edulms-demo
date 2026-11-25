@@ -89,12 +89,6 @@ import {
   isAdminRole,
   canAssignTargetRole,
   normalizeOrgCode,
-  cleanRawAreaCode,
-  slugifyOrgCode,
-  getDefaultCompanyDisplayName,
-  getClusterSeedCompanyCodes,
-  makeDeterministicCompanyId,
-  makeDeterministicAreaId,
   parseAreaScopeEntry,
   resolveCompanyCodesFromClusterIds,
 } from './utils/rbac';
@@ -187,6 +181,18 @@ function areCodeListsEqual(a?: string[], b?: string[]): boolean {
   return normA.every((val, idx) => val === normB[idx]);
 }
 
+function slugifyOrgCode(val?: string): string {
+  return (
+    (val || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[đĐ]/g, 'd')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'x'
+  );
+}
+
 export default function App() {
   // ---------- Đăng nhập (Firebase Authentication) & Khóa Mã cá nhân 6 số ----------
   const [authReady, setAuthReady] = useState<boolean>(false);
@@ -253,12 +259,12 @@ export default function App() {
   // ---------- Dữ liệu dùng chung (Cloud Firestore) ----------
   const reportError = useCallback((msg: string) => showNotification(msg), [showNotification]);
   // Danh mục Sion / Khu vực / Ban ngành tải trước để Form Đăng ký & Hoàn tất hồ sơ luôn có dropdown
-  const [companies, setCompanies, companiesLoaded] = useCloudCollection<Company>('companies', {
+  const [companies, setCompanies] = useCloudCollection<Company>('companies', {
     enabled: true,
     ordered: true,
     onError: reportError,
   });
-  const [areas, setAreas, areasLoaded] = useCloudCollection<Area>('areas', {
+  const [areas, setAreas] = useCloudCollection<Area>('areas', {
     enabled: true,
     ordered: true,
     onError: reportError,
@@ -279,7 +285,7 @@ export default function App() {
   );
 
   // Dữ liệu nhạy cảm chỉ tải SAU KHI đã xác thực + mở khóa Mã cá nhân 6 số
-  const [members, setMembers, membersLoaded] = useCloudCollection<Member>('members', {
+  const [members, setMembers] = useCloudCollection<Member>('members', {
     enabled: dataUnlocked,
     onError: reportError,
   });
@@ -511,7 +517,6 @@ export default function App() {
 
   // Quản lý tài khoản người dùng & Danh sách cấp quyền trước (role_claims/{emailLower} cho mọi user, system_config/roles chỉ cho Admin)
   const [usersList, setUsersList] = useState<UserAccount[]>([]);
-  const [usersLoaded, setUsersLoaded] = useState<boolean>(false);
   const [preAssignedRoles, setPreAssignedRoles] = useState<RoleAssignment[]>([]);
   const [ownRoleClaim, setOwnRoleClaim] = useState<RoleAssignment | null>(null);
 
@@ -571,7 +576,6 @@ export default function App() {
   useEffect(() => {
     if (!dataUnlocked || !firebaseUser?.uid) {
       setUsersList([]);
-      setUsersLoaded(false);
       seenPendingUidsRef.current = null;
       return;
     }
@@ -585,7 +589,6 @@ export default function App() {
             id: d.id,
           }));
           setUsersList(list);
-          if (!snap.metadata.fromCache) setUsersLoaded(true);
 
           const currentPending = list.filter((u) => resolveUserApprovalStatus(u) === 'PENDING');
           const currentPendingSet = new Set(currentPending.map((u) => u.id));
@@ -608,7 +611,6 @@ export default function App() {
       return unsubscribe;
     }
 
-    setUsersLoaded(false);
     if (!currentUser || !canAccessAdminPanel(currentUser.role)) {
       setUsersList([]);
       seenPendingUidsRef.current = null;
@@ -1029,13 +1031,11 @@ export default function App() {
       const email = (firebaseUser.email || reg.email || '').trim();
       const fullName =
         reg.fullName || firebaseUser.displayName || email.split('@')[0] || 'Thành viên mới';
-      const companyCode = (reg.companyCode || effectiveCompanies[0]?.code || 'Th1').trim();
+      const companyCode = reg.companyCode || effectiveCompanies[0]?.code || 'Th1';
       const areaCode =
-        cleanRawAreaCode(reg.areaCode) ||
-        cleanRawAreaCode(
-          effectiveAreas.find((a) => normalizeOrgCode(a.companyCode) === normalizeOrgCode(companyCode))
-            ?.code
-        ) ||
+        reg.areaCode ||
+        effectiveAreas.find((a) => a.companyCode === companyCode)?.code ||
+        effectiveAreas[0]?.code ||
         '1.1';
       const departmentCode = reg.departmentCode || effectiveDepartments[0]?.code || 'Thanh Niên Nam';
       const unitCode = reg.unitCode?.trim() || undefined;
@@ -2542,200 +2542,6 @@ export default function App() {
     return { syncedCount };
   };
 
-  // Đồng bộ tự động các Sion (từ 5 Cụm + users + members) và Khu vực còn thiếu lên Firestore (default)
-  // Chỉ bổ sung những Sion/KV chưa có, tuyệt đối không xóa hay ghi đè dữ liệu hiện có.
-  const orgSyncInFlightRef = useRef<boolean>(false);
-  const lastOrgSyncSigRef = useRef<string>('');
-
-  const computeMissingOrgPayload = useCallback(() => {
-    const existingCompByNorm = new Map<string, Company>();
-    companies.forEach((c) => {
-      const norm = normalizeOrgCode(c.code);
-      if (norm && !existingCompByNorm.has(norm)) {
-        existingCompByNorm.set(norm, c);
-      }
-    });
-
-    const missingCompanies: Company[] = [];
-    const compOrderBase = Date.now();
-    const ensureCompany = (rawCode?: string | null) => {
-      const clean = (rawCode || '').trim();
-      const norm = normalizeOrgCode(clean);
-      if (!norm || existingCompByNorm.has(norm)) return;
-      const newComp: Company = {
-        id: makeDeterministicCompanyId(clean),
-        code: clean,
-        name: getDefaultCompanyDisplayName(clean),
-        active: true,
-      };
-      existingCompByNorm.set(norm, newComp);
-      missingCompanies.push(newComp);
-    };
-
-    // 1. Các Sion đang có trong 5 Cụm (hoặc cấu hình Cụm hiện tại)
-    getClusterSeedCompanyCodes(clustersConfig?.clusters).forEach((code) => ensureCompany(code));
-
-    // 2. Quét Sion từ tài khoản đã duyệt & danh sách thành viên trong DB
-    const approvedUsers = usersList.filter(
-      (u) => resolveUserApprovalStatus(u) === 'APPROVED'
-    );
-    approvedUsers.forEach((u) => ensureCompany(u.companyCode));
-    members
-      .filter((m) => m.active !== false)
-      .forEach((m) => ensureCompany(m.companyCode));
-
-    // 3. Quét các cặp (Sion, Khu vực) còn thiếu từ users đã duyệt & members
-    const existingAreaKeys = new Set<string>();
-    areas.forEach((a) => {
-      const cNorm = normalizeOrgCode(a.companyCode);
-      const aNorm = normalizeOrgCode(cleanRawAreaCode(a.code));
-      if (cNorm && aNorm) existingAreaKeys.add(`${cNorm}::${aNorm}`);
-    });
-
-    const missingAreas: Area[] = [];
-    const ensureArea = (rawComp?: string | null, rawArea?: string | null) => {
-      const cNorm = normalizeOrgCode(rawComp);
-      const cleanArea = cleanRawAreaCode(rawArea);
-      const aNorm = normalizeOrgCode(cleanArea);
-      if (!cNorm || !aNorm) return;
-      const key = `${cNorm}::${aNorm}`;
-      if (existingAreaKeys.has(key)) return;
-      existingAreaKeys.add(key);
-
-      const canonicalComp = existingCompByNorm.get(cNorm)?.code || (rawComp || '').trim();
-      missingAreas.push({
-        id: makeDeterministicAreaId(canonicalComp, cleanArea),
-        code: cleanArea,
-        name: cleanArea,
-        companyCode: canonicalComp,
-        active: true,
-      });
-    };
-
-    approvedUsers.forEach((u) => ensureArea(u.companyCode, u.areaCode));
-    members
-      .filter((m) => m.active !== false)
-      .forEach((m) => ensureArea(m.companyCode, m.areaCode));
-
-    const signature = [
-      ...missingCompanies.map((c) => `C:${normalizeOrgCode(c.code)}`),
-      ...missingAreas.map(
-        (a) => `A:${normalizeOrgCode(a.companyCode)}::${normalizeOrgCode(a.code)}`
-      ),
-    ]
-      .sort()
-      .join('|');
-
-    return { missingCompanies, missingAreas, compOrderBase, signature };
-  }, [companies, areas, usersList, members, clustersConfig?.clusters]);
-
-  const syncMissingOrgData = useCallback(
-    async (options?: {
-      silent?: boolean;
-    }): Promise<{ addedCompanies: number; addedAreas: number }> => {
-      if (!isAdminUser || orgSyncInFlightRef.current) {
-        return { addedCompanies: 0, addedAreas: 0 };
-      }
-      const { missingCompanies, missingAreas, compOrderBase, signature } =
-        computeMissingOrgPayload();
-
-      if (missingCompanies.length === 0 && missingAreas.length === 0) {
-        if (!options?.silent) {
-          showNotification('Tất cả Sion (5 Cụm) và Khu vực từ dữ liệu đã đồng bộ đầy đủ.');
-        }
-        return { addedCompanies: 0, addedAreas: 0 };
-      }
-
-      orgSyncInFlightRef.current = true;
-      lastOrgSyncSigRef.current = signature;
-      try {
-        const ops: Array<{ col: 'companies' | 'areas'; id: string; data: Record<string, unknown> }> = [];
-        missingCompanies.forEach((c, idx) => {
-          const { id, ...rest } = c;
-          ops.push({
-            col: 'companies',
-            id,
-            data: { ...JSON.parse(JSON.stringify(rest)), _order: compOrderBase + idx },
-          });
-        });
-        missingAreas.forEach((a, idx) => {
-          const { id, ...rest } = a;
-          ops.push({
-            col: 'areas',
-            id,
-            data: { ...JSON.parse(JSON.stringify(rest)), _order: compOrderBase + idx },
-          });
-        });
-
-        for (let i = 0; i < ops.length; i += 400) {
-          const batch = writeBatch(db);
-          ops.slice(i, i + 400).forEach((op) => {
-            batch.set(doc(db, op.col, op.id), op.data, { merge: true });
-          });
-          await batch.commit();
-        }
-
-        if (missingCompanies.length > 0) {
-          const activeClusters = clustersConfig?.clusters || [];
-          if (activeClusters.some((cl) => cl.isCatchAll && cl.active !== false)) {
-            syncManagerClusters(activeClusters, [...companies, ...missingCompanies]).catch((err) =>
-              console.warn('[Clusters] Lỗi đồng bộ QL Cụm sau khi thêm Sion:', err)
-            );
-          }
-        }
-
-        const msg = `Đã đồng bộ thêm ${missingCompanies.length} Sion và ${missingAreas.length} Khu vực còn thiếu!`;
-        if (!options?.silent || missingCompanies.length > 0 || missingAreas.length > 0) {
-          showNotification(msg);
-        }
-        return {
-          addedCompanies: missingCompanies.length,
-          addedAreas: missingAreas.length,
-        };
-      } finally {
-        orgSyncInFlightRef.current = false;
-      }
-    },
-    [
-      isAdminUser,
-      computeMissingOrgPayload,
-      clustersConfig?.clusters,
-      companies,
-      syncManagerClusters,
-      showNotification,
-    ]
-  );
-
-  // Tự động chạy đồng bộ nền khi Admin mở ứng dụng & toàn bộ dữ liệu server đã tải xong
-  useEffect(() => {
-    if (
-      !isAdminUser ||
-      !dataUnlocked ||
-      !companiesLoaded ||
-      !areasLoaded ||
-      !usersLoaded ||
-      !membersLoaded
-    ) {
-      return;
-    }
-    const { missingCompanies, missingAreas, signature } = computeMissingOrgPayload();
-    if (missingCompanies.length === 0 && missingAreas.length === 0) return;
-    if (lastOrgSyncSigRef.current === signature) return;
-
-    void syncMissingOrgData({ silent: true }).catch((err) => {
-      console.warn('[OrgSync] Lỗi tự động đồng bộ Sion/Khu vực:', err);
-    });
-  }, [
-    isAdminUser,
-    dataUnlocked,
-    companiesLoaded,
-    areasLoaded,
-    usersLoaded,
-    membersLoaded,
-    computeMissingOrgPayload,
-    syncMissingOrgData,
-  ]);
-
   const handleApproveUser = async (
     targetUser: UserAccount,
     options?: {
@@ -2754,12 +2560,8 @@ export default function App() {
     if (!isAdminUser) return;
     const nowIso = new Date().toISOString();
     const approverName = effectiveCurrentUser?.fullName || 'Admin';
-    const rawNextCompany = (options?.companyCode || targetUser.companyCode || '').trim();
-    const matchedExistingComp = companies.find(
-      (c) => normalizeOrgCode(c.code) === normalizeOrgCode(rawNextCompany)
-    );
-    const nextCompany = matchedExistingComp?.code || rawNextCompany;
-    const nextArea = cleanRawAreaCode(options?.areaCode || targetUser.areaCode);
+    const nextCompany = options?.companyCode || targetUser.companyCode;
+    const nextArea = options?.areaCode || targetUser.areaCode;
     const nextUnit =
       options?.unitCode !== undefined ? options.unitCode.trim() : targetUser.unitCode || '';
 
@@ -2826,41 +2628,6 @@ export default function App() {
     const batch = writeBatch(db);
     batch.update(doc(db, 'users', targetUser.id), userPatch);
     batch.set(doc(db, 'members', memberId), memberPayload, { merge: true });
-
-    // Cách 2: Tự động tạo Sion & Khu vực nếu tài khoản mới được duyệt khai báo KV/Sion chưa có trong danh mục
-    const orderStamp = Date.now();
-    if (nextCompany && !matchedExistingComp) {
-      batch.set(
-        doc(db, 'companies', makeDeterministicCompanyId(nextCompany)),
-        {
-          code: nextCompany,
-          name: getDefaultCompanyDisplayName(nextCompany),
-          active: true,
-          _order: orderStamp,
-        },
-        { merge: true }
-      );
-    }
-
-    const areaAlreadyExists = areas.some(
-      (a) =>
-        normalizeOrgCode(a.companyCode) === normalizeOrgCode(nextCompany) &&
-        normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(nextArea)
-    );
-    if (nextCompany && nextArea && !areaAlreadyExists) {
-      batch.set(
-        doc(db, 'areas', makeDeterministicAreaId(nextCompany, nextArea)),
-        {
-          code: nextArea,
-          name: nextArea,
-          companyCode: nextCompany,
-          active: true,
-          _order: orderStamp,
-        },
-        { merge: true }
-      );
-    }
-
     await batch.commit();
 
     setUsersList((prev) =>
@@ -2880,11 +2647,7 @@ export default function App() {
           : u
       )
     );
-    showNotification(
-      !areaAlreadyExists && nextArea
-        ? `Đã phê duyệt "${targetUser.fullName}" và tự động thêm KV ${nextArea} (${nextCompany})!`
-        : `Đã phê duyệt tài khoản "${targetUser.fullName}"!`
-    );
+    showNotification(`Đã phê duyệt tài khoản "${targetUser.fullName}"!`);
   };
 
   const handleRejectUser = async (targetUser: UserAccount, reason?: string) => {
@@ -3892,57 +3655,9 @@ export default function App() {
     triggerCatchAllClusterSync(nextList);
   };
 
-  const ensureAreaExistsForOrg = useCallback(
-    (rawCompanyCode?: string, rawAreaCode?: string) => {
-      const cleanArea = cleanRawAreaCode(rawAreaCode);
-      const cleanComp = (rawCompanyCode || '').trim();
-      if (!cleanArea || !cleanComp) return;
-      const canCreateArea =
-        isAdminUser ||
-        effectiveCurrentUser?.role === 'MANAGER' ||
-        effectiveCurrentUser?.role === 'SION_LEADER';
-      if (!canCreateArea) return;
-
-      const exists = areas.some(
-        (a) =>
-          normalizeOrgCode(a.companyCode) === normalizeOrgCode(cleanComp) &&
-          normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
-      );
-      if (exists) return;
-
-      const canonicalComp =
-        companies.find((c) => normalizeOrgCode(c.code) === normalizeOrgCode(cleanComp))?.code ||
-        cleanComp;
-      setAreas((prev) => {
-        if (
-          prev.some(
-            (a) =>
-              normalizeOrgCode(a.companyCode) === normalizeOrgCode(canonicalComp) &&
-              normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
-          )
-        ) {
-          return prev;
-        }
-        return [
-          ...prev,
-          {
-            id: makeDeterministicAreaId(canonicalComp, cleanArea),
-            code: cleanArea,
-            name: cleanArea,
-            companyCode: canonicalComp,
-            active: true,
-          },
-        ];
-      });
-    },
-    [areas, companies, isAdminUser, effectiveCurrentUser?.role, setAreas]
-  );
-
   const handleAddArea = (area: Omit<Area, 'id'>) => {
-    const cleanCode = cleanRawAreaCode(area.code);
-    const cleanName = (area.name || '').trim() || cleanCode;
-    const uniqueId = makeDeterministicAreaId(area.companyCode, cleanCode);
-    setAreas((prev) => [...prev, { ...area, code: cleanCode, name: cleanName, id: uniqueId }]);
+    const uniqueId = `a-${slugifyOrgCode(area.companyCode)}-${slugifyOrgCode(area.code)}-${Date.now()}`;
+    setAreas((prev) => [...prev, { ...area, id: uniqueId }]);
   };
   const handleUpdateArea = (area: Area) => {
     setAreas((prev) => prev.map((a) => (a.id === area.id ? area : a)));
@@ -3964,10 +3679,8 @@ export default function App() {
   const handleAddMember = (
     member: Omit<Member, 'id' | 'code' | 'score' | 'targets' | 'createdAt'>
   ) => {
-    const cleanArea = cleanRawAreaCode(member.areaCode);
     const newMem: Member = {
       ...member,
-      areaCode: cleanArea,
       id: `m-${Date.now()}`,
       code: `MEM-${(members.length + 1).toString().padStart(3, '0')}`,
       score: 0,
@@ -3975,7 +3688,6 @@ export default function App() {
       createdAt: new Date().toISOString().split('T')[0],
     };
     setMembers((prev) => [newMem, ...prev]);
-    ensureAreaExistsForOrg(member.companyCode, cleanArea);
   };
   const handleUpdateMember = (member: Member) => {
     setMembers((prev) => prev.map((m) => (m.id === member.id ? member : m)));
@@ -4743,9 +4455,6 @@ export default function App() {
                   onBatchUpdateAreas={handleBatchUpdateAreas}
                   onBatchUpdateDepartments={handleBatchUpdateDepartments}
                   onBatchUpdateMembers={handleBatchUpdateMembers}
-                  onSyncOrgFromData={
-                    isAdminUser ? () => syncMissingOrgData({ silent: false }) : undefined
-                  }
                   onResetData={handleResetData}
                   onShowNotification={showNotification}
                   currentUser={effectiveCurrentUser}

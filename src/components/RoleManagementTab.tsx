@@ -49,8 +49,6 @@ import { CustomSelect } from './CustomSelect';
 import {
   canAssignTargetRole,
   canManageOrgRecord,
-  cleanRawAreaCode,
-  formatAreaDisplayName,
   formatAreaScopeLabel,
   makeAreaScopeKey,
   normalizeOrgCode,
@@ -1097,32 +1095,15 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                         searchable={false}
                         value={draft.areaCode}
                         onChange={(val) => updatePendingDraft(u, { areaCode: val })}
-                        options={(() => {
-                          const baseOpts = areasForDraftCompany.map((a) => ({
-                            value: a.code,
-                            label: formatAreaDisplayName(a.code, a.name),
-                            badge: a.code,
-                          }));
-                          const draftAreaNorm = normalizeOrgCode(cleanRawAreaCode(draft.areaCode));
-                          if (
-                            draftAreaNorm &&
-                            !areasForDraftCompany.some(
-                              (a) => normalizeOrgCode(cleanRawAreaCode(a.code)) === draftAreaNorm
-                            )
-                          ) {
-                            return [
-                              {
-                                value: draft.areaCode,
-                                label: `${formatAreaDisplayName(draft.areaCode)} (Mới)`,
-                                badge: cleanRawAreaCode(draft.areaCode),
-                              },
-                              ...baseOpts,
-                            ];
-                          }
-                          return baseOpts.length > 0
-                            ? baseOpts
-                            : [{ value: draft.areaCode, label: formatAreaDisplayName(draft.areaCode) }];
-                        })()}
+                        options={
+                          areasForDraftCompany.length > 0
+                            ? areasForDraftCompany.map((a) => ({
+                                value: a.code,
+                                label: a.name || `KV ${a.code}`,
+                                badge: a.code,
+                              }))
+                            : [{ value: draft.areaCode, label: `KV ${draft.areaCode}` }]
+                        }
                         ariaLabel="Khu vực"
                       />
                     </div>
@@ -1336,7 +1317,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                                       : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                                   }`}
                                 >
-                                  {formatAreaDisplayName(a.code, a.name)}
+                                  KV {a.code}{a.name && a.name !== a.code ? ` · ${a.name}` : ''}
                                 </button>
                               );
                             })}
@@ -1953,7 +1934,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                             >
                               {selected && <Check className="w-3 h-3 shrink-0" />}
                               <span className="truncate">
-                                {formatAreaDisplayName(a.code, a.name)}
+                                KV {a.code}{a.name && a.name !== a.code ? ` · ${a.name}` : ''}
                               </span>
                             </button>
                           );
