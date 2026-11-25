@@ -71,40 +71,6 @@ interface SecurityGateScreenProps {
 
 const MAX_PIN_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 30;
-const PIN_GUARD_STORAGE_PREFIX = 'htl_pin_guard_';
-
-interface PinGuardState {
-  fails: number;
-  lockedUntilMs: number;
-  lockCount: number;
-}
-
-function readPinGuardState(uid?: string | null): PinGuardState {
-  if (!uid) return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
-  try {
-    const raw = localStorage.getItem(`${PIN_GUARD_STORAGE_PREFIX}${uid}`);
-    if (!raw) return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
-    const parsed = JSON.parse(raw);
-    return {
-      fails: Number(parsed?.fails) || 0,
-      lockedUntilMs: Number(parsed?.lockedUntilMs) || 0,
-      lockCount: Number(parsed?.lockCount) || 0,
-    };
-  } catch {
-    return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
-  }
-}
-
-function writePinGuardState(uid: string | undefined | null, state: PinGuardState | null): void {
-  if (!uid) return;
-  try {
-    const key = `${PIN_GUARD_STORAGE_PREFIX}${uid}`;
-    if (!state) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify(state));
-  } catch {
-    // Ignore storage quota errors
-  }
-}
 
 export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   mode,
@@ -144,7 +110,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   const [unlockPin, setUnlockPin] = useState('');
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockCount, setLockCount] = useState(0);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const unlockInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -182,28 +147,14 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
     }
   }, [areasForSelectedCompany, areas, obCompany]);
 
-  // Restore persisted PIN lockout & reset fields when switching modes/users
+  // Reset PIN fields when switching modes
   useEffect(() => {
     setGateError('');
     setUnlockPin('');
     setSetupPin('');
     setSetupPinConfirm('');
-    if (mode === 'PIN_LOCKED' && currentUser?.id) {
-      const saved = readPinGuardState(currentUser.id);
-      const remainingSec =
-        saved.lockedUntilMs > Date.now()
-          ? Math.ceil((saved.lockedUntilMs - Date.now()) / 1000)
-          : 0;
-      setFailedAttempts(remainingSec > 0 ? 0 : saved.fails);
-      setLockCount(saved.lockCount);
-      setCooldownRemaining(remainingSec);
-      if (remainingSec > 0) {
-        setGateError(`Bạn đã nhập sai quá số lần quy định. Vui lòng chờ ${remainingSec} giây hoặc đăng xuất.`);
-      }
+    if (mode === 'PIN_LOCKED') {
       setTimeout(() => unlockInputRef.current?.focus(), 80);
-    } else {
-      setFailedAttempts(0);
-      setCooldownRemaining(0);
     }
   }, [mode, currentUser?.id]);
 
@@ -211,19 +162,10 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   useEffect(() => {
     if (cooldownRemaining <= 0) return;
     const t = setInterval(() => {
-      setCooldownRemaining((prev) => {
-        if (prev <= 1) {
-          if (currentUser?.id) {
-            writePinGuardState(currentUser.id, { fails: 0, lockedUntilMs: 0, lockCount });
-          }
-          setFailedAttempts(0);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setCooldownRemaining((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(t);
-  }, [cooldownRemaining, currentUser?.id, lockCount]);
+  }, [cooldownRemaining]);
 
   // Verify PIN helper
   const handleVerifyUnlockPin = async (candidatePin: string) => {
@@ -241,36 +183,18 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       const ok = await verifyPersonalPin(currentUser.id, clean, currentUser.pinHash);
       if (ok) {
         setFailedAttempts(0);
-        setLockCount(0);
-        setCooldownRemaining(0);
-        writePinGuardState(currentUser.id, null);
         setUnlockPin('');
         onPinUnlocked();
       } else {
         const nextFails = failedAttempts + 1;
+        setFailedAttempts(nextFails);
         setUnlockPin('');
         if (nextFails >= MAX_PIN_ATTEMPTS) {
-          const nextLockCount = Math.min(4, lockCount + 1);
-          const durationSec = LOCKOUT_SECONDS * Math.pow(2, nextLockCount - 1);
-          const lockedUntilMs = Date.now() + durationSec * 1000;
-          setFailedAttempts(0);
-          setLockCount(nextLockCount);
-          setCooldownRemaining(durationSec);
-          writePinGuardState(currentUser.id, {
-            fails: 0,
-            lockedUntilMs,
-            lockCount: nextLockCount,
-          });
+          setCooldownRemaining(LOCKOUT_SECONDS);
           setGateError(
-            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${durationSec} giây hoặc đăng xuất.`
+            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${LOCKOUT_SECONDS} giây hoặc đăng xuất.`
           );
         } else {
-          setFailedAttempts(nextFails);
-          writePinGuardState(currentUser.id, {
-            fails: nextFails,
-            lockedUntilMs: 0,
-            lockCount,
-          });
           setGateError(
             `Mã cá nhân chưa đúng (còn ${MAX_PIN_ATTEMPTS - nextFails} lần thử).`
           );
