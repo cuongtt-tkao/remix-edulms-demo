@@ -6,7 +6,6 @@ import {
   DiscipleRecord,
   KpiSummary,
   Member,
-  OrgCluster,
   ROLE_DISPLAY_META,
   UserAccount,
   UserRole,
@@ -16,269 +15,6 @@ import {
 
 export function normalizeOrgCode(code?: string | null): string {
   return (code || '').trim().toUpperCase();
-}
-
-export function cleanRawAreaCode(raw?: string | null): string {
-  const s = (raw || '').trim();
-  if (!s) return '';
-  const stripped = s
-    .replace(/^(khu\s*vực|khu\s*vuc|kv)\s*[:.\-]?\s*/i, '')
-    .trim();
-  return stripped || s;
-}
-
-export function slugifyOrgCode(code?: string | null): string {
-  return (code || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[đĐ]/g, 'd')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-const DEFAULT_COMPANY_DISPLAY_NAMES: Record<string, string> = {
-  TH1: 'Thương Hội 1',
-  TH2: 'Thương Hội 2',
-  TH3: 'Thương Hội 3',
-  HT: 'Hội Thánh',
-  NC: 'Nam Cali',
-  QN: 'Quảng Nam',
-};
-
-export function getDefaultCompanyDisplayName(code?: string | null): string {
-  const clean = (code || '').trim();
-  if (!clean) return '';
-  const norm = normalizeOrgCode(clean);
-  return DEFAULT_COMPANY_DISPLAY_NAMES[norm] || `Sion ${clean}`;
-}
-
-export function makeDeterministicCompanyId(code: string): string {
-  const slug = slugifyOrgCode(code) || 'org';
-  return `c-${slug}`;
-}
-
-export function makeDeterministicAreaId(companyCode: string, areaCode: string): string {
-  const cSlug = slugifyOrgCode(companyCode) || 'org';
-  const aSlug = slugifyOrgCode(cleanRawAreaCode(areaCode)) || 'area';
-  return `a-${cSlug}-${aSlug}`;
-}
-
-export function makeAreaScopeKey(companyCode?: string | null, areaCode?: string | null): string {
-  const comp = (companyCode || '').trim();
-  const area = cleanRawAreaCode(areaCode);
-  if (!area) return '';
-  if (!comp) return area;
-  return `${comp}::${area}`;
-}
-
-export interface ParsedAreaScopeEntry {
-  hasCompanyPrefix: boolean;
-  companyCode: string;
-  areaCode: string;
-  rawCompanyCode: string;
-  rawAreaCode: string;
-}
-
-export function parseAreaScopeEntry(entry?: string | null): ParsedAreaScopeEntry {
-  const trimmed = (entry || '').trim();
-  if (!trimmed) {
-    return {
-      hasCompanyPrefix: false,
-      companyCode: '',
-      areaCode: '',
-      rawCompanyCode: '',
-      rawAreaCode: '',
-    };
-  }
-  const sepIdx = trimmed.indexOf('::');
-  if (sepIdx !== -1) {
-    const rawCompanyCode = trimmed.slice(0, sepIdx).trim();
-    const rawAreaCode = cleanRawAreaCode(trimmed.slice(sepIdx + 2));
-    return {
-      hasCompanyPrefix: Boolean(rawCompanyCode),
-      companyCode: normalizeOrgCode(rawCompanyCode),
-      areaCode: normalizeOrgCode(rawAreaCode),
-      rawCompanyCode,
-      rawAreaCode,
-    };
-  }
-  const rawAreaCode = cleanRawAreaCode(trimmed);
-  return {
-    hasCompanyPrefix: false,
-    companyCode: '',
-    areaCode: normalizeOrgCode(rawAreaCode),
-    rawCompanyCode: '',
-    rawAreaCode,
-  };
-}
-
-export function formatAreaDisplayName(code?: string | null, name?: string | null): string {
-  const cleanCode = cleanRawAreaCode(code);
-  const cleanName = (name || '').trim();
-  if (!cleanCode && !cleanName) return '';
-  if (!cleanName || normalizeOrgCode(cleanName) === normalizeOrgCode(cleanCode)) {
-    return cleanCode ? `KV ${cleanCode}` : '';
-  }
-  if (/^(khu\s*vực|khu\s*vuc|kv)\b/i.test(cleanName)) {
-    return cleanName;
-  }
-  return cleanCode ? `KV ${cleanCode} · ${cleanName}` : cleanName;
-}
-
-export function getClusterSeedCompanyCodes(clusters?: OrgCluster[] | null): string[] {
-  const byNorm = new Map<string, string>();
-  (clusters || []).forEach((cl) => {
-    if (cl.active === false) return;
-    (cl.companyCodes || []).forEach((raw) => {
-      const clean = (raw || '').trim();
-      const norm = normalizeOrgCode(clean);
-      if (norm && !byNorm.has(norm)) {
-        byNorm.set(norm, clean);
-      }
-    });
-  });
-  if (byNorm.size === 0) {
-    return ['Th1'];
-  }
-  return Array.from(byNorm.values());
-}
-
-export function createDefaultClustersForCompanies(companies: Company[]): OrgCluster[] {
-  const findExistingCode = (candidates: string[]): string[] => {
-    const found: string[] = [];
-    candidates.forEach((cand) => {
-      const match = companies.find((c) => normalizeOrgCode(c.code) === normalizeOrgCode(cand));
-      if (match && !found.some((x) => normalizeOrgCode(x) === normalizeOrgCode(match.code))) {
-        found.push(match.code);
-      }
-    });
-    return found;
-  };
-
-  const th1Codes = findExistingCode(['Th1']);
-  return [
-    {
-      id: 'cluster-th1',
-      code: 'TH1',
-      name: 'TH1',
-      companyCodes: th1Codes.length > 0 ? th1Codes : ['Th1'],
-      isCatchAll: false,
-      description: 'Cụm Thương Hội 1',
-      active: true,
-    },
-    {
-      id: 'cluster-eli',
-      code: 'ELI',
-      name: 'ÊLI',
-      companyCodes: findExistingCode(['ELI', 'ÊLI']),
-      isCatchAll: false,
-      description: 'Cụm ÊLI',
-      active: true,
-    },
-    {
-      id: 'cluster-hbc',
-      code: 'HBC',
-      name: 'HBC',
-      companyCodes: findExistingCode(['HBC']),
-      isCatchAll: false,
-      description: 'Cụm HBC',
-      active: true,
-    },
-    {
-      id: 'cluster-per',
-      code: 'PER',
-      name: 'PER',
-      companyCodes: findExistingCode(['PER']),
-      isCatchAll: false,
-      description: 'Cụm PER',
-      active: true,
-    },
-    {
-      id: 'cluster-ysac',
-      code: 'YSAC',
-      name: 'YSAC',
-      companyCodes: [],
-      isCatchAll: true,
-      description: 'Tự động gồm các Sion chưa thuộc cụm khác',
-      active: true,
-    },
-  ];
-}
-
-export function resolveClusterCompanyCodes(
-  cluster: OrgCluster,
-  allClusters: OrgCluster[],
-  companies: Company[]
-): string[] {
-  const canonicalByNorm = new Map<string, string>();
-  companies.forEach((c) => {
-    const norm = normalizeOrgCode(c.code);
-    if (norm && !canonicalByNorm.has(norm)) {
-      canonicalByNorm.set(norm, c.code);
-    }
-  });
-
-  if (cluster.isCatchAll) {
-    const assignedNorms = new Set<string>();
-    allClusters.forEach((other) => {
-      if (other.id === cluster.id || other.isCatchAll || other.active === false) return;
-      (other.companyCodes || []).forEach((code) => {
-        const norm = normalizeOrgCode(code);
-        if (norm) assignedNorms.add(norm);
-      });
-    });
-
-    const result: string[] = [];
-    const seen = new Set<string>();
-    companies.forEach((c) => {
-      if (c.active === false) return;
-      const norm = normalizeOrgCode(c.code);
-      if (!norm || assignedNorms.has(norm) || seen.has(norm)) return;
-      seen.add(norm);
-      result.push(c.code);
-    });
-    return result;
-  }
-
-  const result: string[] = [];
-  const seen = new Set<string>();
-  (cluster.companyCodes || []).forEach((raw) => {
-    const clean = (raw || '').trim();
-    const norm = normalizeOrgCode(clean);
-    if (!norm || seen.has(norm)) return;
-    seen.add(norm);
-    result.push(canonicalByNorm.get(norm) || clean);
-  });
-  return result;
-}
-
-export function resolveCompanyCodesFromClusterIds(
-  clusterIds: string[] | undefined,
-  allClusters: OrgCluster[],
-  companies: Company[]
-): string[] {
-  if (!clusterIds || clusterIds.length === 0) return [];
-  const result: string[] = [];
-  const seen = new Set<string>();
-
-  clusterIds.forEach((cid) => {
-    const normCid = normalizeOrgCode(cid);
-    const matched = allClusters.find(
-      (cl) => cl.id === cid || (normCid && normalizeOrgCode(cl.code) === normCid)
-    );
-    if (!matched || matched.active === false) return;
-    resolveClusterCompanyCodes(matched, allClusters, companies).forEach((code) => {
-      const norm = normalizeOrgCode(code);
-      if (norm && !seen.has(norm)) {
-        seen.add(norm);
-        result.push(code);
-      }
-    });
-  });
-
-  return result;
 }
 
 export function getMemberUnitCode(record?: {
@@ -319,37 +55,14 @@ function resolveViewerCompanyScope(viewer: UserAccount): Set<string> {
 function resolveViewerAreaScope(viewer: UserAccount): Set<string> {
   const set = new Set<string>();
   (viewer.managedAreaCodes || []).forEach((a) => {
-    const parsed = parseAreaScopeEntry(a);
-    if (parsed.areaCode) set.add(parsed.areaCode);
+    const norm = normalizeOrgCode(a);
+    if (norm) set.add(norm);
   });
   if (set.size === 0 && viewer.areaCode) {
-    const parsed = parseAreaScopeEntry(viewer.areaCode);
-    if (parsed.areaCode) set.add(parsed.areaCode);
+    const norm = normalizeOrgCode(viewer.areaCode);
+    if (norm) set.add(norm);
   }
   return set;
-}
-
-function matchesViewerAreaScope(
-  viewer: UserAccount,
-  targetCompanyCode?: string | null,
-  targetAreaCode?: string | null,
-  requireCompanyIfNoPrefix = false
-): boolean {
-  const tComp = normalizeOrgCode(targetCompanyCode);
-  const tArea = normalizeOrgCode(cleanRawAreaCode(targetAreaCode));
-  if (!tArea) return false;
-  const rawEntries = (viewer.managedAreaCodes || []).filter((a) => (a || '').trim().length > 0);
-  const entries = rawEntries.length
-    ? rawEntries.map(parseAreaScopeEntry).filter((p) => Boolean(p.areaCode))
-    : viewer.areaCode
-    ? [parseAreaScopeEntry(viewer.areaCode)].filter((p) => Boolean(p.areaCode))
-    : [];
-  const companies = resolveViewerCompanyScope(viewer);
-  return entries.some((entry) => {
-    if (entry.areaCode !== tArea) return false;
-    if (entry.hasCompanyPrefix) return entry.companyCode === tComp;
-    return !requireCompanyIfNoPrefix || companies.size === 0 || companies.has(tComp);
-  });
 }
 
 function resolveViewerUnitScope(viewer: UserAccount): Set<string> {
@@ -394,12 +107,15 @@ export function canViewMemberDetail(viewer: UserAccount | null, target: Member):
   }
 
   if (viewer.role === 'AREA_LEADER') {
+    const companies = resolveViewerCompanyScope(viewer);
+    const areas = resolveViewerAreaScope(viewer);
     const managedUnits = new Set(
       (viewer.managedUnitCodes || []).map((u) => normalizeOrgCode(u)).filter(Boolean)
     );
-    const areaOk = matchesViewerAreaScope(viewer, target.companyCode, target.areaCode, true);
+    const companyOk = companies.size === 0 || companies.has(targetCompany);
+    const areaOk = areas.has(targetArea);
     const unitOk = managedUnits.size === 0 || managedUnits.has(targetUnit);
-    return areaOk && unitOk;
+    return companyOk && areaOk && unitOk;
   }
 
   if (viewer.role === 'UNI_LEADER') {
@@ -724,12 +440,12 @@ export function filterLeaderboardByRbac(
 export function isMemberInManagerCluster(viewer: UserAccount, target: Member): boolean {
   if (viewer.role !== 'MANAGER') return false;
   const companies = resolveViewerCompanyScope(viewer);
+  const areas = new Set(
+    (viewer.managedAreaCodes || []).map((a) => normalizeOrgCode(a)).filter(Boolean)
+  );
   const tComp = normalizeOrgCode(target.companyCode);
-  if (companies.has(tComp)) return true;
-  if ((viewer.managedAreaCodes || []).length > 0) {
-    return matchesViewerAreaScope(viewer, target.companyCode, target.areaCode, false);
-  }
-  return false;
+  const tArea = normalizeOrgCode(target.areaCode);
+  return companies.has(tComp) || areas.has(tArea);
 }
 
 export function getVisibleKpiSummary(
@@ -977,11 +693,10 @@ export function canManageOrgRecord(
 
   if (viewer.role === 'MANAGER') {
     const companies = resolveViewerCompanyScope(viewer);
-    if (companies.has(targetCompany)) return true;
-    if ((viewer.managedAreaCodes || []).length > 0 && targetArea) {
-      return matchesViewerAreaScope(viewer, record.companyCode, record.areaCode, false);
-    }
-    return false;
+    const areas = new Set(
+      (viewer.managedAreaCodes || []).map((a) => normalizeOrgCode(a)).filter(Boolean)
+    );
+    return companies.has(targetCompany) || (!!targetArea && areas.has(targetArea));
   }
 
   if (viewer.role === 'SION_LEADER') {
@@ -990,12 +705,15 @@ export function canManageOrgRecord(
   }
 
   if (viewer.role === 'AREA_LEADER') {
+    const companies = resolveViewerCompanyScope(viewer);
+    const areas = resolveViewerAreaScope(viewer);
     const managedUnits = new Set(
       (viewer.managedUnitCodes || []).map((u) => normalizeOrgCode(u)).filter(Boolean)
     );
-    const areaOk = matchesViewerAreaScope(viewer, record.companyCode, record.areaCode, true);
+    const companyOk = companies.size === 0 || companies.has(targetCompany);
+    const areaOk = areas.has(targetArea);
     const unitOk = managedUnits.size === 0 || (!!targetUnit && managedUnits.has(targetUnit));
-    return areaOk && unitOk;
+    return companyOk && areaOk && unitOk;
   }
 
   if (viewer.role === 'UNI_LEADER') {

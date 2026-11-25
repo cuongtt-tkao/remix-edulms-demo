@@ -282,7 +282,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
   const sanitizeNumericInput = (raw: string): number => {
     const digits = raw.replace(/\D/g, '');
     if (!digits) return 0;
-    return Math.max(0, parseInt(digits, 10) || 0);
+    return Math.min(99999, Math.max(0, parseInt(digits, 10) || 0));
   };
 
   const handleGoalChange = (key: DailyMetricKey, raw: string) => {
