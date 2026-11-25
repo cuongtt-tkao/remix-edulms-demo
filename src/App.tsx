@@ -132,6 +132,7 @@ import {
   describeAuthError,
   BOOTSTRAP_SUPER_ADMIN_EMAILS,
   isBootstrapSuperAdminEmail,
+  FIRESTORE_DATABASE_ID,
 } from './firebase';
 
 export default function App() {
@@ -139,7 +140,9 @@ export default function App() {
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [profileState, setProfileState] = useState<'UNKNOWN' | 'READY' | 'MISSING'>('UNKNOWN');
+  const [profileState, setProfileState] = useState<'UNKNOWN' | 'READY' | 'MISSING' | 'ERROR'>('UNKNOWN');
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileRetryTick, setProfileRetryTick] = useState<number>(0);
   const [pinUnlockedUid, setPinUnlockedUid] = useState<string | null>(null);
   const [authModalInitialMode, setAuthModalInitialMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const pendingRegistrationRef = useRef<RegistrationData | null>(null);
@@ -159,6 +162,7 @@ export default function App() {
   const securityGateMode: SecurityGateMode | null = useMemo(() => {
     if (!authReady) return 'LOADING';
     if (!signedIn) return 'UNAUTHENTICATED';
+    if (profileState === 'ERROR') return 'PROFILE_ERROR';
     if (profileState === 'UNKNOWN') return 'LOADING';
     if (profileState === 'MISSING') {
       return pendingRegistrationRef.current ? 'LOADING' : 'ONBOARDING';
@@ -441,7 +445,7 @@ export default function App() {
 
   useEffect(() => {
     const emailLower = (firebaseUser?.email || '').trim().toLowerCase();
-    if (!signedIn || !emailLower) {
+    if (!signedIn || !emailLower || !firebaseUser?.emailVerified) {
       setOwnRoleClaim(null);
       return;
     }
@@ -457,16 +461,16 @@ export default function App() {
       (err) => console.warn('[Firestore] Lỗi đọc role_claims cá nhân:', err)
     );
     return unsubscribe;
-  }, [signedIn, firebaseUser?.email]);
+  }, [signedIn, firebaseUser?.email, firebaseUser?.emailVerified]);
 
   const canReadAdminRolesConfig = useMemo(() => {
     if (!signedIn) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').trim().toLowerCase();
-    if (isBootstrapSuperAdminEmail(emailLower)) return true;
+    if (firebaseUser?.emailVerified && isBootstrapSuperAdminEmail(emailLower)) return true;
     if (currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') return true;
-    if (ownRoleClaim?.role === 'ADMIN' || ownRoleClaim?.role === 'SUPER_ADMIN') return true;
+    if (firebaseUser?.emailVerified && (ownRoleClaim?.role === 'ADMIN' || ownRoleClaim?.role === 'SUPER_ADMIN')) return true;
     return false;
-  }, [signedIn, firebaseUser?.email, currentUser?.email, currentUser?.role, ownRoleClaim?.role]);
+  }, [signedIn, firebaseUser?.email, firebaseUser?.emailVerified, currentUser?.email, currentUser?.role, ownRoleClaim?.role]);
 
   useEffect(() => {
     if (!canReadAdminRolesConfig) {
@@ -720,7 +724,8 @@ export default function App() {
   }, [events]);
 
   const activeEvent = useMemo<FestivalEvent | null>(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const pinnedActive = sortedEvents.find((e) => e.isActive && e.isPinned);
     if (pinnedActive) return pinnedActive;
     const ongoing = sortedEvents.find(
@@ -736,12 +741,38 @@ export default function App() {
     [scoringConfig]
   );
 
+  const preAssignedRolesRef = useRef<RoleAssignment[]>([]);
+  preAssignedRolesRef.current = preAssignedRoles;
+  const ownRoleClaimRef = useRef<RoleAssignment | null>(null);
+  ownRoleClaimRef.current = ownRoleClaim;
+
+  const formatFirestoreProfileError = useCallback((err: unknown): string => {
+    const code = String((err as { code?: string })?.code || '').toLowerCase();
+    const msg = err instanceof Error ? err.message : String(err || '');
+    const lower = `${code} ${msg}`.toLowerCase();
+    if (lower.includes('resource-exhausted') || lower.includes('quota')) {
+      return `Firestore (${FIRESTORE_DATABASE_ID}) đã chạm hạn mức đọc miễn phí trong ngày (Spark). Vui lòng thử lại sau hoặc kiểm tra Firebase Console.\n(${code || msg})`;
+    }
+    if (lower.includes('permission-denied') || lower.includes('insufficient permissions')) {
+      return `Quyền đọc hồ sơ trên Firestore (${FIRESTORE_DATABASE_ID}) bị từ chối. Hãy kiểm tra và Publish lại file firestore.rules lên database (${FIRESTORE_DATABASE_ID}) trong Firebase Console.\n(${code || msg})`;
+    }
+    if (lower.includes('not-found') || lower.includes('does not exist')) {
+      return `Không tìm thấy database Firestore (${FIRESTORE_DATABASE_ID}) trên dự án Firebase. Hãy kiểm tra trong Firebase Console.\n(${code || msg})`;
+    }
+    if (lower.includes('unavailable') || lower.includes('offline') || lower.includes('network')) {
+      return `Không kết nối được tới máy chủ Firestore (${FIRESTORE_DATABASE_ID}). Kiểm tra mạng hoặc tắt trình chặn quảng cáo/VPN rồi bấm Thử lại.\n(${code || msg})`;
+    }
+    return `Không đọc được hồ sơ tài khoản trên Firestore (${FIRESTORE_DATABASE_ID}): ${msg || code}`;
+  }, []);
+
   // ---------- Theo dõi trạng thái đăng nhập ----------
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       const nextUid = u?.uid || null;
       if (prevAuthUidRef.current !== nextUid) {
         setPinUnlockedUid(null);
+        setProfileState('UNKNOWN');
+        setProfileError(null);
         prevAuthUidRef.current = nextUid;
       }
       setFirebaseUser(u);
@@ -749,6 +780,7 @@ export default function App() {
       if (!u) {
         setCurrentUser(null);
         setProfileState('UNKNOWN');
+        setProfileError(null);
         setOwnRoleClaim(null);
         creatingProfileRef.current = false;
       }
@@ -756,72 +788,141 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // Đọc hồ sơ tài khoản (users/{uid})
+  // Đọc hồ sơ tài khoản (users/{uid}) - tách khỏi preAssignedRoles/ownRoleClaim để không bị reset listener khi vừa login
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!firebaseUser?.uid) return;
+    let cancelled = false;
+    let settled = false;
+    let serverCheckInFlight = false;
+    setProfileError(null);
+
+    const userRef = doc(db, 'users', firebaseUser.uid);
+
+    const applyProfileData = (raw: Omit<UserAccount, 'id'>, docId: string) => {
+      if (cancelled) return;
+      settled = true;
+      const emailLower = (firebaseUser.email || raw.email || '').toLowerCase().trim();
+      const emailVerified = Boolean(firebaseUser.emailVerified);
+      const claimNow = ownRoleClaimRef.current;
+      const preMatch = emailVerified
+        ? preAssignedRolesRef.current.find((p) => p.email.toLowerCase() === emailLower) ||
+          (claimNow && claimNow.email?.toLowerCase() === emailLower ? claimNow : undefined)
+        : undefined;
+      const rawRole: UserRole = raw.role || 'MEMBER';
+      const isSuper =
+        (emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
+        preMatch?.role === 'SUPER_ADMIN' ||
+        rawRole === 'SUPER_ADMIN';
+      const isAdmin = isSuper || rawRole === 'ADMIN' || preMatch?.role === 'ADMIN';
+      const shouldAdoptPreMatch =
+        !!preMatch?.role &&
+        (rawRole === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(rawRole));
+      const resolvedRole: UserRole = isSuper
+        ? 'SUPER_ADMIN'
+        : isAdmin
+        ? 'ADMIN'
+        : shouldAdoptPreMatch
+        ? preMatch!.role
+        : rawRole;
+
+      const managedCompanyCodes = raw.managedCompanyCodes?.length
+        ? raw.managedCompanyCodes
+        : preMatch?.managedCompanyCodes || [];
+      const managedAreaCodes = raw.managedAreaCodes?.length
+        ? raw.managedAreaCodes
+        : preMatch?.managedAreaCodes || [];
+      const managedUnitCodes = raw.managedUnitCodes?.length
+        ? raw.managedUnitCodes
+        : preMatch?.managedUnitCodes || [];
+
+      setProfileError(null);
+      setCurrentUser({
+        ...raw,
+        id: docId,
+        role: resolvedRole,
+        managedCompanyCodes,
+        managedAreaCodes,
+        managedUnitCodes,
+      });
+      setProfileState('READY');
+    };
+
+    const applyMissing = () => {
+      if (cancelled || settled) return;
+      settled = true;
+      setProfileError(null);
+      setCurrentUser(null);
+      setProfileState('MISSING');
+    };
+
+    const applyError = (err: unknown) => {
+      if (cancelled || settled) return;
+      settled = true;
+      const msg = formatFirestoreProfileError(err);
+      console.error('[Firestore] Không đọc được hồ sơ:', err);
+      setProfileError(msg);
+      setProfileState('ERROR');
+      showNotification(msg.split('\n')[0]);
+    };
+
+    const verifyFromServer = async () => {
+      if (cancelled || settled || serverCheckInFlight) return;
+      serverCheckInFlight = true;
+      try {
+        const serverSnap = await getDocFromServer(userRef);
+        if (cancelled || settled) return;
+        if (serverSnap.exists()) {
+          clearTimeout(timeoutId);
+          applyProfileData(serverSnap.data() as Omit<UserAccount, 'id'>, serverSnap.id);
+        } else {
+          clearTimeout(timeoutId);
+          applyMissing();
+        }
+      } catch (err) {
+        if (cancelled || settled) return;
+        clearTimeout(timeoutId);
+        applyError(err);
+      } finally {
+        serverCheckInFlight = false;
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (cancelled || settled) return;
+      settled = true;
+      setProfileError(
+        `Quá thời gian chờ phản hồi từ Firestore (${FIRESTORE_DATABASE_ID}). Hãy kiểm tra mạng, hạn mức đọc Spark hoặc Rules trên database (${FIRESTORE_DATABASE_ID}).`
+      );
+      setProfileState('ERROR');
+    }, 8000);
+
     const unsubscribe = onSnapshot(
-      doc(db, 'users', firebaseUser.uid),
+      userRef,
       (snap) => {
+        if (cancelled) return;
         if (snap.exists()) {
-          const raw = snap.data() as Omit<UserAccount, 'id'>;
-          const emailLower = (firebaseUser.email || raw.email || '').toLowerCase().trim();
-          const preMatch =
-            preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
-            (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
-              ? ownRoleClaim
-              : undefined);
-          const rawRole: UserRole = raw.role || 'MEMBER';
-          const isSuper =
-            isBootstrapSuperAdminEmail(emailLower) ||
-            preMatch?.role === 'SUPER_ADMIN' ||
-            rawRole === 'SUPER_ADMIN';
-          const isAdmin =
-            isSuper || rawRole === 'ADMIN' || preMatch?.role === 'ADMIN';
-          const shouldAdoptPreMatch =
-            !!preMatch?.role &&
-            (rawRole === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(rawRole));
-          const resolvedRole: UserRole = isSuper
-            ? 'SUPER_ADMIN'
-            : isAdmin
-            ? 'ADMIN'
-            : shouldAdoptPreMatch
-            ? preMatch!.role
-            : rawRole;
-
-          const managedCompanyCodes =
-            raw.managedCompanyCodes?.length
-              ? raw.managedCompanyCodes
-              : preMatch?.managedCompanyCodes || [];
-          const managedAreaCodes =
-            raw.managedAreaCodes?.length
-              ? raw.managedAreaCodes
-              : preMatch?.managedAreaCodes || [];
-          const managedUnitCodes =
-            raw.managedUnitCodes?.length
-              ? raw.managedUnitCodes
-              : preMatch?.managedUnitCodes || [];
-
-          setCurrentUser({
-            ...raw,
-            id: snap.id,
-            role: resolvedRole,
-            managedCompanyCodes,
-            managedAreaCodes,
-            managedUnitCodes,
-          });
-          setProfileState('READY');
+          clearTimeout(timeoutId);
+          applyProfileData(snap.data() as Omit<UserAccount, 'id'>, snap.id);
         } else if (!snap.metadata.fromCache) {
-          setCurrentUser(null);
-          setProfileState('MISSING');
+          clearTimeout(timeoutId);
+          applyMissing();
+        } else {
+          // Bộ nhớ đệm cục bộ trả rỗng -> kiểm tra trực tiếp từ máy chủ để tránh kẹt ở UNKNOWN
+          void verifyFromServer();
         }
       },
       (err) => {
-        console.error('[Firestore] Không đọc được hồ sơ:', err);
-        showNotification(`Không đọc được hồ sơ tài khoản: ${err.message}`);
+        clearTimeout(timeoutId);
+        applyError(err);
       }
     );
-    return unsubscribe;
-  }, [firebaseUser?.uid, preAssignedRoles, ownRoleClaim, showNotification]);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      unsubscribe();
+    };
+  }, [firebaseUser?.uid, profileRetryTick, formatFirestoreProfileError, showNotification]);
 
   // Tạo hồ sơ + thành viên CHỈ KHI người dùng đăng ký qua Email (có pendingRegistrationRef với đủ Sion/KV/PIN).
   // Người dùng Google lần đầu sẽ ở mode ONBOARDING để tự chọn Sion/Khu vực & Mã PIN 6 số.
@@ -866,10 +967,12 @@ export default function App() {
         }
       }
 
-      const preMatch =
-        preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim;
+      const preMatch = firebaseUser.emailVerified
+        ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim
+        : undefined;
       const isSuperAdminEmail =
-        isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
+        (firebaseUser.emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
+        preMatch?.role === 'SUPER_ADMIN';
       const shouldAutoApprove =
         !effectiveSecurityConfig.requireRegistrationApproval ||
         isSuperAdminEmail ||
@@ -944,6 +1047,7 @@ export default function App() {
     createProfile().catch((err) => {
       console.error('[Firestore] Không tạo được hồ sơ:', err);
       showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
+      pendingRegistrationRef.current = null;
       creatingProfileRef.current = false;
     });
   }, [
@@ -974,8 +1078,10 @@ export default function App() {
   const isSuperAdminUser = useMemo(() => {
     if (!currentUser && !firebaseUser) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
-    if (isBootstrapSuperAdminEmail(emailLower)) return true;
+    const emailVerified = Boolean(firebaseUser?.emailVerified);
     if (currentUser?.role === 'SUPER_ADMIN') return true;
+    if (!emailVerified) return false;
+    if (isBootstrapSuperAdminEmail(emailLower)) return true;
     if (ownRoleClaim?.email?.toLowerCase() === emailLower && ownRoleClaim?.role === 'SUPER_ADMIN') {
       return true;
     }
@@ -987,13 +1093,14 @@ export default function App() {
       return true;
     }
     return false;
-  }, [currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles, ownRoleClaim]);
+  }, [currentUser?.role, currentUser?.email, firebaseUser?.email, firebaseUser?.emailVerified, preAssignedRoles, ownRoleClaim]);
 
   const isAdminUser = useMemo(() => {
     if (isSuperAdminUser) return true;
     if (!currentUser && !firebaseUser) return false;
-    const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
     if (currentUser?.role === 'ADMIN') return true;
+    if (!firebaseUser?.emailVerified) return false;
+    const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
     if (ownRoleClaim?.email?.toLowerCase() === emailLower && ownRoleClaim?.role === 'ADMIN') {
       return true;
     }
@@ -1003,7 +1110,7 @@ export default function App() {
       return true;
     }
     return false;
-  }, [isSuperAdminUser, currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles, ownRoleClaim]);
+  }, [isSuperAdminUser, currentUser?.role, currentUser?.email, firebaseUser?.email, firebaseUser?.emailVerified, preAssignedRoles, ownRoleClaim]);
 
   const effectiveCurrentUser = useMemo(() => {
     if (!currentUser) return null;
@@ -1022,13 +1129,16 @@ export default function App() {
   useEffect(() => {
     if (!currentUser || !firebaseUser || currentUser.id !== firebaseUser.uid) return;
     const emailLower = (firebaseUser.email || currentUser.email || '').toLowerCase().trim();
-    const preMatch =
-      preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
-      (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
-        ? ownRoleClaim
-        : undefined);
+    const emailVerified = Boolean(firebaseUser.emailVerified);
+    const preMatch = emailVerified
+      ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
+        (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
+          ? ownRoleClaim
+          : undefined)
+      : undefined;
     const shouldBeSuper =
-      isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
+      (emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
+      preMatch?.role === 'SUPER_ADMIN';
     const shouldPromoteFromPreMatch =
       !!preMatch?.role &&
       (currentUser.role === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(currentUser.role));
@@ -1040,7 +1150,23 @@ export default function App() {
       : currentUser.role;
 
     if (currentUser.role !== expectedRole) {
-      setCurrentUser((prev) => (prev ? { ...prev, role: expectedRole } : null));
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              role: expectedRole,
+              managedCompanyCodes: prev.managedCompanyCodes?.length
+                ? prev.managedCompanyCodes
+                : preMatch?.managedCompanyCodes || [],
+              managedAreaCodes: prev.managedAreaCodes?.length
+                ? prev.managedAreaCodes
+                : preMatch?.managedAreaCodes || [],
+              managedUnitCodes: prev.managedUnitCodes?.length
+                ? prev.managedUnitCodes
+                : preMatch?.managedUnitCodes || [],
+            }
+          : null
+      );
     }
 
     const patch: Record<string, unknown> = {};
@@ -2712,10 +2838,12 @@ export default function App() {
       }
     }
 
-    const preMatch =
-      preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim;
+    const preMatch = firebaseUser.emailVerified
+      ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim
+      : undefined;
     const isSuperEmail =
-      isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
+      (firebaseUser.emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
+      preMatch?.role === 'SUPER_ADMIN';
     const shouldAutoApprove =
       !effectiveSecurityConfig.requireRegistrationApproval ||
       isSuperEmail ||
@@ -2828,8 +2956,17 @@ export default function App() {
     return true;
   };
 
+  const handleRetryProfile = useCallback(() => {
+    setProfileError(null);
+    setProfileState('UNKNOWN');
+    setProfileRetryTick((n) => n + 1);
+  }, []);
+
   const handleLogout = () => {
     setPinUnlockedUid(null);
+    setProfileError(null);
+    setProfileState('UNKNOWN');
+    pendingRegistrationRef.current = null;
     logOutFirebase().catch((err) => console.warn('Firebase logout notice:', err));
     setActiveTab('ENTRY');
     showNotification('Đã đăng xuất tài khoản.');
@@ -2862,8 +2999,17 @@ export default function App() {
       }
     }
 
-    const nextUnitCode =
-      updated.unitCode !== undefined ? updated.unitCode.trim() : currentUser.unitCode || '';
+    const canEditOrg = isAdminUser;
+    const effectiveCompanyCode = canEditOrg ? updated.companyCode : currentUser.companyCode;
+    const effectiveAreaCode = canEditOrg ? updated.areaCode : currentUser.areaCode;
+    const effectiveDepartmentCode = canEditOrg
+      ? updated.departmentCode
+      : currentUser.departmentCode;
+    const nextUnitCode = canEditOrg
+      ? updated.unitCode !== undefined
+        ? updated.unitCode.trim()
+        : currentUser.unitCode || ''
+      : currentUser.unitCode || '';
 
     const patch = JSON.parse(
       JSON.stringify({
@@ -2871,10 +3017,14 @@ export default function App() {
         avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
         coverUrl: updated.coverUrl || currentUser.coverUrl,
         bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
-        companyCode: updated.companyCode,
-        areaCode: updated.areaCode,
-        departmentCode: updated.departmentCode,
-        ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
+        ...(canEditOrg
+          ? {
+              companyCode: effectiveCompanyCode,
+              areaCode: effectiveAreaCode,
+              departmentCode: effectiveDepartmentCode,
+              ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
+            }
+          : {}),
       })
     );
 
@@ -2892,10 +3042,14 @@ export default function App() {
               avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
               coverUrl: updated.coverUrl || currentUser.coverUrl,
               bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
-              companyCode: updated.companyCode,
-              areaCode: updated.areaCode,
-              departmentCode: updated.departmentCode,
-              ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
+              ...(canEditOrg
+                ? {
+                    companyCode: effectiveCompanyCode,
+                    areaCode: effectiveAreaCode,
+                    departmentCode: effectiveDepartmentCode,
+                    ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
+                  }
+                : {}),
             })
           ),
           { merge: true }
@@ -2903,19 +3057,24 @@ export default function App() {
       }
 
       const orgOrNameChanged =
-        updated.companyCode !== currentUser.companyCode ||
-        updated.areaCode !== currentUser.areaCode ||
-        updated.fullName !== currentUser.fullName ||
-        nextUnitCode !== (currentUser.unitCode || '');
+        (canEditOrg &&
+          (effectiveCompanyCode !== currentUser.companyCode ||
+            effectiveAreaCode !== currentUser.areaCode ||
+            nextUnitCode !== (currentUser.unitCode || ''))) ||
+        updated.fullName !== currentUser.fullName;
 
       if (orgOrNameChanged) {
         const ownDisciples = disciples.filter((d) => d.ownerUid === currentUser.id);
-        const syncedUnit = (nextUnitCode || updated.departmentCode || '').slice(0, 50);
+        const syncedUnit = (nextUnitCode || effectiveDepartmentCode || '').slice(0, 50);
         ownDisciples.slice(0, 350).forEach((d) => {
           batch.update(doc(db, 'disciples', d.id), {
-            companyCode: updated.companyCode,
-            areaCode: updated.areaCode,
-            ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
+            ...(canEditOrg
+              ? {
+                  companyCode: effectiveCompanyCode,
+                  areaCode: effectiveAreaCode,
+                  ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
+                }
+              : {}),
             ownerName: updated.fullName,
             updatedAt: new Date().toISOString(),
           });
@@ -2924,9 +3083,13 @@ export default function App() {
         const ownSchedules = workSchedules.filter((w) => w.ownerUid === currentUser.id);
         ownSchedules.slice(0, 100).forEach((w) => {
           batch.update(doc(db, 'work_schedules', w.id), {
-            companyCode: updated.companyCode,
-            areaCode: updated.areaCode,
-            ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
+            ...(canEditOrg
+              ? {
+                  companyCode: effectiveCompanyCode,
+                  areaCode: effectiveAreaCode,
+                  ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
+                }
+              : {}),
             ownerName: updated.fullName,
             updatedAt: new Date().toISOString(),
           });
@@ -2989,6 +3152,16 @@ export default function App() {
   };
 
   const handleDeleteHuongKhi = async (id: string) => {
+    const target = huongKhiList.find((item) => item.id === id);
+    if (!target) return;
+    const ownMemberId = currentUser?.memberId || (currentUser ? `m-${currentUser.id}` : '');
+    const isOwner =
+      (!!currentUser?.id && target.authorUid === currentUser.id) ||
+      (!!ownMemberId && target.authorId === ownMemberId);
+    if (!isAdminUser && !isOwner) {
+      showNotification('Bạn chỉ có thể xóa bài viết do chính mình đăng.');
+      return;
+    }
     setHuongKhiList((prev) => prev.filter((item) => item.id !== id));
     showNotification('Đã xóa bài Nhật ký cảm tạ.');
   };
@@ -3301,6 +3474,7 @@ export default function App() {
           mode={securityGateMode}
           firebaseUser={firebaseUser}
           currentUser={effectiveCurrentUser}
+          profileError={profileError}
           companies={effectiveCompanies}
           areas={effectiveAreas}
           departments={effectiveDepartments}
@@ -3311,6 +3485,7 @@ export default function App() {
           onPinUnlocked={() => {
             if (firebaseUser?.uid) setPinUnlockedUid(firebaseUser.uid);
           }}
+          onRetryProfile={handleRetryProfile}
           onLogout={handleLogout}
         />
 

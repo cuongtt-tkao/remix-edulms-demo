@@ -115,21 +115,28 @@
         "title": { "type": "string", "maxLength": 150 },
         "description": { "type": "string", "maxLength": 1000 },
         "rulesText": { "type": "string", "maxLength": 3000 },
+        "bannerUrl": { "type": "string", "maxLength": 300000 },
         "startDate": { "type": "string", "maxLength": 15 },
         "endDate": { "type": "string", "maxLength": 15 },
         "isActive": { "type": "boolean" },
         "isPinned": { "type": "boolean" },
         "restrictParticipants": { "type": "boolean" },
         "participantIds": { "type": "array" },
-        "weights": { "type": "object" }
+        "weights": { "type": "object" },
+        "createdBy": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["title", "startDate", "endDate", "isActive"]
     },
     "SystemConfig": {
       "title": "SystemConfig",
-      "description": "Shared system configuration docs (roles, banner, scoring, appearance)",
+      "description": "Shared system configuration docs (roles, banner, scoring, appearance, security, vocabulary)",
       "type": "object",
       "properties": {
+        "superAdmins": { "type": "array" },
+        "admins": { "type": "array" },
+        "assignments": { "type": "array" },
         "weights": { "type": "object" },
         "fontKey": { "type": "string", "maxLength": 40 },
         "fontScale": { "type": "string", "enum": ["SM", "MD", "LG"] },

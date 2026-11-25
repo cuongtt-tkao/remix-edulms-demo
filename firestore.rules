@@ -39,6 +39,7 @@ service cloud.firestore {
     function hasOwnRoleClaim() {
       return isSignedIn()
         && request.auth.token.email != null
+        && request.auth.token.email_verified == true
         && request.auth.token.email.size() > 0
         && exists(/databases/$(database)/documents/role_claims/$(request.auth.token.email.lower()));
     }
@@ -59,12 +60,17 @@ service cloud.firestore {
     // Quản trị viên tổng (SUPER_ADMIN)
     function isSuperAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email != null && isSuperAdminEmail(request.auth.token.email))
+        (
+          request.auth.token.email != null
+          && request.auth.token.email_verified == true
+          && isSuperAdminEmail(request.auth.token.email)
+        )
         || (exists(userDocPath()) && get(userDocPath()).data.role == 'SUPER_ADMIN')
         || (hasOwnRoleClaim() && ownRoleClaimData().role == 'SUPER_ADMIN')
         || (
           exists(configRolesPath())
           && request.auth.token.email != null
+          && request.auth.token.email_verified == true
           && 'superAdmins' in get(configRolesPath()).data
           && get(configRolesPath()).data.superAdmins.hasAny([request.auth.token.email])
         )
@@ -80,6 +86,7 @@ service cloud.firestore {
           || (
             exists(configRolesPath())
             && request.auth.token.email != null
+            && request.auth.token.email_verified == true
             && 'admins' in get(configRolesPath()).data
             && get(configRolesPath()).data.admins.hasAny([request.auth.token.email])
           )
@@ -327,6 +334,18 @@ service cloud.firestore {
       );
     }
 
+    function isValidDailyMetricMap(m) {
+      return m is map
+        && m.keys().hasOnly(['kn', 'tham', 'gm', 'dt', 'hh', 'kt', 'wsNew'])
+        && (!('kn' in m) || (m.kn is number && m.kn >= 0 && m.kn <= 99999))
+        && (!('tham' in m) || (m.tham is number && m.tham >= 0 && m.tham <= 99999))
+        && (!('gm' in m) || (m.gm is number && m.gm >= 0 && m.gm <= 99999))
+        && (!('dt' in m) || (m.dt is number && m.dt >= 0 && m.dt <= 99999))
+        && (!('hh' in m) || (m.hh is number && m.hh >= 0 && m.hh <= 99999))
+        && (!('kt' in m) || (m.kt is number && m.kt >= 0 && m.kt <= 99999))
+        && (!('wsNew' in m) || (m.wsNew is number && m.wsNew >= 0 && m.wsNew <= 99999));
+    }
+
     function isValidDailyReport(data) {
       return data.keys().hasAll(['uid', 'date', 'month', 'year', 'goals', 'results'])
         && data.keys().hasOnly([
@@ -341,8 +360,59 @@ service cloud.firestore {
         && data.date is string && data.date.size() <= 15
         && data.month is string && data.month.size() <= 10
         && data.year is string && data.year.size() <= 6
-        && data.goals is map
-        && data.results is map;
+        && isValidDailyMetricMap(data.goals)
+        && isValidDailyMetricMap(data.results)
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    function isValidPeriodGoal(data) {
+      return data.keys().hasAll(['uid', 'periodType', 'periodKey', 'goals'])
+        && data.keys().hasOnly(['uid', 'periodType', 'periodKey', 'goals', 'updatedAt'])
+        && data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128
+        && data.periodType in ['MONTH', 'YEAR']
+        && data.periodKey is string && data.periodKey.size() >= 4 && data.periodKey.size() <= 15
+        && isValidDailyMetricMap(data.goals)
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    function isValidFestivalEvent(data) {
+      return data.keys().hasAll(['title', 'startDate', 'endDate', 'isActive'])
+        && data.keys().hasOnly([
+          'title', 'description', 'rulesText', 'bannerUrl', 'startDate', 'endDate',
+          'isActive', 'isPinned', 'restrictParticipants', 'participantIds',
+          'weights', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 150
+        && (!('description' in data) || (data.description is string && data.description.size() <= 1000))
+        && (!('rulesText' in data) || (data.rulesText is string && data.rulesText.size() <= 3000))
+        && (!('bannerUrl' in data) || (data.bannerUrl is string && data.bannerUrl.size() <= 300000))
+        && data.startDate is string && data.startDate.size() <= 15
+        && data.endDate is string && data.endDate.size() <= 15
+        && data.isActive is bool
+        && (!('isPinned' in data) || data.isPinned is bool)
+        && (!('restrictParticipants' in data) || data.restrictParticipants is bool)
+        && (!('participantIds' in data) || (data.participantIds is list && data.participantIds.size() <= 1000))
+        && (!('weights' in data) || isValidDailyMetricMap(data.weights))
+        && (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 100))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    function isValidRoleClaim(data) {
+      return data.keys().hasAll(['email', 'role'])
+        && data.keys().hasOnly([
+          'email', 'role', 'grantedBy', 'grantedAt', 'note',
+          'managedCompanyCodes', 'managedAreaCodes', 'managedUnitCodes', 'updatedAt'
+        ])
+        && data.email is string && data.email.size() > 0 && data.email.size() <= 150
+        && data.role in ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'SION_LEADER', 'AREA_LEADER', 'UNI_LEADER', 'MEMBER']
+        && (!('grantedBy' in data) || (data.grantedBy is string && data.grantedBy.size() <= 100))
+        && (!('grantedAt' in data) || (data.grantedAt is string && data.grantedAt.size() <= 50))
+        && (!('note' in data) || (data.note is string && data.note.size() <= 300))
+        && (!('managedCompanyCodes' in data) || (data.managedCompanyCodes is list && data.managedCompanyCodes.size() <= 50))
+        && (!('managedAreaCodes' in data) || (data.managedAreaCodes is list && data.managedAreaCodes.size() <= 100))
+        && (!('managedUnitCodes' in data) || (data.managedUnitCodes is list && data.managedUnitCodes.size() <= 100))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
     }
 
     function isValidEduTopic(data) {
@@ -539,15 +609,21 @@ service cloud.firestore {
     match /role_claims/{email} {
       allow get: if isSignedIn() && (
         isAdmin()
-        || (request.auth.token.email != null && request.auth.token.email.lower() == email)
+        || (
+          request.auth.token.email != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email.lower() == email
+        )
       );
-      allow list, create, update, delete: if isSuperAdmin();
+      allow list, delete: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() && isValidRoleClaim(request.resource.data);
     }
 
     // ---------- Sự kiện & Chiến dịch thi đua (events/{id}) ----------
     match /events/{id} {
       allow read: if isApprovedUser();
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isValidFestivalEvent(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     // ---------- Edu LMS: Chủ đề theo tuần & Giáo trình bài học (edu_topics/{topicId}) ----------
@@ -732,9 +808,9 @@ service cloud.firestore {
         isAdmin()
         || resource.data.uid == request.auth.uid
       );
-      allow create, update: if isApprovedUser() && (
-        isAdmin() || request.resource.data.uid == request.auth.uid
-      );
+      allow create, update: if isApprovedUser()
+        && isValidPeriodGoal(request.resource.data)
+        && (isAdmin() || request.resource.data.uid == request.auth.uid);
       allow delete: if isAdmin() || (isApprovedUser() && resource.data.uid == request.auth.uid);
     }
 
@@ -763,7 +839,7 @@ service cloud.firestore {
           request.resource.data.approvalStatus == 'PENDING'
           || !isApprovalRequired()
           || isSuperAdmin()
-          || isSuperAdminEmail(request.auth.token.email)
+          || (request.auth.token.email_verified == true && isSuperAdminEmail(request.auth.token.email))
           || (isAutoApprovePreAssignedEnabled() && hasOwnRoleClaim())
         )
         && (
@@ -776,7 +852,7 @@ service cloud.firestore {
             request.resource.data.role in ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'SION_LEADER', 'AREA_LEADER', 'UNI_LEADER']
             && (
               isSuperAdmin()
-              || isSuperAdminEmail(request.auth.token.email)
+              || (request.auth.token.email_verified == true && isSuperAdminEmail(request.auth.token.email))
               || (hasOwnRoleClaim() && request.resource.data.role == ownRoleClaimData().role)
             )
           )
@@ -784,7 +860,7 @@ service cloud.firestore {
 
       allow update: if isSignedIn() && (
         isSuperAdmin()
-        || isSuperAdminEmail(request.auth.token.email)
+        || (request.auth.token.email_verified == true && isSuperAdminEmail(request.auth.token.email))
         || (
           isAdmin()
           && request.resource.data.role != 'SUPER_ADMIN'
@@ -793,10 +869,6 @@ service cloud.firestore {
           && (
             request.resource.data.role == resource.data.role
             || (roleLevel(resource.data.role) <= 5 && roleLevel(request.resource.data.role) <= 5)
-            || (
-              request.resource.data.diff(resource.data).affectedKeys().hasAny(['approvalStatus'])
-              && roleLevel(request.resource.data.role) <= 6
-            )
           )
         )
         || (
@@ -815,14 +887,19 @@ service cloud.firestore {
           request.auth.uid == uid
           && (!('pinHash' in request.resource.data) || (request.resource.data.pinHash is string && request.resource.data.pinHash.size() >= 16 && request.resource.data.pinHash.size() <= 128))
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'approvalStatus', 'approvedBy', 'approvedAt', 'rejectionReason'
+            'approvalStatus', 'approvedBy', 'approvedAt', 'rejectionReason',
+            'memberId', 'companyCode', 'areaCode', 'unitCode', 'departmentCode'
           ])
           && (
             (
               !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'managedCompanyCodes', 'managedAreaCodes', 'managedUnitCodes'])
               && request.resource.data.role == resource.data.role
             )
-            || (request.resource.data.role == 'SUPER_ADMIN' && isSuperAdminEmail(request.auth.token.email))
+            || (
+              request.resource.data.role == 'SUPER_ADMIN'
+              && request.auth.token.email_verified == true
+              && isSuperAdminEmail(request.auth.token.email)
+            )
             || (
               hasOwnRoleClaim()
               && request.resource.data.role == ownRoleClaimData().role
@@ -834,7 +911,7 @@ service cloud.firestore {
         )
       );
 
-      allow delete: if isSuperAdmin() || isSuperAdminEmail(request.auth.token.email);
+      allow delete: if isSuperAdmin() || (request.auth.token.email_verified == true && isSuperAdminEmail(request.auth.token.email));
     }
 
     // ---------- Danh mục: công ty, khu vực, ban ngành (mở đọc để hiển thị dropdown đăng ký) ----------
@@ -920,7 +997,16 @@ service cloud.firestore {
 
       allow update: if isApprovedUser() && (
         isAdmin()
-        || id == ownMemberId()
+        || (
+          id == ownMemberId()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'fullName', 'avatarUrl', 'coverUrl', 'bio',
+            'dailyResults', 'dailyGoals', 'score', 'targets', 'goals', 'results'
+          ])
+          && request.resource.data.active == resource.data.active
+          && request.resource.data.companyCode == resource.data.companyCode
+          && request.resource.data.areaCode == resource.data.areaCode
+        )
         || (
           (isManager() || isSionLeader() || isAreaLeader() || isUniLeader())
           && canSupervisorAccessOrg(resource.data)
@@ -954,11 +1040,14 @@ service cloud.firestore {
 
     // ---------- huongKhi/{id}: Nhật ký cảm tạ (24h công khai) & bài chia sẻ ----------
     match /huongKhi/{id} {
-      allow read: if isApprovedUser();
+      allow get: if isValidId(id) && isApprovedUser();
+      allow list: if isApprovedUser();
 
-      allow create: if isApprovedUser()
+      allow create: if isValidId(id)
+        && isApprovedUser()
         && (isAdmin() || request.resource.data.authorId == ownMemberId())
         && (!('authorUid' in request.resource.data) || request.resource.data.authorUid == request.auth.uid || isAdmin())
+        && (!('authorName' in request.resource.data) || (request.resource.data.authorName is string && request.resource.data.authorName.size() <= 100))
         && (!('journalType' in request.resource.data) || request.resource.data.journalType == 'GRATITUDE')
         && (!('createdAtIso' in request.resource.data) || (request.resource.data.createdAtIso is string && request.resource.data.createdAtIso.size() <= 50))
         && (!('expiresAtIso' in request.resource.data) || (request.resource.data.expiresAtIso is string && request.resource.data.expiresAtIso.size() <= 50))
@@ -967,20 +1056,33 @@ service cloud.firestore {
         && request.resource.data.content is string
         && request.resource.data.content.size() <= 4000;
 
-      allow update: if isApprovedUser() && (
+      allow update: if isValidId(id) && isApprovedUser() && (
         isAdmin()
-        || resource.data.authorId == ownMemberId()
-        || request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['reactions', 'likesCount', 'userReaction', 'comments', 'userReactions'])
+        || (
+          resource.data.authorId == ownMemberId()
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 300
+          && request.resource.data.content is string
+          && request.resource.data.content.size() <= 4000
+        )
+        || (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['reactions', 'likesCount', 'userReaction', 'comments', 'userReactions'])
+          && (!('comments' in request.resource.data) || (request.resource.data.comments is list && request.resource.data.comments.size() <= 200))
+        )
       );
 
-      allow delete: if isAdmin() || (isApprovedUser() && resource.data.authorId == ownMemberId());
+      allow delete: if isValidId(id) && (isAdmin() || (isApprovedUser() && resource.data.authorId == ownMemberId()));
     }
 
     // ---------- turbo_journals/{journalId}: Nhật ký turbo cá nhân (chỉ chính tác giả đọc/ghi) ----------
     match /turbo_journals/{journalId} {
-      allow get, list: if isValidId(journalId)
+      allow get: if isValidId(journalId)
         && isApprovedUser()
+        && resource.data.authorUid == request.auth.uid;
+
+      allow list: if isApprovedUser()
         && resource.data.authorUid == request.auth.uid;
 
       allow create: if isValidId(journalId)
@@ -1002,8 +1104,11 @@ service cloud.firestore {
 
     // ---------- personal_planners/{plannerId}: Kế hoạch LLV cá nhân theo tuần (chỉ chính chủ sở hữu) ----------
     match /personal_planners/{plannerId} {
-      allow get, list: if isValidId(plannerId)
+      allow get: if isValidId(plannerId)
         && isApprovedUser()
+        && resource.data.ownerUid == request.auth.uid;
+
+      allow list: if isApprovedUser()
         && resource.data.ownerUid == request.auth.uid;
 
       allow create: if isValidId(plannerId)
