@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Crown, Sparkles, Award, User, MapPin, Building2 } from 'lucide-react';
 import { Member, AreaRankItem, CompanyRankItem } from '../types/edulms';
-import { formatAreaDisplayName } from '../utils/rbac';
 
 interface PodiumTop3Props {
   members: Member[];
@@ -42,9 +41,9 @@ export const PodiumTop3: React.FC<PodiumTop3Props> = ({
       const top3 = areaRankings[2];
       return {
         unitLabel: 'đ/người',
-        top1: top1 ? { name: formatAreaDisplayName(top1.areaCode, top1.areaName), sub: `${top1.companyCode} • ${top1.activeMembersCount} TV`, score: top1.averageScore, original: top1 } : null,
-        top2: top2 ? { name: formatAreaDisplayName(top2.areaCode, top2.areaName), sub: `${top2.companyCode} • ${top2.activeMembersCount} TV`, score: top2.averageScore, original: top2 } : null,
-        top3: top3 ? { name: formatAreaDisplayName(top3.areaCode, top3.areaName), sub: `${top3.companyCode} • ${top3.activeMembersCount} TV`, score: top3.averageScore, original: top3 } : null,
+        top1: top1 ? { name: `${top1.areaName} (${top1.areaCode})`, sub: `${top1.companyCode} • ${top1.activeMembersCount} TV`, score: top1.averageScore, original: top1 } : null,
+        top2: top2 ? { name: `${top2.areaName} (${top2.areaCode})`, sub: `${top2.companyCode} • ${top2.activeMembersCount} TV`, score: top2.averageScore, original: top2 } : null,
+        top3: top3 ? { name: `${top3.areaName} (${top3.areaCode})`, sub: `${top3.companyCode} • ${top3.activeMembersCount} TV`, score: top3.averageScore, original: top3 } : null,
       };
     } else {
       const top1 = companyRankings[0];

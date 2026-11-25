@@ -68,13 +68,10 @@ import { CustomSelect } from './CustomSelect';
 import { PersonalPlannerSection } from './PersonalPlannerSection';
 import {
   canAccessMemberReportOverview,
-  formatAreaDisplayName,
-  formatAreaScopeLabel,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   getScopedMemberOptions,
   isAdminRole,
-  makeAreaScopeKey,
 } from '../utils/rbac';
 import { isValidPersonalPin, sanitizePinInput } from '../utils/pinSecurity';
 import {
@@ -1127,7 +1124,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             >
               <CalendarDays className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate sm:hidden">KH LLV</span>
-              <span className="truncate hidden sm:inline">Kế hoạch</span>
+              <span className="truncate hidden sm:inline">Kế hoạch LLV</span>
             </button>
 
             <button
@@ -2045,14 +2042,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         options={[
                           { value: 'ALL', label: 'Tất cả Khu vực' },
                           ...exportScopedAreas.map((a) => ({
-                            value:
-                              exportCompanyFilter === 'ALL'
-                                ? makeAreaScopeKey(a.companyCode, a.code)
-                                : a.code,
-                            label:
-                              exportCompanyFilter === 'ALL'
-                                ? `KV ${a.code} (${a.companyCode})`
-                                : `KV ${a.code}`,
+                            value: a.code,
+                            label: `KV ${a.code}`,
                           })),
                         ]}
                       />
@@ -2299,14 +2290,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     : currentUser.role === 'SION_LEADER'
                     ? `Sion ${currentUser.managedCompanyCodes?.join(', ') || currentUser.companyCode}`
                     : currentUser.role === 'AREA_LEADER'
-                    ? `KV ${
-                        currentUser.managedAreaCodes?.length
-                          ? currentUser.managedAreaCodes
-                              .map((a) => formatAreaScopeLabel(a))
-                              .filter(Boolean)
-                              .join(', ')
-                          : currentUser.areaCode
-                      }`
+                    ? `KV ${currentUser.managedAreaCodes?.join(', ') || currentUser.areaCode}`
                     : currentUser.role === 'UNI_LEADER'
                     ? `Uni ${currentUser.managedUnitCodes?.join(', ') || currentUser.unitCode || currentUser.departmentCode}`
                     : 'Cá nhân · Top 15'}
@@ -2435,7 +2419,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         onChange={setEditArea}
                         options={areasForEditCompany.map((a) => ({
                           value: a.code,
-                          label: formatAreaDisplayName(a.code, a.name),
+                          label: a.name,
                           badge: a.code,
                         }))}
                         ariaLabel="Chọn Khu vực"

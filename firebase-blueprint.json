@@ -14,7 +14,6 @@
         "areaCode": { "type": "string", "maxLength": 30 },
         "unitCode": { "type": "string", "maxLength": 50 },
         "departmentCode": { "type": "string", "maxLength": 50 },
-        "managedClusterIds": { "type": "array" },
         "managedCompanyCodes": { "type": "array" },
         "managedAreaCodes": { "type": "array" },
         "managedUnitCodes": { "type": "array" },
@@ -43,7 +42,6 @@
         "grantedBy": { "type": "string", "maxLength": 100 },
         "grantedAt": { "type": "string", "maxLength": 50 },
         "note": { "type": "string", "maxLength": 300 },
-        "managedClusterIds": { "type": "array" },
         "managedCompanyCodes": { "type": "array" },
         "managedAreaCodes": { "type": "array" },
         "managedUnitCodes": { "type": "array" },
@@ -152,7 +150,6 @@
         "autoApprovePreAssigned": { "type": "boolean" },
         "enabled": { "type": "boolean" },
         "rules": { "type": "array" },
-        "clusters": { "type": "array" },
         "updatedAt": { "type": "string", "maxLength": 50 },
         "updatedBy": { "type": "string", "maxLength": 100 }
       }
@@ -314,7 +311,7 @@
     },
     "/system_config/{id}": {
       "schema": "SystemConfig",
-      "description": "System-wide configuration (roles, banner, scoring, appearance, security, vocabulary, clusters)"
+      "description": "System-wide configuration (roles, banner, scoring, appearance, security, vocabulary)"
     },
     "/disciples/{discipleId}": {
       "schema": "Disciple",

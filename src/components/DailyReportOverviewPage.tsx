@@ -42,9 +42,7 @@ import {
   getScopedCompanyOptions,
   getScopedMemberOptions,
   isAdminRole,
-  makeAreaScopeKey,
   normalizeOrgCode,
-  parseAreaScopeEntry,
 } from '../utils/rbac';
 import { computeDailyMetricsScore, sumDailyReportMetrics } from '../utils/scoringEngine';
 import {
@@ -251,17 +249,8 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
       ) {
         return false;
       }
-      if (areaFilter !== 'ALL') {
-        const parsed = parseAreaScopeEntry(areaFilter);
-        if (
-          parsed.hasCompanyPrefix &&
-          normalizeOrgCode(m.companyCode) !== parsed.companyCode
-        ) {
-          return false;
-        }
-        if (parsed.areaCode && normalizeOrgCode(m.areaCode) !== parsed.areaCode) {
-          return false;
-        }
+      if (areaFilter !== 'ALL' && normalizeOrgCode(m.areaCode) !== normalizeOrgCode(areaFilter)) {
+        return false;
       }
       if (memberFilter !== 'ALL' && m.id !== memberFilter) {
         return false;
@@ -428,9 +417,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
       const comp = row.member.companyCode || '—';
       const area = row.member.areaCode || '—';
       const unit = getMemberUnitCode(row.member) || row.member.unitCode || row.member.departmentCode || 'Chưa gắn Uni';
-      const normComp = normalizeOrgCode(comp) || comp;
-      const normArea = normalizeOrgCode(area) || area;
-      const key = groupByUni ? `${normComp}__${normArea}__${unit}` : `${normComp}__${normArea}`;
+      const key = groupByUni ? `${comp}__${area}__${unit}` : `${comp}__${area}`;
       const label = groupByUni ? `${unit}` : `KV ${area}`;
       const subLabel = groupByUni ? `${comp} · KV ${area}` : `Sion ${comp}`;
 
@@ -773,16 +760,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
                     }}
                     options={[
                       { value: 'ALL', label: isAdmin ? 'Tất cả Khu vực' : 'Tất cả KV (phạm vi)' },
-                      ...selectableAreas.map((a) => ({
-                        value:
-                          companyFilter === 'ALL'
-                            ? makeAreaScopeKey(a.companyCode, a.code)
-                            : a.code,
-                        label:
-                          companyFilter === 'ALL'
-                            ? `KV ${a.code} (${a.companyCode})`
-                            : `KV ${a.code}`,
-                      })),
+                      ...selectableAreas.map((a) => ({ value: a.code, label: `KV ${a.code}` })),
                     ]}
                   />
                 </div>

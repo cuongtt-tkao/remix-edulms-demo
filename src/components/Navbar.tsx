@@ -27,7 +27,6 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel } from '../types/edulms';
-import { formatAreaScopeLabel } from '../utils/rbac';
 
 export type AppTab =
   | 'ENTRY'
@@ -527,12 +526,8 @@ function getRoleSubtitle(user: UserAccount): string {
       }`;
     case 'SION_LEADER':
       return `TS, NQ · Sion ${user.managedCompanyCodes?.join(', ') || user.companyCode}`;
-    case 'AREA_LEADER': {
-      const areaLabels = (user.managedAreaCodes || [])
-        .map((a) => formatAreaScopeLabel(a))
-        .filter(Boolean);
-      return `Gru · KV ${areaLabels.length ? areaLabels.join(', ') : user.areaCode}`;
-    }
+    case 'AREA_LEADER':
+      return `Gru · KV ${user.managedAreaCodes?.join(', ') || user.areaCode}`;
     case 'UNI_LEADER':
       return `Uni · ${user.unitCode || user.departmentCode || `KV ${user.areaCode}`}`;
     default:
@@ -624,7 +619,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         {
           id: 'WORK_SCHEDULE',
           label: 'Lịch làm việc',
-          subLabel: 'Hoạt động LLV',
+          subLabel: 'Hoạt động buổi & WS',
           icon: CalendarCheck2,
           accent: 'text-emerald-400',
           visible: true,

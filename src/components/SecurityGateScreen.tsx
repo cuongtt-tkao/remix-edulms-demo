@@ -18,7 +18,6 @@ import {
   Sparkles,
   Clock,
   XCircle,
-  RefreshCw,
 } from 'lucide-react';
 import {
   Company,
@@ -36,15 +35,9 @@ import {
   sanitizePinInput,
   isValidPersonalPin,
 } from '../utils/pinSecurity';
-import {
-  cleanRawAreaCode,
-  formatAreaDisplayName,
-  normalizeOrgCode,
-} from '../utils/rbac';
 
 export type SecurityGateMode =
   | 'LOADING'
-  | 'PROFILE_ERROR'
   | 'UNAUTHENTICATED'
   | 'ONBOARDING'
   | 'PENDING_APPROVAL'
@@ -65,7 +58,6 @@ interface SecurityGateScreenProps {
   mode: SecurityGateMode;
   firebaseUser: FirebaseUser | null;
   currentUser: UserAccount | null;
-  profileError?: string | null;
   companies: Company[];
   areas: Area[];
   departments: Department[];
@@ -74,7 +66,6 @@ interface SecurityGateScreenProps {
   onCompleteOnboarding: (data: OnboardingSubmitData) => Promise<void>;
   onSetupPin: (pinHash: string) => Promise<void>;
   onPinUnlocked: () => void;
-  onRetryProfile?: () => void;
   onLogout: () => void;
 }
 
@@ -119,7 +110,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   mode,
   firebaseUser,
   currentUser,
-  profileError,
   companies,
   areas,
   departments,
@@ -128,28 +118,16 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   onCompleteOnboarding,
   onSetupPin,
   onPinUnlocked,
-  onRetryProfile,
   onLogout,
 }) => {
   // ---------- Auth Gate (Google quick sign-in) ----------
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [gateError, setGateError] = useState('');
-  const [loadingTakingLong, setLoadingTakingLong] = useState(false);
-
-  useEffect(() => {
-    if (mode !== 'LOADING') {
-      setLoadingTakingLong(false);
-      return;
-    }
-    const timer = setTimeout(() => setLoadingTakingLong(true), 3500);
-    return () => clearTimeout(timer);
-  }, [mode]);
 
   // ---------- Onboarding state ----------
   const [obFullName, setObFullName] = useState('');
   const [obCompany, setObCompany] = useState(companies[0]?.code || 'Th1');
   const [obArea, setObArea] = useState('');
-  const [isCustomObArea, setIsCustomObArea] = useState(false);
   const [obDept, setObDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
   const [obUnitCode, setObUnitCode] = useState('');
   const [obPin, setObPin] = useState('');
@@ -180,10 +158,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
         (firebaseUser?.email ? firebaseUser.email.split('@')[0] : '') ||
         ''
       );
-      if (
-        companies.length > 0 &&
-        !companies.some((c) => normalizeOrgCode(c.code) === normalizeOrgCode(obCompany))
-      ) {
+      if (companies.length > 0 && !companies.some((c) => c.code === obCompany)) {
         setObCompany(companies[0].code);
       }
       if (departments.length > 0 && !departments.some((d) => d.code === obDept)) {
@@ -192,28 +167,18 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
     }
   }, [mode, firebaseUser?.displayName, firebaseUser?.email, companies, departments]);
 
-  const areasForSelectedCompany = useMemo(() => {
-    const targetComp = normalizeOrgCode(obCompany);
-    return areas.filter(
-      (a) => normalizeOrgCode(a.companyCode) === targetComp && a.active !== false
-    );
-  }, [areas, obCompany]);
+  const areasForSelectedCompany = useMemo(
+    () => areas.filter((a) => a.companyCode === obCompany && a.active !== false),
+    [areas, obCompany]
+  );
 
   useEffect(() => {
     if (areasForSelectedCompany.length > 0) {
-      if (!isCustomObArea) {
-        const matched = areasForSelectedCompany.find(
-          (a) => normalizeOrgCode(a.code) === normalizeOrgCode(obArea)
-        );
-        if (!matched) {
-          setObArea(areasForSelectedCompany[0].code);
-        }
+      if (!areasForSelectedCompany.some((a) => a.code === obArea)) {
+        setObArea(areasForSelectedCompany[0].code);
       }
-    } else {
-      setIsCustomObArea(true);
-      if (areas.some((a) => normalizeOrgCode(a.code) === normalizeOrgCode(obArea))) {
-        setObArea('');
-      }
+    } else if (!obArea && areas.length > 0) {
+      setObArea(areas[0].code);
     }
   }, [areasForSelectedCompany, areas, obCompany]);
 
@@ -346,9 +311,8 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       setGateError('Vui lòng chọn Sion / Công ty.');
       return;
     }
-    const cleanArea = cleanRawAreaCode(obArea);
-    if (!cleanArea) {
-      setGateError('Vui lòng chọn hoặc nhập mã Khu vực.');
+    if (!obArea.trim()) {
+      setGateError('Vui lòng chọn Khu vực.');
       return;
     }
     if (!isValidPersonalPin(obPin)) {
@@ -365,7 +329,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       await onCompleteOnboarding({
         fullName: obFullName.trim(),
         companyCode: obCompany.trim(),
-        areaCode: cleanArea,
+        areaCode: obArea.trim(),
         departmentCode: obDept.trim(),
         unitCode: obUnitCode.trim() || undefined,
         pin: obPin,
@@ -457,86 +421,14 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
         {/* Main Card */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-white/15 dark:border-slate-800 p-5 sm:p-6 space-y-4">
           {mode === 'LOADING' && (
-            <div className="py-8 flex flex-col items-center justify-center text-center space-y-3">
+            <div className="py-10 flex flex-col items-center justify-center text-center space-y-3">
               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
               <div className="text-sm font-bold text-slate-800 dark:text-white">
                 Đang kiểm tra xác thực bảo mật...
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {firebaseUser?.email
-                  ? `Đang tải hồ sơ ${firebaseUser.email} từ Firestore (default)...`
-                  : 'Vui lòng chờ trong giây lát.'}
+                Vui lòng chờ trong giây lát.
               </p>
-              {loadingTakingLong && (
-                <div className="pt-2 w-full space-y-2 border-t border-slate-100 dark:border-slate-800">
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                    Quá trình kiểm tra đang mất thời gian hơn bình thường.
-                  </p>
-                  <div className="flex items-center justify-center gap-2">
-                    {onRetryProfile && (
-                      <button
-                        type="button"
-                        onClick={onRetryProfile}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 transition-colors"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Thử lại</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={onLogout}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 transition-colors"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Đăng xuất</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {mode === 'PROFILE_ERROR' && (
-            <div className="py-4 space-y-4">
-              <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70">
-                <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                <div className="min-w-0 space-y-1">
-                  <div className="text-xs font-extrabold text-rose-800 dark:text-rose-200">
-                    Không thể hoàn tất kiểm tra xác thực
-                  </div>
-                  {firebaseUser?.email && (
-                    <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 truncate">
-                      Tài khoản: {firebaseUser.email}
-                    </div>
-                  )}
-                  <p className="text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed whitespace-pre-line">
-                    {profileError ||
-                      'Không thể kết nối tới cơ sở dữ liệu Firestore (default). Vui lòng thử lại hoặc đăng xuất.'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-2">
-                {onRetryProfile && (
-                  <button
-                    type="button"
-                    onClick={onRetryProfile}
-                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold shadow-sm transition-colors"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Thử kết nối lại</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Đăng xuất / Đổi tài khoản</span>
-                </button>
-              </div>
             </div>
           )}
 
@@ -655,10 +547,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   </label>
                   <CustomSelect
                     value={obCompany}
-                    onChange={(nextComp) => {
-                      setObCompany(nextComp);
-                      setIsCustomObArea(false);
-                    }}
+                    onChange={setObCompany}
                     size="sm"
                     leadingIcon={<Building2 className="w-3.5 h-3.5" />}
                     options={companies.map((c) => ({
@@ -671,46 +560,20 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                    <span>Khu vực *</span>
-                    {isCustomObArea && areasForSelectedCompany.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsCustomObArea(false);
-                          setObArea(areasForSelectedCompany[0]?.code || '');
-                        }}
-                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
-                      >
-                        Chọn có sẵn
-                      </button>
-                    )}
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Khu vực *
                   </label>
-                  {areasForSelectedCompany.length > 0 && !isCustomObArea ? (
+                  {areasForSelectedCompany.length > 0 ? (
                     <CustomSelect
                       value={obArea}
-                      onChange={(val) => {
-                        if (val === '__NEW__') {
-                          setIsCustomObArea(true);
-                          setObArea('');
-                        } else {
-                          setIsCustomObArea(false);
-                          setObArea(val);
-                        }
-                      }}
+                      onChange={setObArea}
                       size="sm"
                       leadingIcon={<MapPin className="w-3.5 h-3.5" />}
-                      options={[
-                        ...areasForSelectedCompany.map((a) => ({
-                          value: a.code,
-                          label: formatAreaDisplayName(a.code, a.name),
-                          badge: a.code,
-                        })),
-                        {
-                          value: '__NEW__',
-                          label: '+ Nhập Khu vực mới...',
-                        },
-                      ]}
+                      options={areasForSelectedCompany.map((a) => ({
+                        value: a.code,
+                        label: a.name || `Khu vực ${a.code}`,
+                        badge: a.code,
+                      }))}
                       ariaLabel="Chọn Khu vực"
                     />
                   ) : (
@@ -718,7 +581,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                       type="text"
                       value={obArea}
                       onChange={(e) => setObArea(e.target.value)}
-                      placeholder="Chỉ nhập số/mã (VD: 1.1)"
+                      placeholder="VD: 1.1"
                       className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
                       required
                     />

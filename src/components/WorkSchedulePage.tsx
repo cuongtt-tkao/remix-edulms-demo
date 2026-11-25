@@ -36,7 +36,6 @@ import {
 } from '../types/edulms';
 import {
   canViewMemberDetail,
-  formatAreaDisplayName,
   getMemberUnitCode,
   isAdminRole,
   isMemberInManagerCluster,
@@ -1007,7 +1006,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 sm:mb-3">
               <div className="min-w-0">
                 <h2 className="text-xs sm:text-base font-extrabold text-slate-900 dark:text-white flex flex-wrap items-baseline gap-x-1.5">
-                  <span>1. Lịch Làm Việc</span>
+                  <span>1. Lịch 3 buổi</span>
                   <span className="text-[11px] sm:text-xs font-bold text-sky-700 dark:text-sky-300 tabular-nums">
                     · {myFilledSessionsCount}/21
                   </span>
@@ -1482,7 +1481,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                   <option value="ALL">Tất cả Khu vực</option>
                   {availableTeamAreas.map((a) => (
                     <option key={a.code} value={a.code}>
-                      {formatAreaDisplayName(a.code, a.name)}
+                      KV {a.code} · {a.name}
                     </option>
                   ))}
                 </select>
