@@ -382,7 +382,8 @@ export function loadCurrentAuthUser(): import('../types/edulms').UserAccount | n
   } catch (e) {
     console.warn('Failed to parse current user', e);
   }
-  return null;
+  // Default to Member account Nguyễn Văn An for instant smooth experience
+  return INITIAL_ACCOUNTS[1];
 }
 
 export function saveCurrentAuthUser(user: import('../types/edulms').UserAccount | null): void {

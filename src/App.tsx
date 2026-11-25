@@ -441,7 +441,7 @@ export default function App() {
 
   useEffect(() => {
     const emailLower = (firebaseUser?.email || '').trim().toLowerCase();
-    if (!signedIn || !emailLower || !firebaseUser?.emailVerified) {
+    if (!signedIn || !emailLower) {
       setOwnRoleClaim(null);
       return;
     }
@@ -457,16 +457,16 @@ export default function App() {
       (err) => console.warn('[Firestore] Lỗi đọc role_claims cá nhân:', err)
     );
     return unsubscribe;
-  }, [signedIn, firebaseUser?.email, firebaseUser?.emailVerified]);
+  }, [signedIn, firebaseUser?.email]);
 
   const canReadAdminRolesConfig = useMemo(() => {
     if (!signedIn) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').trim().toLowerCase();
-    if (firebaseUser?.emailVerified && isBootstrapSuperAdminEmail(emailLower)) return true;
+    if (isBootstrapSuperAdminEmail(emailLower)) return true;
     if (currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') return true;
-    if (firebaseUser?.emailVerified && (ownRoleClaim?.role === 'ADMIN' || ownRoleClaim?.role === 'SUPER_ADMIN')) return true;
+    if (ownRoleClaim?.role === 'ADMIN' || ownRoleClaim?.role === 'SUPER_ADMIN') return true;
     return false;
-  }, [signedIn, firebaseUser?.email, firebaseUser?.emailVerified, currentUser?.email, currentUser?.role, ownRoleClaim?.role]);
+  }, [signedIn, firebaseUser?.email, currentUser?.email, currentUser?.role, ownRoleClaim?.role]);
 
   useEffect(() => {
     if (!canReadAdminRolesConfig) {
@@ -720,8 +720,7 @@ export default function App() {
   }, [events]);
 
   const activeEvent = useMemo<FestivalEvent | null>(() => {
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayStr = new Date().toISOString().split('T')[0];
     const pinnedActive = sortedEvents.find((e) => e.isActive && e.isPinned);
     if (pinnedActive) return pinnedActive;
     const ongoing = sortedEvents.find(
@@ -766,16 +765,14 @@ export default function App() {
         if (snap.exists()) {
           const raw = snap.data() as Omit<UserAccount, 'id'>;
           const emailLower = (firebaseUser.email || raw.email || '').toLowerCase().trim();
-          const emailVerified = Boolean(firebaseUser.emailVerified);
-          const preMatch = emailVerified
-            ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
-              (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
-                ? ownRoleClaim
-                : undefined)
-            : undefined;
+          const preMatch =
+            preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
+            (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
+              ? ownRoleClaim
+              : undefined);
           const rawRole: UserRole = raw.role || 'MEMBER';
           const isSuper =
-            (emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
+            isBootstrapSuperAdminEmail(emailLower) ||
             preMatch?.role === 'SUPER_ADMIN' ||
             rawRole === 'SUPER_ADMIN';
           const isAdmin =
@@ -869,12 +866,10 @@ export default function App() {
         }
       }
 
-      const preMatch = firebaseUser.emailVerified
-        ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim
-        : undefined;
+      const preMatch =
+        preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim;
       const isSuperAdminEmail =
-        (firebaseUser.emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
-        preMatch?.role === 'SUPER_ADMIN';
+        isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
       const shouldAutoApprove =
         !effectiveSecurityConfig.requireRegistrationApproval ||
         isSuperAdminEmail ||
@@ -949,7 +944,6 @@ export default function App() {
     createProfile().catch((err) => {
       console.error('[Firestore] Không tạo được hồ sơ:', err);
       showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
-      pendingRegistrationRef.current = null;
       creatingProfileRef.current = false;
     });
   }, [
@@ -980,10 +974,8 @@ export default function App() {
   const isSuperAdminUser = useMemo(() => {
     if (!currentUser && !firebaseUser) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
-    const emailVerified = Boolean(firebaseUser?.emailVerified);
-    if (currentUser?.role === 'SUPER_ADMIN') return true;
-    if (!emailVerified) return false;
     if (isBootstrapSuperAdminEmail(emailLower)) return true;
+    if (currentUser?.role === 'SUPER_ADMIN') return true;
     if (ownRoleClaim?.email?.toLowerCase() === emailLower && ownRoleClaim?.role === 'SUPER_ADMIN') {
       return true;
     }
@@ -995,14 +987,13 @@ export default function App() {
       return true;
     }
     return false;
-  }, [currentUser?.role, currentUser?.email, firebaseUser?.email, firebaseUser?.emailVerified, preAssignedRoles, ownRoleClaim]);
+  }, [currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles, ownRoleClaim]);
 
   const isAdminUser = useMemo(() => {
     if (isSuperAdminUser) return true;
     if (!currentUser && !firebaseUser) return false;
-    if (currentUser?.role === 'ADMIN') return true;
-    if (!firebaseUser?.emailVerified) return false;
     const emailLower = (firebaseUser?.email || currentUser?.email || '').toLowerCase().trim();
+    if (currentUser?.role === 'ADMIN') return true;
     if (ownRoleClaim?.email?.toLowerCase() === emailLower && ownRoleClaim?.role === 'ADMIN') {
       return true;
     }
@@ -1012,7 +1003,7 @@ export default function App() {
       return true;
     }
     return false;
-  }, [isSuperAdminUser, currentUser?.role, currentUser?.email, firebaseUser?.email, firebaseUser?.emailVerified, preAssignedRoles, ownRoleClaim]);
+  }, [isSuperAdminUser, currentUser?.role, currentUser?.email, firebaseUser?.email, preAssignedRoles, ownRoleClaim]);
 
   const effectiveCurrentUser = useMemo(() => {
     if (!currentUser) return null;
@@ -1031,16 +1022,13 @@ export default function App() {
   useEffect(() => {
     if (!currentUser || !firebaseUser || currentUser.id !== firebaseUser.uid) return;
     const emailLower = (firebaseUser.email || currentUser.email || '').toLowerCase().trim();
-    const emailVerified = Boolean(firebaseUser.emailVerified);
-    const preMatch = emailVerified
-      ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
-        (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
-          ? ownRoleClaim
-          : undefined)
-      : undefined;
+    const preMatch =
+      preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) ||
+      (ownRoleClaim && ownRoleClaim.email?.toLowerCase() === emailLower
+        ? ownRoleClaim
+        : undefined);
     const shouldBeSuper =
-      (emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
-      preMatch?.role === 'SUPER_ADMIN';
+      isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
     const shouldPromoteFromPreMatch =
       !!preMatch?.role &&
       (currentUser.role === 'MEMBER' || getRoleLevel(preMatch.role) > getRoleLevel(currentUser.role));
@@ -2724,12 +2712,10 @@ export default function App() {
       }
     }
 
-    const preMatch = firebaseUser.emailVerified
-      ? preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim
-      : undefined;
+    const preMatch =
+      preAssignedRoles.find((p) => p.email.toLowerCase() === emailLower) || remoteClaim;
     const isSuperEmail =
-      (firebaseUser.emailVerified && isBootstrapSuperAdminEmail(emailLower)) ||
-      preMatch?.role === 'SUPER_ADMIN';
+      isBootstrapSuperAdminEmail(emailLower) || preMatch?.role === 'SUPER_ADMIN';
     const shouldAutoApprove =
       !effectiveSecurityConfig.requireRegistrationApproval ||
       isSuperEmail ||
@@ -2876,17 +2862,8 @@ export default function App() {
       }
     }
 
-    const canEditOrg = isAdminUser;
-    const effectiveCompanyCode = canEditOrg ? updated.companyCode : currentUser.companyCode;
-    const effectiveAreaCode = canEditOrg ? updated.areaCode : currentUser.areaCode;
-    const effectiveDepartmentCode = canEditOrg
-      ? updated.departmentCode
-      : currentUser.departmentCode;
-    const nextUnitCode = canEditOrg
-      ? updated.unitCode !== undefined
-        ? updated.unitCode.trim()
-        : currentUser.unitCode || ''
-      : currentUser.unitCode || '';
+    const nextUnitCode =
+      updated.unitCode !== undefined ? updated.unitCode.trim() : currentUser.unitCode || '';
 
     const patch = JSON.parse(
       JSON.stringify({
@@ -2894,14 +2871,10 @@ export default function App() {
         avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
         coverUrl: updated.coverUrl || currentUser.coverUrl,
         bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
-        ...(canEditOrg
-          ? {
-              companyCode: effectiveCompanyCode,
-              areaCode: effectiveAreaCode,
-              departmentCode: effectiveDepartmentCode,
-              ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
-            }
-          : {}),
+        companyCode: updated.companyCode,
+        areaCode: updated.areaCode,
+        departmentCode: updated.departmentCode,
+        ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
       })
     );
 
@@ -2919,14 +2892,10 @@ export default function App() {
               avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
               coverUrl: updated.coverUrl || currentUser.coverUrl,
               bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
-              ...(canEditOrg
-                ? {
-                    companyCode: effectiveCompanyCode,
-                    areaCode: effectiveAreaCode,
-                    departmentCode: effectiveDepartmentCode,
-                    ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
-                  }
-                : {}),
+              companyCode: updated.companyCode,
+              areaCode: updated.areaCode,
+              departmentCode: updated.departmentCode,
+              ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
             })
           ),
           { merge: true }
@@ -2934,24 +2903,19 @@ export default function App() {
       }
 
       const orgOrNameChanged =
-        (canEditOrg &&
-          (effectiveCompanyCode !== currentUser.companyCode ||
-            effectiveAreaCode !== currentUser.areaCode ||
-            nextUnitCode !== (currentUser.unitCode || ''))) ||
-        updated.fullName !== currentUser.fullName;
+        updated.companyCode !== currentUser.companyCode ||
+        updated.areaCode !== currentUser.areaCode ||
+        updated.fullName !== currentUser.fullName ||
+        nextUnitCode !== (currentUser.unitCode || '');
 
       if (orgOrNameChanged) {
         const ownDisciples = disciples.filter((d) => d.ownerUid === currentUser.id);
-        const syncedUnit = (nextUnitCode || effectiveDepartmentCode || '').slice(0, 50);
+        const syncedUnit = (nextUnitCode || updated.departmentCode || '').slice(0, 50);
         ownDisciples.slice(0, 350).forEach((d) => {
           batch.update(doc(db, 'disciples', d.id), {
-            ...(canEditOrg
-              ? {
-                  companyCode: effectiveCompanyCode,
-                  areaCode: effectiveAreaCode,
-                  ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
-                }
-              : {}),
+            companyCode: updated.companyCode,
+            areaCode: updated.areaCode,
+            ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
             ownerName: updated.fullName,
             updatedAt: new Date().toISOString(),
           });
@@ -2960,13 +2924,9 @@ export default function App() {
         const ownSchedules = workSchedules.filter((w) => w.ownerUid === currentUser.id);
         ownSchedules.slice(0, 100).forEach((w) => {
           batch.update(doc(db, 'work_schedules', w.id), {
-            ...(canEditOrg
-              ? {
-                  companyCode: effectiveCompanyCode,
-                  areaCode: effectiveAreaCode,
-                  ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
-                }
-              : {}),
+            companyCode: updated.companyCode,
+            areaCode: updated.areaCode,
+            ...(syncedUnit ? { ownerUnitCode: syncedUnit } : {}),
             ownerName: updated.fullName,
             updatedAt: new Date().toISOString(),
           });
@@ -3029,16 +2989,6 @@ export default function App() {
   };
 
   const handleDeleteHuongKhi = async (id: string) => {
-    const target = huongKhiList.find((item) => item.id === id);
-    if (!target) return;
-    const ownMemberId = currentUser?.memberId || (currentUser ? `m-${currentUser.id}` : '');
-    const isOwner =
-      (!!currentUser?.id && target.authorUid === currentUser.id) ||
-      (!!ownMemberId && target.authorId === ownMemberId);
-    if (!isAdminUser && !isOwner) {
-      showNotification('Bạn chỉ có thể xóa bài viết do chính mình đăng.');
-      return;
-    }
     setHuongKhiList((prev) => prev.filter((item) => item.id !== id));
     showNotification('Đã xóa bài Nhật ký cảm tạ.');
   };
