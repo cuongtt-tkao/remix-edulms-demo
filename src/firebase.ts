@@ -46,7 +46,7 @@ export const auth = getAuth(app);
  * Chỉ sử dụng database "(default)" theo cấu hình chốt của hệ thống
  * (có thể ghi đè qua biến môi trường VITE_FIRESTORE_DATABASE_ID nếu cần).
  */
-const databaseId: string =
+export const FIRESTORE_DATABASE_ID: string =
   ((import.meta as any).env?.VITE_FIRESTORE_DATABASE_ID as string | undefined) || '(default)';
 
 export const db = initializeFirestore(
@@ -54,7 +54,7 @@ export const db = initializeFirestore(
   {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   },
-  databaseId
+  FIRESTORE_DATABASE_ID
 );
 
 export const googleProvider = new GoogleAuthProvider();

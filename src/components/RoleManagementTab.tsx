@@ -24,6 +24,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Bell,
+  Layers,
 } from 'lucide-react';
 import {
   UserAccount,
@@ -32,6 +33,7 @@ import {
   Company,
   Area,
   Department,
+  OrgCluster,
   ROLE_DISPLAY_META,
   ROLE_ORDER,
   SystemSecurityConfig,
@@ -44,10 +46,16 @@ import {
 } from '../types/edulms';
 import { BOOTSTRAP_SUPER_ADMIN_EMAILS } from '../firebase';
 import { CustomSelect } from './CustomSelect';
-import { canAssignTargetRole, canManageOrgRecord, normalizeOrgCode } from '../utils/rbac';
+import {
+  canAssignTargetRole,
+  canManageOrgRecord,
+  normalizeOrgCode,
+  resolveCompanyCodesFromClusterIds,
+} from '../utils/rbac';
 import { isValidPersonalPin } from '../utils/pinSecurity';
 
 interface ScopeSelection {
+  managedClusterIds?: string[];
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
   managedUnitCodes?: string[];
@@ -59,6 +67,7 @@ interface RoleManagementTabProps {
   companies: Company[];
   areas: Area[];
   departments: Department[];
+  clusters?: OrgCluster[];
   onUpdateUserRole: (
     targetUserId: string,
     newRole: UserRole,
@@ -116,6 +125,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   usersList,
   companies,
   areas,
+  clusters = [],
   onUpdateUserRole,
   onDeleteUserAccount,
   preAssignedRoles = [],
@@ -152,6 +162,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('AREA_LEADER');
   const [newNote, setNewNote] = useState('');
+  const [newManagedClusters, setNewManagedClusters] = useState<string[]>([]);
   const [newManagedCompanies, setNewManagedCompanies] = useState<string[]>([]);
   const [newManagedAreas, setNewManagedAreas] = useState<string[]>([]);
   const [newManagedUnitsText, setNewManagedUnitsText] = useState('');
@@ -160,6 +171,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   // Scope Config Modal for MANAGER / SION_LEADER / AREA_LEADER / UNI_LEADER
   const [scopeModalUser, setScopeModalUser] = useState<UserAccount | null>(null);
   const [modalRole, setModalRole] = useState<UserRole>('MANAGER');
+  const [modalClusters, setModalClusters] = useState<string[]>([]);
   const [modalCompanies, setModalCompanies] = useState<string[]>([]);
   const [modalAreas, setModalAreas] = useState<string[]>([]);
   const [modalUnitsText, setModalUnitsText] = useState<string>('');
@@ -327,7 +339,17 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     const roleToEdit = targetRole || resolveEffectiveRole(user);
     setScopeModalUser(user);
     setModalRole(roleToEdit);
-    setModalCompanies(user.managedCompanyCodes || (user.companyCode ? [user.companyCode] : []));
+    const initialClusters = user.managedClusterIds || [];
+    setModalClusters(initialClusters);
+    const resolvedFromClusters =
+      roleToEdit === 'MANAGER' && initialClusters.length > 0 && clusters.length > 0
+        ? resolveCompanyCodesFromClusterIds(initialClusters, clusters, companies)
+        : [];
+    setModalCompanies(
+      resolvedFromClusters.length > 0
+        ? resolvedFromClusters
+        : user.managedCompanyCodes || (user.companyCode ? [user.companyCode] : [])
+    );
     setModalAreas(
       user.managedAreaCodes?.length
         ? user.managedAreaCodes
@@ -420,14 +442,30 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
     const parsedUnits = parseUnitList(modalUnitsText);
-    if (modalRole === 'MANAGER' && modalCompanies.length === 0 && modalAreas.length === 0) {
-      onShowNotification('Vui lòng chọn ít nhất 1 Sion hoặc Khu vực phụ trách cho QL Cụm.');
+    const effectiveModalCompanies =
+      modalRole === 'MANAGER' && modalClusters.length > 0 && clusters.length > 0
+        ? Array.from(
+            new Set([
+              ...resolveCompanyCodesFromClusterIds(modalClusters, clusters, companies),
+              ...modalCompanies,
+            ])
+          )
+        : modalCompanies;
+
+    if (
+      modalRole === 'MANAGER' &&
+      modalClusters.length === 0 &&
+      effectiveModalCompanies.length === 0 &&
+      modalAreas.length === 0
+    ) {
+      onShowNotification('Vui lòng chọn ít nhất 1 Cụm Sion, Sion hoặc Khu vực phụ trách cho QL Cụm.');
       return;
     }
     setIsUpdating(scopeModalUser.id);
     try {
       await onUpdateUserRole(scopeModalUser.id, modalRole, scopeModalUser.fullName, {
-        managedCompanyCodes: modalCompanies,
+        managedClusterIds: modalRole === 'MANAGER' ? modalClusters : [],
+        managedCompanyCodes: effectiveModalCompanies,
         managedAreaCodes: modalAreas,
         managedUnitCodes: parsedUnits,
       });
@@ -452,9 +490,21 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     }
 
     const parsedUnits = parseUnitList(newManagedUnitsText);
+    const resolvedClusterComps =
+      newRole === 'MANAGER' && newManagedClusters.length > 0 && clusters.length > 0
+        ? resolveCompanyCodesFromClusterIds(newManagedClusters, clusters, companies)
+        : [];
+    const effectiveNewCompanies =
+      resolvedClusterComps.length > 0
+        ? Array.from(new Set([...resolvedClusterComps, ...newManagedCompanies]))
+        : newManagedCompanies;
+
     const scope: ScopeSelection | undefined = SCOPE_ENABLED_ROLES.includes(newRole)
       ? {
-          managedCompanyCodes: newManagedCompanies,
+          ...(newRole === 'MANAGER' && newManagedClusters.length > 0
+            ? { managedClusterIds: newManagedClusters }
+            : {}),
+          managedCompanyCodes: effectiveNewCompanies,
           managedAreaCodes: newManagedAreas,
           managedUnitCodes: parsedUnits,
         }
@@ -473,6 +523,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       onShowNotification(`Đã cấp quyền ${ROLE_LABELS[newRole]} cho ${emailClean}`);
       setNewEmail('');
       setNewNote('');
+      setNewManagedClusters([]);
       setNewManagedCompanies([]);
       setNewManagedAreas([]);
       setNewManagedUnitsText('');
@@ -1028,8 +1079,43 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
             {SCOPE_ENABLED_ROLES.includes(newRole) && (
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-3">
                 <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Chọn phạm vi phụ trách (Sion / Khu vực / Đội Uni):
+                  Chọn phạm vi phụ trách (Cụm / Sion / Khu vực / Đội Uni):
                 </div>
+                {newRole === 'MANAGER' && clusters.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>Theo Cụm Sion (tự động đồng bộ danh sách Sion):</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {clusters.map((cl) => {
+                        const checked = newManagedClusters.includes(cl.id);
+                        return (
+                          <button
+                            key={cl.id}
+                            type="button"
+                            onClick={() => {
+                              const next = checked
+                                ? newManagedClusters.filter((id) => id !== cl.id)
+                                : [...newManagedClusters, cl.id];
+                              setNewManagedClusters(next);
+                              setNewManagedCompanies(
+                                resolveCompanyCodesFromClusterIds(next, clusters, companies)
+                              );
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                              checked
+                                ? 'bg-amber-600 text-white border-amber-600'
+                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                            }`}
+                          >
+                            {cl.name || cl.code}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {(newRole === 'MANAGER' || newRole === 'SION_LEADER' || newRole === 'AREA_LEADER') &&
                   companies.length > 0 && (
                     <div className="space-y-1.5">
@@ -1241,7 +1327,15 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                     (e) => e.toLowerCase() === (user.email || '').toLowerCase().trim()
                   );
                   const companyObj = companies.find((c) => c.code === user.companyCode);
+                  const clusterLabels = (user.managedClusterIds || []).map((cid) => {
+                    const matched = clusters.find(
+                      (cl) =>
+                        cl.id === cid || normalizeOrgCode(cl.code) === normalizeOrgCode(cid)
+                    );
+                    return `Cụm ${matched?.name || matched?.code || cid}`;
+                  });
                   const scopeParts = [
+                    ...clusterLabels,
                     ...(user.managedCompanyCodes || []).map((c) => `Sion ${c}`),
                     ...(user.managedAreaCodes || []).map((a) => `KV ${a}`),
                     ...(user.managedUnitCodes || []).map((u) => `Uni ${u}`),
@@ -1564,6 +1658,43 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {modalRole === 'MANAGER' && clusters.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Chọn Cụm Sion (tự động đồng bộ Sion trực thuộc):</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {clusters.map((cl) => {
+                    const selected = modalClusters.includes(cl.id);
+                    return (
+                      <button
+                        key={cl.id}
+                        type="button"
+                        onClick={() => {
+                          const next = selected
+                            ? modalClusters.filter((id) => id !== cl.id)
+                            : [...modalClusters, cl.id];
+                          setModalClusters(next);
+                          setModalCompanies(
+                            resolveCompanyCodesFromClusterIds(next, clusters, companies)
+                          );
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 cursor-pointer ${
+                          selected
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {selected && <Check className="w-3 h-3" />}
+                        <span>{cl.name || cl.code}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {scopedCompaniesForActor.length > 0 && (
               <div className="space-y-2">

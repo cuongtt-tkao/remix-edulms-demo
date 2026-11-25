@@ -18,6 +18,7 @@ import {
   Sparkles,
   Clock,
   XCircle,
+  RefreshCw,
 } from 'lucide-react';
 import {
   Company,
@@ -39,6 +40,7 @@ import {
 export type SecurityGateMode =
   | 'LOADING'
   | 'UNAUTHENTICATED'
+  | 'PROFILE_ERROR'
   | 'ONBOARDING'
   | 'PENDING_APPROVAL'
   | 'REJECTED_APPROVAL'
@@ -58,6 +60,7 @@ interface SecurityGateScreenProps {
   mode: SecurityGateMode;
   firebaseUser: FirebaseUser | null;
   currentUser: UserAccount | null;
+  profileError?: string | null;
   companies: Company[];
   areas: Area[];
   departments: Department[];
@@ -66,6 +69,7 @@ interface SecurityGateScreenProps {
   onCompleteOnboarding: (data: OnboardingSubmitData) => Promise<void>;
   onSetupPin: (pinHash: string) => Promise<void>;
   onPinUnlocked: () => void;
+  onRetryProfile?: () => void;
   onLogout: () => void;
 }
 
@@ -76,6 +80,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   mode,
   firebaseUser,
   currentUser,
+  profileError,
   companies,
   areas,
   departments,
@@ -84,6 +89,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   onCompleteOnboarding,
   onSetupPin,
   onPinUnlocked,
+  onRetryProfile,
   onLogout,
 }) => {
   // ---------- Auth Gate (Google quick sign-in) ----------
@@ -353,6 +359,54 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Vui lòng chờ trong giây lát.
               </p>
+            </div>
+          )}
+
+          {mode === 'PROFILE_ERROR' && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70">
+                <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-extrabold text-rose-900 dark:text-rose-200">
+                    Không thể tải hồ sơ tài khoản
+                  </div>
+                  <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1 leading-relaxed whitespace-pre-line break-words">
+                    {profileError ||
+                      'Đã xảy ra lỗi khi đọc dữ liệu hồ sơ từ Firestore. Vui lòng thử lại.'}
+                  </p>
+                </div>
+              </div>
+
+              {firebaseUser?.email && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 text-center truncate">
+                  Tài khoản đang đăng nhập: <strong>{firebaseUser.email}</strong>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                {onRetryProfile && (
+                  <button
+                    type="button"
+                    onClick={onRetryProfile}
+                    className="py-2.5 px-3 rounded-2xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Thử lại</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className={`${
+                    onRetryProfile ? '' : 'col-span-2'
+                  } py-2.5 px-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-200 border border-rose-200 dark:border-rose-800 text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer`}
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Đăng xuất</span>
+                </button>
+              </div>
             </div>
           )}
 

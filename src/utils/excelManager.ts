@@ -3,6 +3,7 @@ import {
   Company,
   Area,
   Department,
+  OrgCluster,
   Member,
   UserAccount,
   DiscipleRecord,
@@ -78,12 +79,13 @@ function canExportMemberOrgRecord(viewer: UserAccount | null | undefined, m: Mem
 
 /**
  * 1. Xuất file Cấu hình Danh mục Hệ thống (.xlsx)
- * Bao gồm 3 Sheets: Sion - Công Ty, Khu Vực, Ban Ngành
+ * Bao gồm 4 Sheets: Sion - Công Ty, Khu Vực, Ban Ngành, Cụm Sion
  */
 export function exportSystemConfigExcel(
   companies: Company[],
   areas: Area[],
-  departments: Department[]
+  departments: Department[],
+  clusters: OrgCluster[] = []
 ): void {
   const wb = XLSX.utils.book_new();
 
@@ -115,6 +117,24 @@ export function exportSystemConfigExcel(
     'Trạng Thái': d.active ? 'Hoạt động' : 'Tạm ngưng',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deptRows), 'Ban Ngành');
+
+  // Sheet 4: Cụm Sion
+  const clusterRows = clusters.map((cl, i) => ({
+    STT: i + 1,
+    'Mã Cụm': cl.code,
+    'Tên Cụm': cl.name,
+    'Danh Sách Sion': (cl.companyCodes || []).join(', '),
+    'Tự Động Còn Lại': cl.isCatchAll ? 'Có' : 'Không',
+    'Mô Tả': cl.description || '',
+    'Trạng Thái': cl.active !== false ? 'Hoạt động' : 'Tạm ngưng',
+  }));
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.json_to_sheet(
+      clusterRows.length ? clusterRows : [{ 'Thông báo': 'Chưa có Cụm Sion' }]
+    ),
+    'Cụm Sion'
+  );
 
   XLSX.writeFile(wb, `HanhThucLuc_DanhMuc_HeThong_${getDateStamp()}.xlsx`);
 }

@@ -22,6 +22,37 @@ export interface Area {
   active: boolean;
 }
 
+/**
+ * Địa vực: cấp nằm giữa Sion và Khu vực (Sion -> Địa vực -> Khu vực -> Thành viên).
+ * areaCodes là danh sách mã Khu vực (trong cùng Sion) thuộc địa vực này.
+ * Rule Firestore không phụ thuộc vào regions; Gru vẫn được cấp phạm vi bằng managedAreaCodes.
+ */
+export interface Region {
+  id: string;
+  code: string;
+  name: string;
+  companyCode: string;
+  areaCodes: string[];
+  active: boolean;
+}
+
+export interface OrgCluster {
+  id: string;
+  code: string; // TH1, ELI, HBC, PER, YSAC
+  name: string; // TH1, ÊLI, HBC, PER, YSAC
+  companyCodes: string[]; // Danh sách mã Sion thuộc cụm
+  isCatchAll?: boolean; // Cụm "Còn lại" (tự động bao gồm các Sion chưa thuộc cụm khác)
+  description?: string;
+  active?: boolean;
+}
+
+export interface SystemClustersConfig {
+  id?: string;
+  clusters: OrgCluster[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface Department {
   id: string;
   code: string;
@@ -241,6 +272,7 @@ export interface RoleAssignment {
   grantedBy: string;
   grantedAt: string;
   note?: string;
+  managedClusterIds?: string[];
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
   managedUnitCodes?: string[];
@@ -283,6 +315,7 @@ export interface UserAccount {
   areaCode: string;
   departmentCode: string;
   unitCode?: string; // Đội / Uni cá nhân
+  managedClusterIds?: string[];
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
   managedUnitCodes?: string[];
