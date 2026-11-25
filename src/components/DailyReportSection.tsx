@@ -47,7 +47,8 @@ import {
 } from '../types/edulms';
 import type { AppTab } from './Navbar';
 import { CustomSelect } from './CustomSelect';
-import { computeDailyMetricsScore, sumDailyReportMetrics } from '../utils/scoringEngine';
+import { computeDailyMetricsScore, sumDailyReportMetrics, sanitizeDailyMetrics } from '../utils/scoringEngine';
+import { extractFirestoreErrorMessage } from '../utils/firestoreError';
 
 interface DailyReportSectionProps {
   currentUser: UserAccount | null;
@@ -221,8 +222,8 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
     if (activePeriod === 'DAY') {
       const existing = userReports.find((r) => r.date === selectedDate);
       if (existing) {
-        setGoalsDraft({ ...EMPTY_DAILY_METRICS, ...existing.goals });
-        setResultsDraft({ ...EMPTY_DAILY_METRICS, ...existing.results });
+        setGoalsDraft(sanitizeDailyMetrics(existing.goals));
+        setResultsDraft(sanitizeDailyMetrics(existing.results));
       } else {
         setGoalsDraft({ ...EMPTY_DAILY_METRICS });
         setResultsDraft({ ...EMPTY_DAILY_METRICS });
@@ -232,14 +233,14 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
         (g) => g.uid === currentUser?.id && g.periodType === 'MONTH' && g.periodKey === selectedMonth
       );
       setGoalsDraft(
-        existing ? { ...EMPTY_DAILY_METRICS, ...existing.goals } : { ...EMPTY_DAILY_METRICS }
+        existing ? sanitizeDailyMetrics(existing.goals) : { ...EMPTY_DAILY_METRICS }
       );
     } else {
       const existing = periodGoals.find(
         (g) => g.uid === currentUser?.id && g.periodType === 'YEAR' && g.periodKey === selectedYear
       );
       setGoalsDraft(
-        existing ? { ...EMPTY_DAILY_METRICS, ...existing.goals } : { ...EMPTY_DAILY_METRICS }
+        existing ? sanitizeDailyMetrics(existing.goals) : { ...EMPTY_DAILY_METRICS }
       );
     }
   }, [activePeriod, selectedDate, selectedMonth, selectedYear, userReports, periodGoals, currentUser?.id]);
@@ -282,7 +283,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
   const sanitizeNumericInput = (raw: string): number => {
     const digits = raw.replace(/\D/g, '');
     if (!digits) return 0;
-    return Math.max(0, parseInt(digits, 10) || 0);
+    return Math.min(99999, Math.max(0, parseInt(digits, 10) || 0));
   };
 
   const handleGoalChange = (key: DailyMetricKey, raw: string) => {
@@ -302,18 +303,21 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
     }
     setIsSaving(true);
     try {
+      const cleanGoals = sanitizeDailyMetrics(goalsDraft);
+      const cleanResults = sanitizeDailyMetrics(resultsDraft);
       if (activePeriod === 'DAY') {
-        await onSaveDailyReport(selectedDate, goalsDraft, resultsDraft);
+        await onSaveDailyReport(selectedDate, cleanGoals, cleanResults);
         onShowNotification(`Đã lưu báo cáo ngày ${selectedDate.split('-').reverse().join('/')}!`);
       } else if (activePeriod === 'MONTH') {
-        await onSavePeriodGoal('MONTH', selectedMonth, goalsDraft);
+        await onSavePeriodGoal('MONTH', selectedMonth, cleanGoals);
         onShowNotification(`Đã lưu mục tiêu tháng ${selectedMonth.split('-').reverse().join('/')}!`);
       } else {
-        await onSavePeriodGoal('YEAR', selectedYear, goalsDraft);
+        await onSavePeriodGoal('YEAR', selectedYear, cleanGoals);
         onShowNotification(`Đã lưu mục tiêu năm ${selectedYear}!`);
       }
-    } catch (err: any) {
-      onShowNotification(`Lỗi lưu dữ liệu: ${err?.message || 'Thử lại sau'}`);
+    } catch (err: unknown) {
+      const msg = extractFirestoreErrorMessage(err);
+      onShowNotification(`Lỗi lưu dữ liệu: ${msg}`);
     } finally {
       setIsSaving(false);
     }

@@ -1,25 +1,18 @@
-/**
- * Tiện ích thông báo đăng ký mới cho Admin / Tổng Quản trị:
- * - Âm báo nhẹ qua Web Audio API (tự bỏ qua nếu trình duyệt chặn autoplay).
- * - Thông báo trình duyệt (Web Notification API) khi người dùng đã cấp quyền.
- */
-
-export type BrowserNotificationPermission = 'granted' | 'denied' | 'default' | 'unsupported';
+export type BrowserNotificationPermission = NotificationPermission | 'unsupported';
 
 export function getBrowserNotificationPermission(): BrowserNotificationPermission {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') {
     return 'unsupported';
   }
   return Notification.permission;
 }
 
 export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationPermission> {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') {
     return 'unsupported';
   }
   try {
-    const res = await Notification.requestPermission();
-    return res;
+    return await Notification.requestPermission();
   } catch {
     return Notification.permission;
   }
@@ -36,26 +29,27 @@ export function playRegistrationChime(): void {
     const ctx = new AudioCtx();
     const now = ctx.currentTime;
 
-    const notes = [587.33, 880]; // D5 -> A5 gentle chime
-    notes.forEach((freq, idx) => {
+    const playTone = (freq: number, startOffset: number, duration: number) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.12);
-      gain.gain.setValueAtTime(0.0001, now + idx * 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.08, now + idx * 0.12 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.12 + 0.28);
+      osc.frequency.setValueAtTime(freq, now + startOffset);
+      gain.gain.setValueAtTime(0.0001, now + startOffset);
+      gain.gain.exponentialRampToValueAtTime(0.08, now + startOffset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.start(now + idx * 0.12);
-      osc.stop(now + idx * 0.12 + 0.3);
-    });
+      osc.start(now + startOffset);
+      osc.stop(now + startOffset + duration + 0.02);
+    };
 
+    playTone(587.33, 0, 0.14); // D5
+    playTone(880, 0.13, 0.22); // A5
     setTimeout(() => {
       ctx.close().catch(() => undefined);
-    }, 800);
+    }, 600);
   } catch {
-    // Bỏ qua nếu trình duyệt chưa cho phép phát âm thanh
+    // Bỏ qua nếu trình duyệt chặn autoplay AudioContext
   }
 }
 
@@ -64,24 +58,26 @@ export function showBrowserRegistrationNotification(
   body: string,
   onClick?: () => void
 ): void {
-  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') return;
   if (Notification.permission !== 'granted') return;
+
   try {
     const notif = new Notification(title, {
       body,
-      icon: '/icon.svg?v=2',
-      tag: 'hanhthucluc-new-registration',
+      tag: 'hanhthucluc-pending-registration',
     });
-    notif.onclick = () => {
-      try {
-        window.focus();
-      } catch {
-        // ignore
-      }
-      notif.close();
-      onClick?.();
-    };
+    if (onClick) {
+      notif.onclick = () => {
+        try {
+          window.focus();
+          onClick();
+          notif.close();
+        } catch {
+          // ignore
+        }
+      };
+    }
   } catch {
-    // Một số môi trường (ví dụ iOS Safari hoặc PWA không hỗ trợ constructor trực tiếp) -> bỏ qua
+    // ignore browser notification failures
   }
 }

@@ -53,6 +53,15 @@ export interface SystemClustersConfig {
   updatedBy?: string;
 }
 
+export interface SystemOrgSyncConfig {
+  id?: string;
+  orgInitialized?: boolean;
+  deletedCompanyCodes: string[];
+  deletedAreaKeys: string[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface Department {
   id: string;
   code: string;

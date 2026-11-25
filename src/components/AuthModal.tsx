@@ -28,8 +28,6 @@ import {
 } from '../utils/pinSecurity';
 import { cleanRawAreaCode, normalizeOrgCode } from '../utils/rbac';
 import {
-  INITIAL_COMPANIES,
-  INITIAL_AREAS,
   INITIAL_DEPARTMENTS,
 } from '../data/competitionStore';
 
@@ -68,8 +66,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   requireRegistrationApproval = true,
   onRegister,
 }) => {
-  const effectiveCompanies = companies.length > 0 ? companies : INITIAL_COMPANIES;
-  const effectiveAreas = areas.length > 0 ? areas : INITIAL_AREAS;
+  const effectiveCompanies = companies;
+  const effectiveAreas = areas;
   const effectiveDepartments = departments.length > 0 ? departments : INITIAL_DEPARTMENTS;
 
   const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT_PASS'>(initialMode);

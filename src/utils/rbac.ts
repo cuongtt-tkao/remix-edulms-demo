@@ -163,7 +163,7 @@ export function createDefaultClustersForCompanies(companies: Company[]): OrgClus
       id: 'cluster-th1',
       code: 'TH1',
       name: 'TH1',
-      companyCodes: th1Codes.length > 0 ? th1Codes : ['Th1'],
+      companyCodes: th1Codes,
       isCatchAll: false,
       description: 'Cụm Thương Hội 1',
       active: true,

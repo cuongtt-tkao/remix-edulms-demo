@@ -145,6 +145,9 @@
         "autoApprovePreAssigned": { "type": "boolean" },
         "enabled": { "type": "boolean" },
         "rules": { "type": "array" },
+        "orgInitialized": { "type": "boolean" },
+        "deletedCompanyCodes": { "type": "array" },
+        "deletedAreaKeys": { "type": "array" },
         "updatedAt": { "type": "string", "maxLength": 50 },
         "updatedBy": { "type": "string", "maxLength": 100 }
       }

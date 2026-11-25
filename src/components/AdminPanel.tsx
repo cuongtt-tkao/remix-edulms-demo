@@ -138,18 +138,18 @@ interface AdminPanelProps {
   regions?: Region[];
   onAddRegion?: (region: Omit<Region, 'id'>) => void;
   onUpdateRegion?: (region: Region) => void;
-  onDeleteRegion?: (id: string) => void;
+  onDeleteRegion?: (id: string) => Promise<boolean> | void;
   departments: Department[];
   members: Member[];
-  onAddCompany: (company: Omit<Company, 'id'>) => void;
-  onUpdateCompany: (company: Company) => void;
-  onDeleteCompany: (id: string) => void;
-  onAddArea: (area: Omit<Area, 'id'>) => void;
-  onUpdateArea: (area: Area) => void;
-  onDeleteArea: (id: string) => void;
+  onAddCompany: (company: Omit<Company, 'id'>) => Promise<boolean> | void;
+  onUpdateCompany: (company: Company) => Promise<boolean> | void;
+  onDeleteCompany: (id: string) => Promise<boolean> | void;
+  onAddArea: (area: Omit<Area, 'id'>) => Promise<boolean> | void;
+  onUpdateArea: (area: Area) => Promise<boolean> | void;
+  onDeleteArea: (id: string) => Promise<boolean> | void;
   onAddDepartment: (department: Omit<Department, 'id'>) => void;
   onUpdateDepartment: (department: Department) => void;
-  onDeleteDepartment: (id: string) => void;
+  onDeleteDepartment: (id: string) => Promise<boolean> | void;
   onAddMember: (member: Omit<Member, 'id' | 'code' | 'score' | 'targets' | 'createdAt'>) => void;
   onUpdateMember: (member: Member) => void;
   onDeleteMember: (id: string) => void;
@@ -552,8 +552,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{
     title: string;
-    onConfirm: () => void;
+    onConfirm: () => Promise<void> | void;
   } | null>(null);
+  const [isDeletingConfirm, setIsDeletingConfirm] = useState<boolean>(false);
 
   // File input refs
   const configFileRef = useRef<HTMLInputElement>(null);
@@ -799,33 +800,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // Handlers for Company
-  const handleSaveCompany = (e: React.FormEvent) => {
+  const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCompanyCode.trim() || !newCompanyName.trim()) {
+    const cleanCode = newCompanyCode.trim();
+    const cleanName = newCompanyName.trim();
+    if (!cleanCode || !cleanName) {
       onShowNotification('Vui lòng điền đủ mã và tên công ty.');
       return;
     }
-    onAddCompany({
-      code: newCompanyCode.trim(),
-      name: newCompanyName.trim(),
+    const normCode = normalizeOrgCode(cleanCode);
+    if (companies.some((c) => normalizeOrgCode(c.code) === normCode)) {
+      onShowNotification(`Mã Sion "${cleanCode}" đã tồn tại.`);
+      return;
+    }
+    const ok = await onAddCompany({
+      code: cleanCode,
+      name: cleanName,
       active: true,
     });
+    if (ok === false) return;
     setNewCompanyCode('');
     setNewCompanyName('');
     setIsAddCompanyOpen(false);
     onShowNotification('Đã thêm công ty mới thành công!');
   };
 
-  const handleUpdateCompanySubmit = (e: React.FormEvent) => {
+  const handleUpdateCompanySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCompany) return;
-    onUpdateCompany(editingCompany);
+    const ok = await onUpdateCompany(editingCompany);
+    if (ok === false) return;
     setEditingCompany(null);
     onShowNotification('Đã cập nhật công ty thành công!');
   };
 
   // Handlers for Area (tách độc lập theo từng Sion — cho phép trùng mã/tên giữa các Sion khác nhau)
-  const handleSaveArea = (e: React.FormEvent) => {
+  const handleSaveArea = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = cleanRawAreaCode(newAreaCode);
     const cleanName = newAreaName.trim() || cleanCode;
@@ -846,19 +856,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       );
       return;
     }
-    onAddArea({
+    const ok = await onAddArea({
       code: cleanCode,
       name: cleanName,
       companyCode: newAreaCompany,
       active: true,
     });
+    if (ok === false) return;
     setNewAreaCode('');
     setNewAreaName('');
     setIsAddAreaOpen(false);
     onShowNotification(`Đã thêm ${formatAreaDisplayName(cleanCode, cleanName)} cho Sion ${newAreaCompany}!`);
   };
 
-  const handleUpdateAreaSubmit = (e: React.FormEvent) => {
+  const handleUpdateAreaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingArea) return;
     const cleanCode = cleanRawAreaCode(editingArea.code);
@@ -881,11 +892,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       );
       return;
     }
-    onUpdateArea({
+    const ok = await onUpdateArea({
       ...editingArea,
       code: cleanCode,
       name: cleanName,
     });
+    if (ok === false) return;
     setEditingArea(null);
     onShowNotification('Đã cập nhật khu vực thành công!');
   };
@@ -1788,15 +1800,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           )}
                           {canDeleteCompany && (
                             <button
-                              onClick={() =>
+                              onClick={() => {
+                                const attachedUsersCount = (usersList || []).filter(
+                                  (u) =>
+                                    resolveUserApprovalStatus(u) !== 'REJECTED' &&
+                                    normalizeOrgCode(u.companyCode) === compNorm
+                                ).length;
+                                const attachedMembersCount = members.filter(
+                                  (m) => normalizeOrgCode(m.companyCode) === compNorm
+                                ).length;
+                                const childRegionsCount = regions.filter(
+                                  (r) => normalizeOrgCode(r.companyCode) === compNorm
+                                ).length;
+                                const cascadeParts: string[] = [];
+                                if (compAreas.length > 0) cascadeParts.push(`${compAreas.length} khu vực`);
+                                if (childRegionsCount > 0) cascadeParts.push(`${childRegionsCount} địa vực`);
+                                const cascadeNote =
+                                  cascadeParts.length > 0
+                                    ? ` Sẽ xóa kèm ${cascadeParts.join(' và ')} trực thuộc.`
+                                    : '';
+                                const attachedNote =
+                                  attachedUsersCount > 0 || attachedMembersCount > 0
+                                    ? ` Hiện có ${attachedUsersCount} tài khoản và ${attachedMembersCount} thành viên mang mã Sion này (sẽ gỡ phạm vi quản lý liên quan và chặn tự đồng bộ lại).`
+                                    : '';
                                 setConfirmDeleteTarget({
-                                  title: `Xóa công ty ${comp.name}?`,
-                                  onConfirm: () => {
-                                    onDeleteCompany(comp.id);
-                                    onShowNotification(`Đã xóa công ty ${comp.name}.`);
+                                  title: `Xóa hẳn Sion ${comp.name} (${comp.code})?${cascadeNote}${attachedNote}`,
+                                  onConfirm: async () => {
+                                    await onDeleteCompany(comp.id);
                                   },
-                                })
-                              }
+                                });
+                              }}
                               className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
                               title="Xóa công ty"
                             >
@@ -1873,14 +1906,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             areas={scopedAreas}
             members={scopedMembers}
             isAdmin={isAdmin}
-            canManageCompany={(code) =>
+            canManageCompany={(code: string) =>
               isAdmin ||
               ((currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') &&
                 viewerCompanyScope.has(normalizeOrgCode(code)))
             }
-            onAddRegion={(r) => onAddRegion?.(r)}
-            onUpdateRegion={(r) => onUpdateRegion?.(r)}
-            onDeleteRegion={(id) => onDeleteRegion?.(id)}
+            onAddRegion={(r: Omit<Region, 'id'>) => onAddRegion?.(r)}
+            onUpdateRegion={(r: Region) => onUpdateRegion?.(r)}
+            onDeleteRegion={(id: string) => onDeleteRegion?.(id)}
             onShowNotification={onShowNotification}
             requestConfirm={setConfirmDeleteTarget}
           />
@@ -2054,14 +2087,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 currentUser?.role === 'SION_LEADER') && (
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={async () => {
                                     const nextActive = area.active === false;
-                                    onUpdateArea({ ...area, active: nextActive });
-                                    onShowNotification(
-                                      nextActive
-                                        ? `Đã kích hoạt lại khu vực ${area.code}.`
-                                        : `Đã tạm ngừng hoạt động khu vực ${area.code}.`
-                                    );
+                                    const ok = await onUpdateArea({ ...area, active: nextActive });
+                                    if (ok !== false) {
+                                      onShowNotification(
+                                        nextActive
+                                          ? `Đã kích hoạt lại khu vực ${area.code}.`
+                                          : `Đã tạm ngừng hoạt động khu vực ${area.code}.`
+                                      );
+                                    }
                                   }}
                                   className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 mr-1 transition cursor-pointer"
                                   title={
@@ -2095,17 +2130,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     onShowNotification('Hãy ngừng hoạt động Khu vực trước khi xóa.');
                                     return;
                                   }
-                                  if (!isAdmin && areaMembers.length > 0) {
-                                    onShowNotification(
-                                      `Khu vực còn ${areaMembers.length} thành viên. Hãy chuyển họ sang khu vực khác trước khi xóa.`
-                                    );
-                                    return;
-                                  }
+                                  const aCompNorm = normalizeOrgCode(area.companyCode);
+                                  const aCodeNorm = normalizeOrgCode(cleanRawAreaCode(area.code));
+                                  const attachedUsersCount = (usersList || []).filter(
+                                    (u) =>
+                                      resolveUserApprovalStatus(u) !== 'REJECTED' &&
+                                      normalizeOrgCode(u.companyCode) === aCompNorm &&
+                                      normalizeOrgCode(cleanRawAreaCode(u.areaCode)) === aCodeNorm
+                                  ).length;
+                                  const attachedMembersCount = members.filter(
+                                    (m) =>
+                                      normalizeOrgCode(m.companyCode) === aCompNorm &&
+                                      normalizeOrgCode(cleanRawAreaCode(m.areaCode)) === aCodeNorm
+                                  ).length;
+                                  const attachedNote =
+                                    attachedUsersCount > 0 || attachedMembersCount > 0
+                                      ? ` Hiện có ${attachedUsersCount} tài khoản và ${attachedMembersCount} thành viên mang mã khu vực này (sẽ gỡ phạm vi quản lý liên quan và chặn tự đồng bộ lại).`
+                                      : '';
                                   setConfirmDeleteTarget({
-                                    title: `Xóa khu vực ${area.name} (${area.companyCode})?`,
-                                    onConfirm: () => {
-                                      onDeleteArea(area.id);
-                                      onShowNotification(`Đã xóa khu vực ${area.name}.`);
+                                    title: `Xóa hẳn khu vực ${area.name} (${area.companyCode})?${attachedNote}`,
+                                    onConfirm: async () => {
+                                      await onDeleteArea(area.id);
                                     },
                                   });
                                 }}
@@ -2289,9 +2334,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 onClick={() =>
                                   setConfirmDeleteTarget({
                                     title: `Xóa ban ngành ${dept.name}?`,
-                                    onConfirm: () => {
-                                      onDeleteDepartment(dept.id);
-                                      onShowNotification(`Đã xóa ban ngành ${dept.name}.`);
+                                    onConfirm: async () => {
+                                      const ok = await onDeleteDepartment(dept.id);
+                                      if (ok !== false) {
+                                        onShowNotification(`Đã xóa ban ngành ${dept.name}.`);
+                                      }
                                     },
                                   })
                                 }
@@ -4073,7 +4120,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* IN-APP DELETE CONFIRMATION MODAL */}
         {confirmDeleteTarget && (
           <div
-            onClick={() => setConfirmDeleteTarget(null)}
+            onClick={() => {
+              if (!isDeletingConfirm) setConfirmDeleteTarget(null);
+            }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs"
           >
             <div
@@ -4089,20 +4138,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
+                  disabled={isDeletingConfirm}
                   onClick={() => setConfirmDeleteTarget(null)}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer disabled:opacity-50"
                 >
                   Hủy
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    confirmDeleteTarget.onConfirm();
-                    setConfirmDeleteTarget(null);
+                  disabled={isDeletingConfirm}
+                  onClick={async () => {
+                    if (isDeletingConfirm) return;
+                    setIsDeletingConfirm(true);
+                    try {
+                      await confirmDeleteTarget.onConfirm();
+                    } finally {
+                      setIsDeletingConfirm(false);
+                      setConfirmDeleteTarget(null);
+                    }
                   }}
-                  className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                  className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer disabled:opacity-60"
                 >
-                  Xóa ngay
+                  {isDeletingConfirm ? 'Đang xóa...' : 'Xóa ngay'}
                 </button>
               </div>
             </div>

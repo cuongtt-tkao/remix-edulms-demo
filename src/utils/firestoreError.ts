@@ -62,3 +62,18 @@ export async function testFirestoreConnection(): Promise<void> {
     }
   }
 }
+
+export function extractFirestoreErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || '');
+  if (!raw) return 'Thử lại sau';
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.error === 'string' && parsed.error) {
+      return parsed.error;
+    }
+  } catch {
+    // Không phải JSON FirestoreErrorInfo
+  }
+  return raw;
+}
+

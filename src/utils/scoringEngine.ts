@@ -328,3 +328,29 @@ export function computeDailyMetricsScore(
   );
 }
 
+/**
+ * Chuẩn hóa đối tượng chỉ số báo cáo hằng ngày: chỉ giữ đúng 7 khóa hợp lệ
+ * (kn, tham, gm, dt, hh, kt, wsNew) với giá trị số nguyên trong khoảng 0..99999
+ * để khớp hoàn toàn với isValidDailyMetricMap trong firestore.rules.
+ */
+export function sanitizeDailyMetrics(
+  raw?: Partial<import('../types/edulms').DailyReportMetrics> | Record<string, unknown> | null
+): import('../types/edulms').DailyReportMetrics {
+  const clampMetric = (val: unknown): number => {
+    const n = typeof val === 'number' ? val : Number(val);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.min(99999, Math.round(n));
+  };
+  const rec = (raw || {}) as Record<string, unknown>;
+  return {
+    kn: clampMetric(rec.kn),
+    tham: clampMetric(rec.tham),
+    gm: clampMetric(rec.gm),
+    dt: clampMetric(rec.dt),
+    hh: clampMetric(rec.hh),
+    kt: clampMetric(rec.kt),
+    wsNew: clampMetric(rec.wsNew),
+  };
+}
+
+

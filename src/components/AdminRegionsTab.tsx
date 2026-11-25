@@ -1,24 +1,33 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Power, MapPinned, X, Check } from 'lucide-react';
-import type { Area, Company, Member, Region } from '../types/edulms';
+import {
+  MapPinned,
+  Plus,
+  Edit3,
+  Trash2,
+  Check,
+  X,
+  Power,
+  Layers,
+} from 'lucide-react';
+import { Area, Company, Member, Region } from '../types/edulms';
+import { normalizeOrgCode } from '../utils/rbac';
+import { CustomSelect } from './CustomSelect';
 
 interface AdminRegionsTabProps {
   regions: Region[];
-  companies: Company[]; // đã lọc theo phạm vi người dùng
-  areas: Area[]; // đã lọc theo phạm vi người dùng
+  companies: Company[];
+  areas: Area[];
   members: Member[];
   isAdmin: boolean;
-  canManageCompany: (companyCode: string) => boolean;
+  canManageCompany: (code: string) => boolean;
   onAddRegion: (region: Omit<Region, 'id'>) => void;
   onUpdateRegion: (region: Region) => void;
-  onDeleteRegion: (id: string) => void;
+  onDeleteRegion: (id: string) => Promise<boolean> | void;
   onShowNotification: (msg: string) => void;
-  requestConfirm: (target: { title: string; onConfirm: () => void }) => void;
+  requestConfirm: (target: { title: string; onConfirm: () => Promise<void> | void } | null) => void;
 }
 
-const norm = (v?: string | null) => (v || '').trim().toLowerCase();
-
-export function AdminRegionsTab({
+export const AdminRegionsTab: React.FC<AdminRegionsTabProps> = ({
   regions,
   companies,
   areas,
@@ -30,165 +39,141 @@ export function AdminRegionsTab({
   onDeleteRegion,
   onShowNotification,
   requestConfirm,
-}: AdminRegionsTabProps) {
+}) => {
   const [filterCompany, setFilterCompany] = useState<string>('ALL');
-  const [isAdding, setIsAdding] = useState(false);
-  const [newCompany, setNewCompany] = useState('');
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [newCompanyCode, setNewCompanyCode] = useState<string>(companies[0]?.code || '');
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
-  const [editing, setEditing] = useState<Region | null>(null);
+  const [newAreaCodes, setNewAreaCodes] = useState<string[]>([]);
+
+  const [editingRegion, setEditingRegion] = useState<Region | null>(null);
 
   const manageableCompanies = useMemo(
     () => companies.filter((c) => canManageCompany(c.code)),
     [companies, canManageCompany]
   );
-  const canCreate = manageableCompanies.length > 0;
 
-  const visibleCompanyCodes = useMemo(
-    () => new Set(companies.map((c) => norm(c.code))),
-    [companies]
-  );
+  const canCreateAny = manageableCompanies.length > 0;
 
-  const visibleRegions = useMemo(
-    () =>
-      regions
-        .filter((r) => visibleCompanyCodes.has(norm(r.companyCode)))
-        .filter((r) => filterCompany === 'ALL' || norm(r.companyCode) === norm(filterCompany))
-        .sort(
-          (a, b) =>
-            a.companyCode.localeCompare(b.companyCode) || a.code.localeCompare(b.code)
-        ),
-    [regions, visibleCompanyCodes, filterCompany]
-  );
+  const filteredRegions = useMemo(() => {
+    const allowedCompanySet = new Set(companies.map((c) => normalizeOrgCode(c.code)));
+    return regions.filter((r) => {
+      const compNorm = normalizeOrgCode(r.companyCode);
+      if (!allowedCompanySet.has(compNorm)) return false;
+      if (filterCompany !== 'ALL' && compNorm !== normalizeOrgCode(filterCompany)) return false;
+      return true;
+    });
+  }, [regions, companies, filterCompany]);
 
-  // Khu vực đã thuộc một địa vực khác (theo từng Sion)
-  const areaOwnerRegion = (companyCode: string, areaCode: string, exceptId?: string) =>
-    regions.find(
-      (r) =>
-        r.id !== exceptId &&
-        norm(r.companyCode) === norm(companyCode) &&
-        (r.areaCodes || []).some((a) => norm(a) === norm(areaCode))
-    );
+  const areasForCompany = (compCode: string) =>
+    areas.filter((a) => normalizeOrgCode(a.companyCode) === normalizeOrgCode(compCode));
 
-  const handleAdd = (e: React.FormEvent) => {
+  const toggleCodeInList = (list: string[], code: string): string[] => {
+    const norm = normalizeOrgCode(code);
+    const exists = list.some((x) => normalizeOrgCode(x) === norm);
+    return exists ? list.filter((x) => normalizeOrgCode(x) !== norm) : [...list, code];
+  };
+
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    const company = newCompany || manageableCompanies[0]?.code || '';
-    const code = newCode.trim();
-    if (!company || !code) {
-      onShowNotification('Vui lòng chọn Sion và nhập mã Địa vực.');
+    const targetComp = newCompanyCode || manageableCompanies[0]?.code || '';
+    const cleanCode = newCode.trim().slice(0, 40);
+    const cleanName = (newName.trim() || cleanCode).slice(0, 80);
+    if (!targetComp) {
+      onShowNotification('Vui lòng chọn Sion cho Địa vực.');
       return;
     }
-    if (!canManageCompany(company)) {
+    if (!canManageCompany(targetComp)) {
       onShowNotification('Bạn không có quyền thêm Địa vực cho Sion này.');
       return;
     }
-    const dup = regions.find(
-      (r) => norm(r.companyCode) === norm(company) && norm(r.code) === norm(code)
-    );
-    if (dup) {
-      onShowNotification(`Địa vực "${code}" đã tồn tại trong Sion ${company}.`);
+    if (!cleanCode) {
+      onShowNotification('Vui lòng nhập mã Địa vực.');
       return;
     }
+    const duplicate = regions.some(
+      (r) =>
+        normalizeOrgCode(r.companyCode) === normalizeOrgCode(targetComp) &&
+        normalizeOrgCode(r.code) === normalizeOrgCode(cleanCode)
+    );
+    if (duplicate) {
+      onShowNotification(`Địa vực "${cleanCode}" đã tồn tại trong Sion ${targetComp}.`);
+      return;
+    }
+
     onAddRegion({
-      code,
-      name: newName.trim() || code,
-      companyCode: company,
-      areaCodes: [],
+      code: cleanCode,
+      name: cleanName,
+      companyCode: targetComp,
+      areaCodes: newAreaCodes,
       active: true,
     });
     setNewCode('');
     setNewName('');
-    setIsAdding(false);
-    onShowNotification(`Đã thêm Địa vực ${code} cho Sion ${company}.`);
+    setNewAreaCodes([]);
+    setIsAddOpen(false);
+    onShowNotification(`Đã thêm Địa vực "${cleanName}" (${targetComp}).`);
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editing) return;
-    if (!canManageCompany(editing.companyCode)) {
-      onShowNotification('Bạn không có quyền sửa Địa vực này.');
+    if (!editingRegion) return;
+    const cleanCode = editingRegion.code.trim().slice(0, 40);
+    const cleanName = (editingRegion.name.trim() || cleanCode).slice(0, 80);
+    if (!cleanCode) {
+      onShowNotification('Mã Địa vực không được để trống.');
       return;
     }
     onUpdateRegion({
-      ...editing,
-      code: editing.code.trim() || editing.code,
-      name: editing.name.trim() || editing.code,
+      ...editingRegion,
+      code: cleanCode,
+      name: cleanName,
     });
-    setEditing(null);
-    onShowNotification('Đã cập nhật Địa vực.');
+    setEditingRegion(null);
+    onShowNotification(`Đã cập nhật Địa vực "${cleanName}".`);
   };
-
-  const toggleActive = (r: Region) => {
-    onUpdateRegion({ ...r, active: !r.active });
-    onShowNotification(
-      r.active ? `Đã ngừng hoạt động Địa vực ${r.name}.` : `Đã kích hoạt lại Địa vực ${r.name}.`
-    );
-  };
-
-  const tryDelete = (r: Region) => {
-    const memberCount = members.filter(
-      (m) =>
-        norm(m.companyCode) === norm(r.companyCode) &&
-        (r.areaCodes || []).some((a) => norm(a) === norm(m.areaCode))
-    ).length;
-    if (!isAdmin) {
-      if (r.active) {
-        onShowNotification('Hãy "Ngừng hoạt động" Địa vực trước khi xóa.');
-        return;
-      }
-      if ((r.areaCodes || []).length > 0 || memberCount > 0) {
-        onShowNotification(
-          'Địa vực còn Khu vực hoặc thành viên. Hãy chuyển Khu vực sang Địa vực khác trước khi xóa.'
-        );
-        return;
-      }
-    }
-    requestConfirm({
-      title:
-        memberCount > 0 || (r.areaCodes || []).length > 0
-          ? `Xóa Địa vực ${r.name}? Đang có ${(r.areaCodes || []).length} Khu vực / ${memberCount} thành viên liên quan (Khu vực và thành viên không bị xóa).`
-          : `Xóa Địa vực ${r.name}?`,
-      onConfirm: () => {
-        onDeleteRegion(r.id);
-        onShowNotification(`Đã xóa Địa vực ${r.name}.`);
-      },
-    });
-  };
-
-  const editingAreas = editing
-    ? areas.filter((a) => norm(a.companyCode) === norm(editing.companyCode))
-    : [];
 
   return (
     <div className="mt-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-4">
         <div>
-          <h3 className="font-bold text-sm text-slate-800 dark:text-white">
-            Địa vực theo từng Sion
+          <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+            <MapPinned className="w-4 h-4 text-blue-600" />
+            <span>Quản lý Địa vực theo Sion</span>
           </h3>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Sion → Địa vực → Khu vực → Thành viên. Mỗi Địa vực gom nhiều Khu vực (mỗi Khu vực chỉ thuộc một Địa vực).
+            Cấp trung gian giữa Sion và Khu vực (Sion → Địa vực → Khu vực). Phân quyền dữ liệu vẫn giữ theo Khu vực.
           </p>
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={filterCompany}
-            onChange={(e) => setFilterCompany(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
-          >
-            <option value="ALL">Tất cả Sion</option>
-            {companies.map((c) => (
-              <option key={c.id} value={c.code}>
-                {c.code} · {c.name}
-              </option>
-            ))}
-          </select>
-          {canCreate && (
+          <div className="w-44">
+            <CustomSelect
+              size="sm"
+              searchable={false}
+              value={filterCompany}
+              onChange={setFilterCompany}
+              options={[
+                { value: 'ALL', label: 'Tất cả Sion' },
+                ...companies.map((c) => ({
+                  value: c.code,
+                  label: `${c.code} · ${c.name}`,
+                })),
+              ]}
+            />
+          </div>
+          {canCreateAny && (
             <button
               type="button"
               onClick={() => {
-                setNewCompany(manageableCompanies[0]?.code || '');
-                setIsAdding(true);
+                const defaultComp =
+                  filterCompany !== 'ALL' && canManageCompany(filterCompany)
+                    ? filterCompany
+                    : manageableCompanies[0]?.code || '';
+                setNewCompanyCode(defaultComp);
+                setNewAreaCodes([]);
+                setIsAddOpen((prev) => !prev);
               }}
               className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
@@ -199,247 +184,334 @@ export function AdminRegionsTab({
         </div>
       </div>
 
-      {isAdding && (
+      {isAddOpen && canCreateAny && (
         <form
-          onSubmit={handleAdd}
-          className="mb-4 p-4 rounded-2xl border border-blue-200 bg-blue-50/60 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
+          onSubmit={handleCreate}
+          className="mb-6 p-4 rounded-2xl bg-blue-50/50 dark:bg-slate-800/60 border border-blue-200 dark:border-slate-700 space-y-3"
         >
-          <label className="text-[11px] font-bold text-slate-600">
-            Sion
-            <select
-              value={newCompany}
-              onChange={(e) => setNewCompany(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
-            >
-              {manageableCompanies.map((c) => (
-                <option key={c.id} value={c.code}>
-                  {c.code} · {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-[11px] font-bold text-slate-600">
-            Mã Địa vực
-            <input
-              value={newCode}
-              onChange={(e) => setNewCode(e.target.value)}
-              maxLength={40}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
-              placeholder="VD: DV1"
-            />
-          </label>
-          <label className="text-[11px] font-bold text-slate-600">
-            Tên hiển thị
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              maxLength={80}
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
-              placeholder="VD: Địa vực 1"
-            />
-          </label>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Check className="w-4 h-4" /> Lưu
-            </button>
+          <div className="font-bold text-xs text-blue-950 dark:text-blue-200">
+            Thêm Địa vực mới
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                Thuộc Sion
+              </label>
+              <CustomSelect
+                size="sm"
+                value={newCompanyCode}
+                onChange={(val) => {
+                  setNewCompanyCode(val);
+                  setNewAreaCodes([]);
+                }}
+                options={manageableCompanies.map((c) => ({
+                  value: c.code,
+                  label: c.name,
+                  badge: c.code,
+                }))}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                Mã Địa vực
+              </label>
+              <input
+                type="text"
+                value={newCode}
+                onChange={(e) => setNewCode(e.target.value)}
+                placeholder="VD: DV1, Bắc, ..."
+                maxLength={40}
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                Tên hiển thị
+              </label>
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="VD: Địa vực 1"
+                maxLength={80}
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">
+              Chọn các Khu vực thuộc Địa vực này ({newAreaCodes.length} đã chọn)
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {areasForCompany(newCompanyCode).length === 0 ? (
+                <span className="text-[11px] text-slate-400 italic">
+                  Sion này chưa có Khu vực nào.
+                </span>
+              ) : (
+                areasForCompany(newCompanyCode).map((a) => {
+                  const selected = newAreaCodes.some(
+                    (c) => normalizeOrgCode(c) === normalizeOrgCode(a.code)
+                  );
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setNewAreaCodes((prev) => toggleCodeInList(prev, a.code))}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer flex items-center gap-1 ${
+                        selected
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-blue-400'
+                      }`}
+                    >
+                      {selected && <Check className="w-3 h-3" />}
+                      <span>{a.name || a.code}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
-              onClick={() => setIsAdding(false)}
-              className="px-3.5 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold cursor-pointer"
+              onClick={() => setIsAddOpen(false)}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-700 cursor-pointer"
             >
               Hủy
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold cursor-pointer"
+            >
+              Lưu Địa vực
             </button>
           </div>
         </form>
       )}
 
-      {editing && (
+      {editingRegion && (
         <form
           onSubmit={handleSaveEdit}
-          className="mb-4 p-4 rounded-2xl border border-amber-200 bg-amber-50/60 space-y-3"
+          className="mb-6 p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 space-y-3"
         >
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-black text-slate-800">
-              Sửa Địa vực {editing.code} · Sion {editing.companyCode}
-            </h4>
+            <div className="font-bold text-xs text-amber-950 dark:text-amber-200">
+              Chỉnh sửa Địa vực: {editingRegion.name} ({editingRegion.companyCode})
+            </div>
             <button
               type="button"
-              onClick={() => setEditing(null)}
-              className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
-              aria-label="Đóng"
+              onClick={() => setEditingRegion(null)}
+              className="p-1 text-slate-500 hover:text-slate-800 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="text-[11px] font-bold text-slate-600">
-              Mã Địa vực
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                Mã Địa vực
+              </label>
               <input
-                value={editing.code}
-                onChange={(e) => setEditing({ ...editing, code: e.target.value })}
+                type="text"
+                value={editingRegion.code}
+                onChange={(e) =>
+                  setEditingRegion((prev) => (prev ? { ...prev, code: e.target.value } : null))
+                }
                 maxLength={40}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-white"
               />
-            </label>
-            <label className="text-[11px] font-bold text-slate-600">
-              Tên hiển thị
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                Tên hiển thị
+              </label>
               <input
-                value={editing.name}
-                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                type="text"
+                value={editingRegion.name}
+                onChange={(e) =>
+                  setEditingRegion((prev) => (prev ? { ...prev, name: e.target.value } : null))
+                }
                 maxLength={80}
-                className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-white"
               />
-            </label>
+            </div>
           </div>
+
           <div>
-            <p className="text-[11px] font-bold text-slate-600 mb-1.5">
-              Khu vực thuộc Địa vực này
-            </p>
-            {editingAreas.length === 0 ? (
-              <p className="text-[11px] text-slate-500 italic">
-                Sion này chưa có Khu vực nào (thêm ở mục "Khu vực").
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {editingAreas.map((a) => {
-                  const owner = areaOwnerRegion(a.companyCode, a.code, editing.id);
-                  const checked = (editing.areaCodes || []).some((x) => norm(x) === norm(a.code));
-                  return (
-                    <label
-                      key={a.id}
-                      className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 ${
-                        owner
-                          ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-                          : checked
-                          ? 'bg-blue-100 border-blue-300 text-blue-800 cursor-pointer'
-                          : 'bg-white border-slate-200 text-slate-700 cursor-pointer'
-                      }`}
-                      title={owner ? `Đã thuộc Địa vực ${owner.code}` : undefined}
-                    >
-                      <input
-                        type="checkbox"
-                        disabled={!!owner}
-                        checked={checked}
-                        onChange={(e) => {
-                          const list = editing.areaCodes || [];
-                          setEditing({
-                            ...editing,
-                            areaCodes: e.target.checked
-                              ? [...list, a.code]
-                              : list.filter((x) => norm(x) !== norm(a.code)),
-                          });
-                        }}
-                      />
-                      KV {a.code}
-                    </label>
-                  );
-                })}
-              </div>
-            )}
+            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">
+              Khu vực trực thuộc ({(editingRegion.areaCodes || []).length})
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {areasForCompany(editingRegion.companyCode).map((a) => {
+                const selected = (editingRegion.areaCodes || []).some(
+                  (c) => normalizeOrgCode(c) === normalizeOrgCode(a.code)
+                );
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() =>
+                      setEditingRegion((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              areaCodes: toggleCodeInList(prev.areaCodes || [], a.code),
+                            }
+                          : null
+                      )
+                    }
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer flex items-center gap-1 ${
+                      selected
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-blue-400'
+                    }`}
+                  >
+                    {selected && <Check className="w-3 h-3" />}
+                    <span>{a.name || a.code}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Check className="w-4 h-4" /> Lưu thay đổi
-            </button>
+
+          <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setEditing(null)}
-              className="px-3.5 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold cursor-pointer"
+              onClick={() => setEditingRegion(null)}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200/70 cursor-pointer"
             >
               Hủy
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold cursor-pointer"
+            >
+              Cập nhật
             </button>
           </div>
         </form>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider">
-            <tr>
-              <th className="py-2.5 px-4">Mã</th>
-              <th className="py-2.5 px-4">Tên Địa vực</th>
-              <th className="py-2.5 px-4">Sion</th>
-              <th className="py-2.5 px-4">Khu vực</th>
-              <th className="py-2.5 px-4">Trạng thái</th>
-              <th className="py-2.5 px-4 text-right">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {visibleRegions.length === 0 && (
-              <tr>
-                <td colSpan={6} className="py-8 text-center text-slate-400 italic">
-                  <MapPinned className="w-5 h-5 mx-auto mb-1 opacity-60" />
-                  Chưa có Địa vực nào trong phạm vi của bạn.
-                </td>
-              </tr>
-            )}
-            {visibleRegions.map((r) => {
-              const manageable = canManageCompany(r.companyCode);
-              return (
-                <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                  <td className="py-3 px-4 font-black text-blue-700">{r.code}</td>
-                  <td className="py-3 px-4 font-bold text-slate-900">{r.name}</td>
-                  <td className="py-3 px-4 text-slate-600">{r.companyCode}</td>
-                  <td className="py-3 px-4 text-slate-600">
-                    {(r.areaCodes || []).length > 0
-                      ? (r.areaCodes || []).map((a) => `KV ${a}`).join(', ')
-                      : '—'}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        r.active
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-slate-100 text-slate-500 border border-slate-200'
-                      }`}
-                    >
-                      {r.active ? 'Đang hoạt động' : 'Đã ngừng'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right whitespace-nowrap">
-                    {manageable ? (
-                      <>
+      {filteredRegions.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center">
+          <Layers className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+            Chưa có Địa vực nào
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Bấm "Thêm Địa vực" để nhóm các Khu vực trong cùng Sion.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {filteredRegions.map((reg) => {
+            const editable = canManageCompany(reg.companyCode);
+            const areaSet = new Set((reg.areaCodes || []).map((c) => normalizeOrgCode(c)));
+            const memberCount = members.filter(
+              (m) =>
+                normalizeOrgCode(m.companyCode) === normalizeOrgCode(reg.companyCode) &&
+                areaSet.has(normalizeOrgCode(m.areaCode))
+            ).length;
+            const canDelete = isAdmin || reg.active === false;
+
+            return (
+              <div
+                key={reg.id}
+                className={`rounded-2xl border p-4 transition ${
+                  reg.active !== false
+                    ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                    : 'bg-slate-50 dark:bg-slate-900/50 border-slate-200/70 dark:border-slate-800/70 opacity-75'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-200 text-[10px] font-black">
+                        {reg.companyCode}
+                      </span>
+                      <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                        {reg.name}
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-500">({reg.code})</span>
+                      {reg.active === false && (
+                        <span className="px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold">
+                          Tạm dừng
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      {(reg.areaCodes || []).length} Khu vực · {memberCount} thành viên
+                    </div>
+                  </div>
+
+                  {editable && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setEditingRegion(reg)}
+                        title="Chỉnh sửa"
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateRegion({
+                            ...reg,
+                            active: reg.active === false,
+                          })
+                        }
+                        title={reg.active === false ? 'Kích hoạt lại' : 'Tạm dừng'}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
+                      {canDelete && (
                         <button
                           type="button"
-                          onClick={() => setEditing({ ...r, areaCodes: [...(r.areaCodes || [])] })}
-                          className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
-                          title="Chỉnh sửa"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleActive(r)}
-                          className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 mr-1 transition cursor-pointer"
-                          title={r.active ? 'Ngừng hoạt động' : 'Kích hoạt lại'}
-                        >
-                          <Power className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => tryDelete(r)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+                          onClick={() =>
+                            requestConfirm({
+                              title: `Xóa Địa vực "${reg.name}" (${reg.companyCode})?`,
+                              onConfirm: async () => {
+                                const ok = await onDeleteRegion(reg.id);
+                                if (ok !== false) {
+                                  onShowNotification(`Đã xóa Địa vực "${reg.name}".`);
+                                }
+                              },
+                            })
+                          }
                           title="Xóa Địa vực"
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      </>
-                    ) : (
-                      <span className="text-[11px] text-slate-400 italic">Chỉ xem</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-1 mt-3">
+                  {(reg.areaCodes || []).length === 0 ? (
+                    <span className="text-[11px] text-slate-400 italic">Chưa gán Khu vực</span>
+                  ) : (
+                    (reg.areaCodes || []).map((aCode) => (
+                      <span
+                        key={aCode}
+                        className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-semibold"
+                      >
+                        KV {aCode}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
-}
+};
