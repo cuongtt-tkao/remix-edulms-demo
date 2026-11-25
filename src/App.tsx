@@ -132,7 +132,7 @@ import { RegionalDetailModal } from './components/RegionalDetailModal';
 import { RulesModal } from './components/RulesModal';
 import { GratitudeCheerPage } from './components/GratitudeCheerPage';
 import { Footer } from './components/Footer';
-import { Shield, Lock, ArrowRight, Calendar, Award, Users, Sliders } from 'lucide-react';
+import { Shield, Lock, ArrowRight, Calendar, Award, Users, Sliders, Bell, X, AlertTriangle } from 'lucide-react';
 import {
   auth,
   db,
@@ -147,6 +147,10 @@ import {
   FIRESTORE_DATABASE_ID,
 } from './firebase';
 import { diagnoseWriteDenied } from './utils/rulesDiagnostics';
+import {
+  playRegistrationChime,
+  showBrowserRegistrationNotification,
+} from './utils/registrationAlert';
 
 function getAreaLeaderQueryPairs(
   compCodes: string[],
@@ -248,9 +252,26 @@ export default function App() {
 
   // ---------- Toast ----------
   const [notification, setNotification] = useState<string | null>(null);
-  const showNotification = useCallback((msg: string) => {
+  const [rulesSyncWarning, setRulesSyncWarning] = useState<string | null>(null);
+  const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showNotification = useCallback((msg: string, durationMs = 3500) => {
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current);
+      notificationTimerRef.current = null;
+    }
     setNotification(msg);
-    setTimeout(() => setNotification(null), 3500);
+    notificationTimerRef.current = setTimeout(() => {
+      setNotification(null);
+      notificationTimerRef.current = null;
+    }, durationMs);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (notificationTimerRef.current) {
+        clearTimeout(notificationTimerRef.current);
+      }
+    };
   }, []);
 
   // ---------- Dữ liệu dùng chung (Cloud Firestore) ----------
@@ -592,44 +613,84 @@ export default function App() {
   const managedAreaKeyEarly = JSON.stringify(currentUser?.managedAreaCodes || []);
   const managedUnitKeyEarly = JSON.stringify(currentUser?.managedUnitCodes || []);
 
+  // Listener danh sách users cho Admin / Tổng Quản trị (tách riêng để không bị reset khi đổi thông tin tổ chức)
   useEffect(() => {
-    if (!dataUnlocked || !firebaseUser?.uid) {
-      setUsersList([]);
-      setUsersLoaded(false);
-      seenPendingUidsRef.current = null;
+    if (!dataUnlocked || !firebaseUser?.uid || !canReadAdminRolesConfig) {
+      if (!dataUnlocked || !firebaseUser?.uid) {
+        setUsersList([]);
+        setUsersLoaded(false);
+        seenPendingUidsRef.current = null;
+      }
       return;
     }
 
-    if (canReadAdminRolesConfig) {
-      const unsubscribe = onSnapshot(
-        collection(db, 'users'),
-        (snap) => {
-          const list: UserAccount[] = snap.docs.map((d) => ({
-            ...(d.data() as Omit<UserAccount, 'id'>),
-            id: d.id,
-          }));
-          setUsersList(list);
-          if (!snap.metadata.fromCache) setUsersLoaded(true);
+    const unsubscribe = onSnapshot(
+      collection(db, 'users'),
+      (snap) => {
+        const list: UserAccount[] = snap.docs.map((d) => ({
+          ...(d.data() as Omit<UserAccount, 'id'>),
+          id: d.id,
+        }));
+        setUsersList(list);
+        if (!snap.metadata.fromCache) setUsersLoaded(true);
 
-          const currentPending = list.filter((u) => resolveUserApprovalStatus(u) === 'PENDING');
-          const currentPendingSet = new Set(currentPending.map((u) => u.id));
-          if (seenPendingUidsRef.current === null) {
+        const currentPending = list
+          .filter((u) => resolveUserApprovalStatus(u) === 'PENDING')
+          .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        const currentPendingSet = new Set(currentPending.map((u) => u.id));
+
+        if (seenPendingUidsRef.current === null) {
+          // Chờ snapshot xác thực từ máy chủ (hoặc nếu cache đã có dữ liệu) mới chốt mốc ban đầu
+          if (!snap.metadata.fromCache) {
             seenPendingUidsRef.current = currentPendingSet;
-          } else {
-            const newlyArrived = currentPending.filter((u) => !seenPendingUidsRef.current!.has(u.id));
-            seenPendingUidsRef.current = currentPendingSet;
-            if (newlyArrived.length > 0) {
-              const first = newlyArrived[0];
-              const extra = newlyArrived.length > 1 ? ` (+${newlyArrived.length - 1} khác)` : '';
+            if (currentPending.length > 0) {
+              const first = currentPending[0];
+              const extra =
+                currentPending.length > 1 ? ` (+${currentPending.length - 1} khác)` : '';
               showNotification(
-                `Đăng ký mới chờ duyệt: ${first.fullName} (${first.companyCode} · KV ${first.areaCode})${extra}`
+                `Có ${currentPending.length} đăng ký chờ duyệt: ${first.fullName} (${first.companyCode} · KV ${first.areaCode})${extra}`,
+                7000
               );
+              playRegistrationChime();
             }
           }
-        },
-        (err) => console.warn('[Firestore] Lỗi đọc danh sách users:', err)
-      );
-      return unsubscribe;
+          return;
+        }
+
+        const newlyArrived = currentPending.filter(
+          (u) => !seenPendingUidsRef.current!.has(u.id)
+        );
+        seenPendingUidsRef.current = currentPendingSet;
+
+        if (newlyArrived.length > 0) {
+          const first = newlyArrived[0];
+          const extra =
+            newlyArrived.length > 1 ? ` (+${newlyArrived.length - 1} khác)` : '';
+          const msg = `Đăng ký mới chờ duyệt: ${first.fullName} (${first.companyCode} · KV ${first.areaCode})${extra}`;
+          showNotification(msg, 7500);
+          playRegistrationChime();
+          showBrowserRegistrationNotification('Hành Thực Lục — Đăng ký mới', msg, () => {
+            setAdminNavTab('ROLES');
+            setAdminNavTrigger((n) => n + 1);
+            setActiveTab('ADMIN');
+          });
+        }
+      },
+      (err) => {
+        console.warn('[Firestore] Lỗi đọc danh sách users:', err);
+        showNotification(
+          `Không tải được danh sách đăng ký chờ duyệt: ${err?.message || 'Kiểm tra Firestore Rules'}`,
+          6000
+        );
+      }
+    );
+    return unsubscribe;
+  }, [dataUnlocked, firebaseUser?.uid, canReadAdminRolesConfig, showNotification]);
+
+  // Listener danh sách users theo phạm vi cho Cấp 2 -> 5
+  useEffect(() => {
+    if (!dataUnlocked || !firebaseUser?.uid || canReadAdminRolesConfig) {
+      return;
     }
 
     setUsersLoaded(false);
@@ -758,12 +819,19 @@ export default function App() {
     managedCompKeyEarly,
     managedAreaKeyEarly,
     managedUnitKeyEarly,
-    showNotification,
   ]);
 
   const pendingApprovalUsers = useMemo(
-    () => usersList.filter((u) => resolveUserApprovalStatus(u) === 'PENDING'),
+    () =>
+      usersList
+        .filter((u) => resolveUserApprovalStatus(u) === 'PENDING')
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [usersList]
+  );
+  const [dismissedPendingSignature, setDismissedPendingSignature] = useState<string>('');
+  const pendingApprovalSignature = useMemo(
+    () => pendingApprovalUsers.map((u) => u.id).sort().join(','),
+    [pendingApprovalUsers]
   );
 
   // Theme Dark/Light mode
@@ -1047,12 +1115,19 @@ export default function App() {
       const existing = await getDocFromServer(userRef);
       if (existing.exists()) {
         pendingRegistrationRef.current = null;
+        creatingProfileRef.current = false;
         return;
       }
 
       const email = (firebaseUser.email || reg.email || '').trim();
-      const fullName =
-        reg.fullName || firebaseUser.displayName || email.split('@')[0] || 'Thành viên mới';
+      const fullName = (
+        reg.fullName ||
+        firebaseUser.displayName ||
+        email.split('@')[0] ||
+        'Thành viên mới'
+      )
+        .trim()
+        .slice(0, 100);
       const companyCode = (reg.companyCode || effectiveCompanies[0]?.code || 'Th1').trim();
       const areaCode =
         cleanRawAreaCode(reg.areaCode) ||
@@ -1160,12 +1235,15 @@ export default function App() {
       );
     };
 
-    createProfile().catch((err) => {
-      console.error('[Firestore] Không tạo được hồ sơ:', err);
-      showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
-      pendingRegistrationRef.current = null;
-      creatingProfileRef.current = false;
-    });
+    createProfile()
+      .catch((err) => {
+        console.error('[Firestore] Không tạo được hồ sơ:', err);
+        showNotification(`Không tạo được hồ sơ tài khoản: ${err.message}`);
+        pendingRegistrationRef.current = null;
+      })
+      .finally(() => {
+        creatingProfileRef.current = false;
+      });
   }, [
     firebaseUser,
     profileState,
@@ -1240,6 +1318,20 @@ export default function App() {
       role: effectiveRole,
     };
   }, [currentUser, isSuperAdminUser, isAdminUser]);
+
+  // Cập nhật tiêu đề tab trình duyệt khi có đăng ký chờ duyệt để Admin dễ nhận biết
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const baseTitle = 'Hành Thực Lục — Hệ thống Báo cáo & Thi đua';
+    if (dataUnlocked && isAdminUser && pendingApprovalUsers.length > 0) {
+      document.title = `(${pendingApprovalUsers.length} chờ duyệt) ${baseTitle}`;
+    } else {
+      document.title = baseTitle;
+    }
+    return () => {
+      document.title = baseTitle;
+    };
+  }, [dataUnlocked, isAdminUser, pendingApprovalUsers.length]);
 
   // Đồng bộ role & emailVerified lên Firestore
   useEffect(() => {
@@ -1323,7 +1415,10 @@ export default function App() {
 
   // Chẩn đoán: so sánh quyền hiển thị trên giao diện với quyền thật trong Firestore (rule chỉ đọc quyền thật)
   useEffect(() => {
-    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) return;
+    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) {
+      setRulesSyncWarning(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -1353,6 +1448,28 @@ export default function App() {
           );
         } else {
           console.info('[Chẩn đoán] Quyền khớp', info);
+        }
+
+        // Kiểm tra thêm xem Firestore Rules trên database hiện tại đã được cập nhật đúng bản mới chưa
+        const serverApproved = !server.approvalStatus || server.approvalStatus === 'APPROVED';
+        if (serverApproved) {
+          try {
+            await getDocFromServer(doc(db, 'events', '_probe_'));
+            if (!cancelled) setRulesSyncWarning(null);
+          } catch (probeErr: any) {
+            const probeMsg = `${probeErr?.code || ''} ${probeErr?.message || ''}`.toLowerCase();
+            if (probeMsg.includes('permission-denied') || probeMsg.includes('insufficient permissions')) {
+              console.error(
+                `[Chẩn đoán Firestore Rules] Hồ sơ users/${firebaseUser.uid} đã được duyệt (APPROVED) nhưng Firestore (${FIRESTORE_DATABASE_ID}) vẫn từ chối đọc dữ liệu. Hãy mở Firebase Console → Firestore Database → chọn đúng database "${FIRESTORE_DATABASE_ID}" → tab Rules → dán toàn bộ file firestore.rules mới nhất và bấm Publish.`,
+                info
+              );
+              if (!cancelled) {
+                setRulesSyncWarning(
+                  `Tài khoản đã được duyệt, nhưng Firestore Rules đang chạy trên database "${FIRESTORE_DATABASE_ID}" là phiên bản cũ hoặc đã Publish nhầm sang database khác. Quản trị viên cần vào Firebase Console → Firestore Database → chọn đúng "${FIRESTORE_DATABASE_ID}" → tab Rules → dán toàn bộ firestore.rules mới nhất và bấm Publish.`
+                );
+              }
+            }
+          }
         }
       } catch (e) {
         console.warn('[Chẩn đoán] Không đọc được users/{uid}:', e);
@@ -3466,7 +3583,7 @@ export default function App() {
       JSON.stringify({
         username: email.split('@')[0] || `user_${Date.now()}`,
         email,
-        fullName: data.fullName,
+        fullName: data.fullName.trim().slice(0, 100),
         role: initialRole,
         memberId,
         companyCode: data.companyCode,
@@ -4275,6 +4392,81 @@ export default function App() {
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
+          {rulesSyncWarning && (
+            <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full pt-2.5">
+              <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-700/70 px-3.5 py-2.5 shadow-sm flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                  <p className="text-xs font-semibold text-rose-900 dark:text-rose-100 leading-relaxed">
+                    {rulesSyncWarning}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRulesSyncWarning(null)}
+                  aria-label="Đóng cảnh báo"
+                  className="p-1 rounded-lg text-rose-500 hover:text-rose-800 dark:text-rose-300 dark:hover:text-white hover:bg-rose-100 dark:hover:bg-rose-900/50 transition cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+          {/* Actionable Real-Time Pending Registration Alert Banner for Admin/SuperAdmin */}
+          {isAdminUser &&
+            pendingApprovalUsers.length > 0 &&
+            dismissedPendingSignature !== pendingApprovalSignature &&
+            !(activeTab === 'ADMIN' && adminNavTab === 'ROLES') && (
+              <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full pt-2.5">
+                <div className="rounded-2xl bg-gradient-to-r from-amber-50 via-rose-50 to-amber-50 dark:from-amber-950/60 dark:via-rose-950/50 dark:to-amber-950/60 border border-amber-300 dark:border-amber-700/70 px-3.5 py-2.5 shadow-sm flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+                      <Bell className="w-4 h-4 animate-pulse" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          {pendingApprovalUsers.length} đăng ký mới đang chờ phê duyệt
+                        </span>
+                        <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 truncate">
+                          · {pendingApprovalUsers[0].fullName} ({pendingApprovalUsers[0].companyCode} · KV{' '}
+                          {pendingApprovalUsers[0].areaCode})
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
+                        {pendingApprovalUsers[0].email}
+                        {pendingApprovalUsers.length > 1
+                          ? ` và ${pendingApprovalUsers.length - 1} tài khoản khác`
+                          : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminNavTab('ROLES');
+                        setAdminNavTrigger((n) => n + 1);
+                        setActiveTab('ADMIN');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold flex items-center gap-1 shadow-xs transition cursor-pointer"
+                    >
+                      <span>Xem &amp; Duyệt ngay</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedPendingSignature(pendingApprovalSignature)}
+                      aria-label="Ẩn thông báo tạm thời"
+                      title="Ẩn tạm thời"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
           {/* TAB: BÁO CÁO HẰNG NGÀY (Trang chủ mặc định) */}
           {activeTab === 'ENTRY' && (
@@ -4962,6 +5154,7 @@ export default function App() {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+        pendingApprovalCount={isAdminUser ? pendingApprovalUsers.length : 0}
       />
     </div>
   );
