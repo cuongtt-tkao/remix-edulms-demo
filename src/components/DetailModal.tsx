@@ -12,6 +12,7 @@ import {
   Target,
 } from 'lucide-react';
 import { Member, STEP_DEFINITIONS, TargetSteps } from '../types/edulms';
+import { formatAreaDisplayName } from '../utils/rbac';
 
 interface DetailModalProps {
   member: Member | null;
@@ -79,7 +80,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ member, onClose }) => 
               <span>•</span>
               <span className="flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                Khu vực: {member.areaCode}
+                {formatAreaDisplayName(member.areaCode)}
               </span>
               <span>•</span>
               <span className="flex items-center gap-1">

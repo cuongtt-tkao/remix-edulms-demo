@@ -36,6 +36,7 @@ import {
 } from '../types/edulms';
 import {
   canViewMemberDetail,
+  formatAreaDisplayName,
   getMemberUnitCode,
   isAdminRole,
   isMemberInManagerCluster,
@@ -1481,7 +1482,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                   <option value="ALL">Tất cả Khu vực</option>
                   {availableTeamAreas.map((a) => (
                     <option key={a.code} value={a.code}>
-                      KV {a.code} · {a.name}
+                      {formatAreaDisplayName(a.code, a.name)}
                     </option>
                   ))}
                 </select>

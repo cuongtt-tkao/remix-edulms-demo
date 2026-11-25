@@ -14,6 +14,7 @@ import {
   canAccessMemberReportOverview,
   isAdminRole,
   normalizeOrgCode,
+  parseAreaScopeEntry,
 } from './rbac';
 import { sanitizeExcelCell } from './excelSanitizer';
 
@@ -89,7 +90,16 @@ export function exportDailyReportsByRbacExcel(
       if (normalizeOrgCode(companyCode) !== normalizeOrgCode(opts.filterCompanyCode)) return false;
     }
     if (opts.filterAreaCode && opts.filterAreaCode !== 'ALL') {
-      if (normalizeOrgCode(areaCode) !== normalizeOrgCode(opts.filterAreaCode)) return false;
+      const parsedArea = parseAreaScopeEntry(opts.filterAreaCode);
+      if (
+        parsedArea.hasCompanyPrefix &&
+        normalizeOrgCode(companyCode) !== parsedArea.companyCode
+      ) {
+        return false;
+      }
+      if (parsedArea.areaCode && normalizeOrgCode(areaCode) !== parsedArea.areaCode) {
+        return false;
+      }
     }
     return true;
   };
@@ -207,7 +217,7 @@ export function exportDailyReportsByRbacExcel(
       const mem = memberById.get(mId);
       const comp = mem?.companyCode || viewer.companyCode || '';
       const area = mem?.areaCode || viewer.areaCode || '';
-      const key = `${comp}__${area}`;
+      const key = `${normalizeOrgCode(comp)}__${normalizeOrgCode(area)}`;
       const bucket = unitMap.get(key) || {
         companyCode: comp,
         areaCode: area,
