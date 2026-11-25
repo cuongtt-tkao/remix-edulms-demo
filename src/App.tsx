@@ -205,7 +205,8 @@ export default function App() {
   const signedIn = !!firebaseUser;
 
   const currentEmailLower = (firebaseUser?.email || currentUser?.email || '').trim().toLowerCase();
-  const isSelfBootstrapSuperAdmin = isBootstrapSuperAdminEmail(currentEmailLower);
+  const isSelfBootstrapSuperAdmin =
+    isBootstrapSuperAdminEmail(currentEmailLower) && !!firebaseUser?.emailVerified;
   const currentApprovalStatus = useMemo(() => {
     if (isSelfBootstrapSuperAdmin) return 'APPROVED' as const;
     return resolveUserApprovalStatus(currentUser);
@@ -504,7 +505,23 @@ export default function App() {
           .sort((a, b) => (b.weekStart || '').localeCompare(a.weekStart || ''));
         setPersonalPlanners(list);
       },
-      (err) => console.warn('[Firestore] Lỗi đọc personal_planners:', err)
+      (err) => {
+        console.warn('[Firestore] Lỗi đọc personal_planners:', err);
+        // Chẩn đoán: hiển thị database đang dùng và claim trong token để đối chiếu với Rules
+        auth.currentUser
+          ?.getIdTokenResult(true)
+          .then((t) =>
+            console.warn('[Chẩn đoán personal_planners]', {
+              database: FIRESTORE_DATABASE_ID,
+              uid: auth.currentUser?.uid,
+              email: t.claims.email,
+              email_verified: t.claims.email_verified,
+              approvalStatus: currentUser?.approvalStatus ?? '(không có trường)',
+              role: currentUser?.role,
+            })
+          )
+          .catch(() => undefined);
+      }
     );
     return unsubscribe;
   }, [dataUnlocked, firebaseUser?.uid]);

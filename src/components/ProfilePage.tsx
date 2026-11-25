@@ -1127,7 +1127,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             >
               <CalendarDays className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="truncate sm:hidden">KH LLV</span>
-              <span className="truncate hidden sm:inline">Kế hoạch LLV</span>
+              <span className="truncate hidden sm:inline">Kế hoạch</span>
             </button>
 
             <button
