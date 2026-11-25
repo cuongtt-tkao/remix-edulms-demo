@@ -1314,6 +1314,48 @@ export default function App() {
     ownRoleClaim,
   ]);
 
+  // Chẩn đoán: so sánh quyền hiển thị trên giao diện với quyền thật trong Firestore (rule chỉ đọc quyền thật)
+  useEffect(() => {
+    if (!dataUnlocked || !firebaseUser?.uid || !effectiveCurrentUser) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDocFromServer(doc(db, 'users', firebaseUser.uid));
+        if (cancelled || !snap.exists()) return;
+        const server = snap.data() as any;
+        const tokenResult = await firebaseUser.getIdTokenResult(true);
+        const info = {
+          database: FIRESTORE_DATABASE_ID,
+          uiRole: effectiveCurrentUser.role,
+          serverRole: server.role,
+          serverApproval: server.approvalStatus ?? '(không có trường)',
+          serverCompany: server.companyCode,
+          serverArea: server.areaCode,
+          serverManagedCompanies: server.managedCompanyCodes ?? [],
+          serverManagedAreas: server.managedAreaCodes ?? [],
+          tokenEmailVerified: tokenResult.claims.email_verified,
+        };
+        if (info.uiRole !== info.serverRole) {
+          console.warn(
+            '[Chẩn đoán] LỆCH QUYỀN: giao diện đang là',
+            info.uiRole,
+            'nhưng Firestore lưu',
+            info.serverRole,
+            '- rule sẽ từ chối các truy vấn cấp quản lý.',
+            info
+          );
+        } else {
+          console.info('[Chẩn đoán] Quyền khớp', info);
+        }
+      } catch (e) {
+        console.warn('[Chẩn đoán] Không đọc được users/{uid}:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataUnlocked, firebaseUser?.uid, effectiveCurrentUser?.role]);
+
   // Tính điểm thi đua trực tiếp từ Báo cáo hằng ngày (bảo toàn score lưu sẵn trên members cho Top-15 khi TĐ chỉ tải báo cáo cá nhân)
   const computedAllMembers = useMemo(() => {
     const weights = activeEvent?.weights || effectiveDefaultWeights;
