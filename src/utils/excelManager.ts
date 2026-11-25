@@ -15,7 +15,6 @@ import {
   EDU_TRACK_LABELS,
   EDU_CMS_STAGE_LABELS,
   EDU_ASSIGNMENT_STATUS_LABELS,
-  OrgCluster,
 } from '../types/edulms';
 
 import {
@@ -23,11 +22,9 @@ import {
   canModifyDiscipleRecord,
   canViewEduRecord,
   canViewMemberDetail,
-  formatAreaScopeLabel,
   isAdminRole,
   isMemberInManagerCluster,
   normalizeOrgCode,
-  parseAreaScopeEntry,
 } from './rbac';
 import {
   sanitizeExcelCell,
@@ -57,9 +54,7 @@ function formatUserManagedScope(u?: UserAccount): string {
     return `Sion: ${comps.join(', ')}`;
   }
   if (u.role === 'AREA_LEADER') {
-    const areas = u.managedAreaCodes?.length
-      ? u.managedAreaCodes.map((e) => formatAreaScopeLabel(e)).filter(Boolean)
-      : [u.areaCode];
+    const areas = u.managedAreaCodes?.length ? u.managedAreaCodes : [u.areaCode];
     return `KV: ${areas.join(', ')}`;
   }
   if (u.role === 'UNI_LEADER') {
@@ -71,39 +66,6 @@ function formatUserManagedScope(u?: UserAccount): string {
     return units.length ? `Uni: ${units.join(', ')}` : u.departmentCode || '';
   }
   return 'Cá nhân';
-}
-
-function matchesOrgFilter(
-  comp?: string | null,
-  area?: string | null,
-  compFilter?: string,
-  areaFilter?: string
-): boolean {
-  if (compFilter && compFilter !== 'ALL') {
-    if (normalizeOrgCode(comp) !== normalizeOrgCode(compFilter)) return false;
-  }
-  if (areaFilter && areaFilter !== 'ALL') {
-    const parsedArea = parseAreaScopeEntry(areaFilter);
-    if (parsedArea.hasCompanyPrefix && normalizeOrgCode(comp) !== parsedArea.companyCode) {
-      return false;
-    }
-    if (parsedArea.areaCode && normalizeOrgCode(area) !== parsedArea.areaCode) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function slugifyOrgPart(val: string): string {
-  return (
-    val
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[đĐ]/g, 'd')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'x'
-  );
 }
 
 function canExportMemberOrgRecord(viewer: UserAccount | null | undefined, m: Member): boolean {
@@ -121,13 +83,12 @@ function canExportMemberOrgRecord(viewer: UserAccount | null | undefined, m: Mem
 
 /**
  * 1. Xuất file Cấu hình Danh mục Hệ thống (.xlsx)
- * Bao gồm 3 Sheets: Sion - Công Ty, Khu Vực, Ban Ngành (+ Cụm Sion nếu có)
+ * Bao gồm 3 Sheets: Sion - Công Ty, Khu Vực, Ban Ngành
  */
 export function exportSystemConfigExcel(
   companies: Company[],
   areas: Area[],
-  departments: Department[],
-  clusters?: OrgCluster[]
+  departments: Department[]
 ): void {
   const wb = XLSX.utils.book_new();
 
@@ -160,22 +121,6 @@ export function exportSystemConfigExcel(
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(deptRows), 'Ban Ngành');
 
-  // Sheet 4 (tùy chọn): Cụm Sion
-  if (clusters && clusters.length > 0) {
-    const clusterRows = clusters.map((cl, i) => ({
-      STT: i + 1,
-      'Mã Cụm': sanitizeExcelCell(cl.code),
-      'Tên Cụm': sanitizeExcelCell(cl.name),
-      'Loại Cụm': cl.isCatchAll ? 'Còn lại (Tự động gom Sion chưa phân cụm)' : 'Cố định',
-      'Danh Sách Sion': sanitizeExcelCell(
-        cl.isCatchAll ? 'Còn lại (Tự động)' : (cl.companyCodes || []).join(', ')
-      ),
-      'Mô Tả': sanitizeExcelCell(cl.description || ''),
-      'Trạng Thái': cl.active !== false ? 'Hoạt động' : 'Tạm ngưng',
-    }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clusterRows), 'Cụm Sion');
-  }
-
   XLSX.writeFile(wb, `HanhThucLuc_DanhMuc_HeThong_${getDateStamp()}.xlsx`);
 }
 
@@ -199,8 +144,11 @@ export function exportMembersAndTargetsExcel(
 
   const scopedMembers = members.filter((m) => {
     if (viewer && !canExportMemberOrgRecord(viewer, m)) return false;
-    if (!matchesOrgFilter(m.companyCode, m.areaCode, opts?.companyCode, opts?.areaCode)) {
-      return false;
+    if (opts?.companyCode && opts.companyCode !== 'ALL') {
+      if (normalizeOrgCode(m.companyCode) !== normalizeOrgCode(opts.companyCode)) return false;
+    }
+    if (opts?.areaCode && opts.areaCode !== 'ALL') {
+      if (normalizeOrgCode(m.areaCode) !== normalizeOrgCode(opts.areaCode)) return false;
     }
     if (opts?.memberId && opts.memberId !== 'ALL') {
       const targetId = opts.memberId;
@@ -302,7 +250,7 @@ export function exportMembersAndTargetsExcel(
   >();
 
   sortedMembers.forEach((m) => {
-    const key = `${normalizeOrgCode(m.companyCode)}__${normalizeOrgCode(m.areaCode)}`;
+    const key = `${m.companyCode}__${m.areaCode}`;
     const dStats = discipleCountMap.get(m.id) || { total: 0, active: 0, stopped: 0 };
     const dr = m.dailyResults;
     const cur = areaGroupMap.get(key) || {
@@ -393,7 +341,16 @@ export function exportDisciplesExcel(
       if (viewer && !isAdminRole(viewer.role) && !canModifyDiscipleRecord(viewer, d)) {
         return false;
       }
-      if (!matchesOrgFilter(d.companyCode, d.areaCode, compFilter, areaFilter)) {
+      if (
+        compFilter !== 'ALL' &&
+        normalizeOrgCode(d.companyCode) !== normalizeOrgCode(compFilter)
+      ) {
+        return false;
+      }
+      if (
+        areaFilter !== 'ALL' &&
+        normalizeOrgCode(d.areaCode) !== normalizeOrgCode(areaFilter)
+      ) {
         return false;
       }
       if (ownerFilter !== 'ALL') {
@@ -441,7 +398,7 @@ export function exportDisciplesExcel(
 
   filtered.forEach((d) => {
     const progressArr = Array.isArray(d.progress) ? d.progress : [];
-    const key = `${normalizeOrgCode(d.companyCode)}__${normalizeOrgCode(d.areaCode)}__${d.ownerUid || d.ownerName}`;
+    const key = `${d.companyCode}__${d.areaCode}__${d.ownerUid || d.ownerName}`;
     const stopped = Boolean(d.isStopped || progressArr.includes('Dừng'));
     const cur = ownerMap.get(key) || {
       companyCode: d.companyCode || '',
@@ -559,12 +516,7 @@ export function exportDisciplesExcel(
         ? 'CaNhan'
         : getSafeRoleBadge(viewer)
       : 'ToanHT';
-  const parsedAreaSuffix = areaFilter !== 'ALL' ? parseAreaScopeEntry(areaFilter) : null;
-  const suffixArea = parsedAreaSuffix?.areaCode
-    ? parsedAreaSuffix.hasCompanyPrefix
-      ? `_KV${parsedAreaSuffix.companyCode}_${parsedAreaSuffix.areaCode}`
-      : `_KV${parsedAreaSuffix.areaCode}`
-    : '';
+  const suffixArea = areaFilter !== 'ALL' ? `_KV${areaFilter}` : '';
   const suffixStatus =
     statusFilter === 'ACTIVE' ? '_DangTheo' : statusFilter === 'STOPPED' ? '_DaDung' : '';
   const fileName = `HanhThucLuc_DanhSach_MD_${suffixComp}${suffixArea}${suffixStatus}_${getDateStamp()}.xlsx`;
@@ -595,7 +547,6 @@ export function exportEduDataExcel(
     return canViewEduRecord(viewer, { companyCode: t.companyCode, areaCode: t.areaCode });
   };
 
-  const parsedEduArea = areaFilter !== 'ALL' ? parseAreaScopeEntry(areaFilter) : null;
   const filteredTopics = topics
     .filter(
       (t) =>
@@ -603,13 +554,10 @@ export function exportEduDataExcel(
         (compFilter === 'ALL' ||
           t.companyCode === 'ALL' ||
           normalizeOrgCode(t.companyCode) === normalizeOrgCode(compFilter)) &&
-        (!parsedEduArea ||
+        (areaFilter === 'ALL' ||
           !t.areaCode ||
           t.areaCode === 'ALL' ||
-          (normalizeOrgCode(t.areaCode) === parsedEduArea.areaCode &&
-            (!parsedEduArea.hasCompanyPrefix ||
-              t.companyCode === 'ALL' ||
-              normalizeOrgCode(t.companyCode) === parsedEduArea.companyCode)))
+          normalizeOrgCode(t.areaCode) === normalizeOrgCode(areaFilter))
     )
     .sort((a, b) => b.year - a.year || b.weekNumber - a.weekNumber);
 
@@ -623,7 +571,8 @@ export function exportEduDataExcel(
             assignedByUid: a.assignedByUid,
             memberId: a.memberId,
           })) &&
-        matchesOrgFilter(a.companyCode, a.areaCode, compFilter, areaFilter)
+        (compFilter === 'ALL' || normalizeOrgCode(a.companyCode) === normalizeOrgCode(compFilter)) &&
+        (areaFilter === 'ALL' || normalizeOrgCode(a.areaCode) === normalizeOrgCode(areaFilter))
     )
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
@@ -636,7 +585,8 @@ export function exportEduDataExcel(
             areaCode: c.areaCode,
             ownerUid: c.ownerUid,
           })) &&
-        matchesOrgFilter(c.companyCode, c.areaCode, compFilter, areaFilter)
+        (compFilter === 'ALL' || normalizeOrgCode(c.companyCode) === normalizeOrgCode(compFilter)) &&
+        (areaFilter === 'ALL' || normalizeOrgCode(c.areaCode) === normalizeOrgCode(areaFilter))
     )
     .sort((a, b) => (a.companyCode || '').localeCompare(b.companyCode || ''));
 
@@ -878,12 +828,11 @@ export async function parseConfigExcel(file: File): Promise<{
       if (!code) {
         errors.push(`[Sheet Khu Vực - Hàng ${idx + 2}]: Thiếu mã khu vực.`);
       } else {
-        const effComp = compCode || 'Th1';
         parsedAreas.push({
-          id: `area-${slugifyOrgPart(effComp)}-${slugifyOrgPart(code)}`,
+          id: `area-${code.replace(/\./g, '-')}`,
           code,
           name: name || `Khu vực ${code}`,
-          companyCode: effComp,
+          companyCode: compCode || 'Th1',
           active,
         });
       }

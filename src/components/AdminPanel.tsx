@@ -34,7 +34,6 @@ import {
   GraduationCap,
   CalendarDays,
   BookOpenCheck,
-  Layers,
 } from 'lucide-react';
 import {
   Company,
@@ -44,8 +43,6 @@ import {
   UserAccount,
   UserRole,
   RoleAssignment,
-  OrgCluster,
-  SystemClustersConfig,
   SystemBannerConfig,
   FestivalEvent,
   SystemScoringConfig,
@@ -67,16 +64,12 @@ import {
   canManageOrgRecord,
   canModifyDiscipleRecord,
   canViewEduRecord,
-  createDefaultClustersForCompanies,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   getScopedMemberOptions,
   isAdminRole,
   isMemberInManagerCluster,
-  makeAreaScopeKey,
   normalizeOrgCode,
-  parseAreaScopeEntry,
-  resolveClusterCompanyCodes,
 } from '../utils/rbac';
 import {
   exportSystemConfigExcel,
@@ -114,7 +107,6 @@ export type AdminSectionId =
   | 'APPEARANCE_HOME'
   | 'APPEARANCE_LLV'
   | 'APPEARANCE_HONORS'
-  | 'CLUSTERS'
   | 'COMPANIES'
   | 'AREAS'
   | 'DEPARTMENTS'
@@ -155,7 +147,6 @@ interface AdminPanelProps {
     newRole: UserRole,
     targetName: string,
     scope?: {
-      managedClusterIds?: string[];
       managedCompanyCodes?: string[];
       managedAreaCodes?: string[];
       managedUnitCodes?: string[];
@@ -172,7 +163,6 @@ interface AdminPanelProps {
     role: UserRole,
     note?: string,
     scope?: {
-      managedClusterIds?: string[];
       managedCompanyCodes?: string[];
       managedAreaCodes?: string[];
       managedUnitCodes?: string[];
@@ -190,7 +180,6 @@ interface AdminPanelProps {
       areaCode?: string;
       unitCode?: string;
       scope?: {
-        managedClusterIds?: string[];
         managedCompanyCodes?: string[];
         managedAreaCodes?: string[];
         managedUnitCodes?: string[];
@@ -206,12 +195,10 @@ interface AdminPanelProps {
   scoringConfig?: SystemScoringConfig | null;
   appearanceConfig?: SystemAppearanceConfig | null;
   vocabularyConfig?: SystemVocabularyConfig | null;
-  clustersConfig?: SystemClustersConfig | null;
   activeEvent?: FestivalEvent | null;
   onSaveScoringConfig?: (weights: DailyReportMetrics) => Promise<void>;
   onSaveAppearanceConfig?: (config: SystemAppearanceConfig) => Promise<void>;
   onSaveVocabularyConfig?: (config: SystemVocabularyConfig) => Promise<void>;
-  onSaveClustersConfig?: (config: SystemClustersConfig) => Promise<{ syncedCount: number }>;
   disciples?: DiscipleRecord[];
   dailyReports?: DailyReportRecord[];
   eduTopics?: EduWeeklyTopic[];
@@ -265,12 +252,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   scoringConfig = null,
   appearanceConfig = null,
   vocabularyConfig = null,
-  clustersConfig = null,
   activeEvent = null,
   onSaveScoringConfig,
   onSaveAppearanceConfig,
   onSaveVocabularyConfig,
-  onSaveClustersConfig,
   disciples = [],
   dailyReports = [],
   eduTopics = [],
@@ -281,7 +266,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const isAdmin = isAdminRole(currentUser?.role);
   const actorRoleLevel = getRoleLevel(currentUser?.role);
   const supervisorAllowedTabs: AdminSectionId[] = React.useMemo(
-    () => ['CLUSTERS', 'COMPANIES', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC'],
+    () => ['COMPANIES', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC'],
     []
   );
 
@@ -333,35 +318,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return set;
   }, [currentUser?.managedCompanyCodes, currentUser?.companyCode]);
 
-  const viewerAreaEntries = React.useMemo(() => {
-    const raw = (currentUser?.managedAreaCodes || []).filter((a) => (a || '').trim().length > 0);
-    if (raw.length > 0) {
-      return raw.map((a) => parseAreaScopeEntry(a)).filter((p) => Boolean(p.areaCode));
+  const viewerAreaScope = React.useMemo(() => {
+    const set = new Set<string>();
+    (currentUser?.managedAreaCodes || []).forEach((a) => {
+      const n = normalizeOrgCode(a);
+      if (n) set.add(n);
+    });
+    if (set.size === 0 && currentUser?.areaCode) {
+      const n = normalizeOrgCode(currentUser.areaCode);
+      if (n) set.add(n);
     }
-    if (currentUser?.areaCode) {
-      const p = parseAreaScopeEntry(currentUser.areaCode);
-      return p.areaCode ? [p] : [];
-    }
-    return [];
+    return set;
   }, [currentUser?.managedAreaCodes, currentUser?.areaCode]);
-
-  const matchesViewerArea = React.useCallback(
-    (area: { companyCode?: string; code?: string }, requireCompanyIfNoPrefix: boolean) => {
-      const aComp = normalizeOrgCode(area.companyCode);
-      const aCode = normalizeOrgCode(area.code);
-      if (!aCode) return false;
-      return viewerAreaEntries.some((entry) => {
-        if (entry.areaCode !== aCode) return false;
-        if (entry.hasCompanyPrefix) return entry.companyCode === aComp;
-        return (
-          !requireCompanyIfNoPrefix ||
-          viewerCompanyScope.size === 0 ||
-          viewerCompanyScope.has(aComp)
-        );
-      });
-    },
-    [viewerAreaEntries, viewerCompanyScope]
-  );
 
   const viewerUnitScope = React.useMemo(() => {
     const set = new Set<string>();
@@ -389,12 +357,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return areas.some(
           (a) =>
             normalizeOrgCode(a.companyCode) === code &&
-            matchesViewerArea(a, false)
+            viewerAreaScope.has(normalizeOrgCode(a.code))
         );
       }
       return false;
     });
-  }, [isAdmin, companies, areas, viewerCompanyScope, matchesViewerArea, currentUser?.role]);
+  }, [isAdmin, companies, areas, viewerCompanyScope, viewerAreaScope, currentUser?.role]);
 
   const scopedAreas = React.useMemo(() => {
     if (isAdmin) return areas;
@@ -402,11 +370,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return areas.filter(
         (a) =>
           viewerCompanyScope.has(normalizeOrgCode(a.companyCode)) ||
-          (currentUser.role === 'MANAGER' && matchesViewerArea(a, false))
+          (currentUser.role === 'MANAGER' && viewerAreaScope.has(normalizeOrgCode(a.code)))
       );
     }
-    return areas.filter((a) => matchesViewerArea(a, true));
-  }, [isAdmin, areas, viewerCompanyScope, matchesViewerArea, currentUser?.role]);
+    return areas.filter(
+      (a) =>
+        (viewerCompanyScope.size === 0 || viewerCompanyScope.has(normalizeOrgCode(a.companyCode))) &&
+        viewerAreaScope.has(normalizeOrgCode(a.code))
+    );
+  }, [isAdmin, areas, viewerCompanyScope, viewerAreaScope, currentUser?.role]);
 
   const scopedMembers = React.useMemo(() => {
     if (isAdmin) return members;
@@ -515,7 +487,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     isAdmin ||
     ((currentUser?.role === 'MANAGER' || currentUser?.role === 'SION_LEADER') &&
       viewerCompanyScope.has(normalizeOrgCode(area.companyCode))) ||
-    (currentUser?.role === 'AREA_LEADER' && matchesViewerArea(area, true));
+    (currentUser?.role === 'AREA_LEADER' &&
+      viewerAreaScope.has(normalizeOrgCode(area.code)) &&
+      (viewerCompanyScope.size === 0 ||
+        viewerCompanyScope.has(normalizeOrgCode(area.companyCode))));
 
   const canModifyDepartments = isAdmin;
   const canModifyMember = (mem: Member) =>
@@ -577,17 +552,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [wsExportArea, setWsExportArea] = useState<string>('ALL');
   const [wsExportOwnerKey, setWsExportOwnerKey] = useState<string>('ALL');
 
-  // Cụm Sion state
-  const clustersList = clustersConfig?.clusters || [];
-  const [isClusterFormOpen, setIsClusterFormOpen] = useState(false);
-  const [editingCluster, setEditingCluster] = useState<OrgCluster | null>(null);
-  const [clusterCode, setClusterCode] = useState('');
-  const [clusterName, setClusterName] = useState('');
-  const [clusterDesc, setClusterDesc] = useState('');
-  const [clusterCompanyCodes, setClusterCompanyCodes] = useState<string[]>([]);
-  const [clusterIsCatchAll, setClusterIsCatchAll] = useState(false);
-  const [isSavingCluster, setIsSavingCluster] = useState(false);
-
   // Modals / Editing state
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [isAddCompanyOpen, setIsAddCompanyOpen] = useState(false);
@@ -596,7 +560,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const [editingArea, setEditingArea] = useState<Area | null>(null);
   const [isAddAreaOpen, setIsAddAreaOpen] = useState(false);
-  const [areaFilterCompany, setAreaFilterCompany] = useState<string>('ALL');
   const [newAreaCode, setNewAreaCode] = useState('');
   const [newAreaName, setNewAreaName] = useState('');
   const [newAreaCompany, setNewAreaCompany] = useState(
@@ -656,117 +619,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     viewerUnitScope,
   ]);
 
-  // Handlers for Cụm Sion
-  const openCreateClusterForm = () => {
-    setEditingCluster(null);
-    setClusterCode('');
-    setClusterName('');
-    setClusterDesc('');
-    setClusterCompanyCodes([]);
-    setClusterIsCatchAll(false);
-    setIsClusterFormOpen(true);
-  };
-
-  const openEditClusterForm = (cl: OrgCluster) => {
-    setEditingCluster(cl);
-    setClusterCode(cl.code);
-    setClusterName(cl.name);
-    setClusterDesc(cl.description || '');
-    setClusterCompanyCodes(cl.companyCodes || []);
-    setClusterIsCatchAll(Boolean(cl.isCatchAll));
-    setIsClusterFormOpen(true);
-  };
-
-  const saveClustersList = async (nextClusters: OrgCluster[], successMsg: string) => {
-    if (!onSaveClustersConfig) return;
-    setIsSavingCluster(true);
-    try {
-      const res = await onSaveClustersConfig({
-        ...(clustersConfig || {}),
-        clusters: nextClusters,
-      });
-      const syncSuffix =
-        res?.syncedCount > 0
-          ? ` Đã tự động đồng bộ quyền cho ${res.syncedCount} tài khoản QL Cụm.`
-          : '';
-      onShowNotification(`${successMsg}${syncSuffix}`);
-    } catch (err: any) {
-      onShowNotification(`Lỗi lưu Cụm Sion: ${err?.message || 'Thao tác thất bại'}`);
-    } finally {
-      setIsSavingCluster(false);
-    }
-  };
-
-  const handleInitDefaultClusters = async () => {
-    const defaultClusters = createDefaultClustersForCompanies(companies);
-    await saveClustersList(
-      defaultClusters,
-      'Đã khởi tạo 5 Cụm Sion mẫu (TH1, ÊLI, HBC, PER, YSAC) thành công!'
-    );
-  };
-
-  const handleSubmitClusterForm = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanCode = clusterCode.trim();
-    const cleanName = clusterName.trim() || cleanCode;
-    if (!cleanCode) {
-      onShowNotification('Vui lòng nhập Mã Cụm Sion (VD: ÊLI, HBC, PER...).');
-      return;
-    }
-    const normCode = normalizeOrgCode(cleanCode);
-    const duplicate = clustersList.find(
-      (c) =>
-        normalizeOrgCode(c.code) === normCode &&
-        (!editingCluster || c.id !== editingCluster.id)
-    );
-    if (duplicate) {
-      onShowNotification(`Mã Cụm "${cleanCode}" đã tồn tại.`);
-      return;
-    }
-
-    const baseId =
-      editingCluster?.id ||
-      `cluster-${normCode.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`;
-
-    const nextCluster: OrgCluster = {
-      id: baseId,
-      code: cleanCode,
-      name: cleanName,
-      companyCodes: clusterIsCatchAll ? [] : clusterCompanyCodes,
-      isCatchAll: clusterIsCatchAll,
-      description: clusterDesc.trim() || undefined,
-      active: true,
-    };
-
-    const normalizedExisting = clustersList.map((c) =>
-      clusterIsCatchAll && c.id !== nextCluster.id && c.isCatchAll
-        ? { ...c, isCatchAll: false }
-        : c
-    );
-
-    const nextClusters = editingCluster
-      ? normalizedExisting.map((c) => (c.id === editingCluster.id ? nextCluster : c))
-      : [...normalizedExisting, nextCluster];
-
-    await saveClustersList(
-      nextClusters,
-      editingCluster
-        ? `Đã cập nhật Cụm Sion "${cleanName}"!`
-        : `Đã tạo Cụm Sion "${cleanName}"!`
-    );
-    setIsClusterFormOpen(false);
-    setEditingCluster(null);
-  };
-
-  const toggleClusterCompany = (compCode: string) => {
-    const norm = normalizeOrgCode(compCode);
-    setClusterCompanyCodes((prev) =>
-      prev.some((c) => normalizeOrgCode(c) === norm)
-        ? prev.filter((c) => normalizeOrgCode(c) !== norm)
-        : [...prev, compCode]
-    );
-  };
-
   // Handlers for Company
   const handleSaveCompany = (e: React.FormEvent) => {
     e.preventDefault();
@@ -793,68 +645,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     onShowNotification('Đã cập nhật công ty thành công!');
   };
 
-  // Handlers for Area (tách độc lập theo từng Sion — cho phép trùng mã/tên giữa các Sion khác nhau)
+  // Handlers for Area
   const handleSaveArea = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanCode = newAreaCode.trim();
-    const cleanName = newAreaName.trim();
-    if (!cleanCode || !cleanName) {
+    if (!newAreaCode.trim() || !newAreaName.trim()) {
       onShowNotification('Vui lòng điền đủ mã và tên khu vực.');
       return;
     }
-    const targetCompNorm = normalizeOrgCode(newAreaCompany);
-    const targetCodeNorm = normalizeOrgCode(cleanCode);
-    const duplicateInSameSion = areas.find(
-      (a) =>
-        normalizeOrgCode(a.companyCode) === targetCompNorm &&
-        normalizeOrgCode(a.code) === targetCodeNorm
-    );
-    if (duplicateInSameSion) {
-      onShowNotification(
-        `Khu vực "${cleanCode}" đã tồn tại bên trong Sion ${newAreaCompany}.`
-      );
-      return;
-    }
     onAddArea({
-      code: cleanCode,
-      name: cleanName,
+      code: newAreaCode.trim(),
+      name: newAreaName.trim(),
       companyCode: newAreaCompany,
       active: true,
     });
     setNewAreaCode('');
     setNewAreaName('');
     setIsAddAreaOpen(false);
-    onShowNotification(`Đã thêm khu vực "${cleanName}" cho Sion ${newAreaCompany}!`);
+    onShowNotification('Đã thêm khu vực mới thành công!');
   };
 
   const handleUpdateAreaSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingArea) return;
-    const cleanCode = editingArea.code.trim();
-    const cleanName = editingArea.name.trim();
-    if (!cleanCode || !cleanName) {
-      onShowNotification('Vui lòng điền đủ mã và tên khu vực.');
-      return;
-    }
-    const targetCompNorm = normalizeOrgCode(editingArea.companyCode);
-    const targetCodeNorm = normalizeOrgCode(cleanCode);
-    const duplicateInSameSion = areas.find(
-      (a) =>
-        a.id !== editingArea.id &&
-        normalizeOrgCode(a.companyCode) === targetCompNorm &&
-        normalizeOrgCode(a.code) === targetCodeNorm
-    );
-    if (duplicateInSameSion) {
-      onShowNotification(
-        `Khu vực "${cleanCode}" đã tồn tại bên trong Sion ${editingArea.companyCode}.`
-      );
-      return;
-    }
-    onUpdateArea({
-      ...editingArea,
-      code: cleanCode,
-      name: cleanName,
-    });
+    onUpdateArea(editingArea);
     setEditingArea(null);
     onShowNotification('Đã cập nhật khu vực thành công!');
   };
@@ -1068,7 +881,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               shortTitle: 'Tổ chức & NS',
               groupIcon: Building2,
               items: [
-                { id: 'CLUSTERS', label: 'Cụm Sion', icon: Layers, badge: `${clustersList.length}` },
                 { id: 'COMPANIES', label: 'Sion / Công ty', icon: Building2, badge: `${scopedCompanies.length}` },
                 { id: 'AREAS', label: 'Khu vực', icon: MapPin, badge: `${scopedAreas.length}` },
                 { id: 'DEPARTMENTS', label: 'Ban ngành', icon: Users2, badge: `${departments.length}` },
@@ -1262,360 +1074,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 {/* Main Admin Content Area */}
                 <div className="min-w-0">
-        {/* TAB 0: CỤM SION */}
-        {activeTab === 'CLUSTERS' && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-amber-600" />
-                  <span>Danh sách Cụm Sion ({clustersList.length} cụm)</span>
-                </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Gom nhóm các Sion có sẵn thành Cụm. Khi thêm/bớt Sion trong Cụm, quyền của các QL Cụm (MANAGER) gán Cụm đó sẽ tự động đồng bộ.
-                </p>
-              </div>
-              {isAdmin && (
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  {clustersList.length === 0 ? (
-                    <button
-                      type="button"
-                      disabled={isSavingCluster}
-                      onClick={handleInitDefaultClusters}
-                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Khởi tạo 5 cụm mẫu (TH1, ÊLI, HBC, PER, YSAC)</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isSavingCluster}
-                      onClick={() =>
-                        setConfirmDeleteTarget({
-                          title:
-                            'Khôi phục 5 Cụm Sion mẫu (TH1, ÊLI, HBC, PER, YSAC)? Danh sách Cụm hiện tại sẽ được thay thế bằng 5 Cụm mẫu và tự động đồng bộ lại cho các QL Cụm.',
-                          onConfirm: () => {
-                            void handleInitDefaultClusters();
-                          },
-                        })
-                      }
-                      className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Nạp 5 cụm mẫu</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={openCreateClusterForm}
-                    className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Thêm Cụm Sion</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {isClusterFormOpen && isAdmin && (
-              <form
-                onSubmit={handleSubmitClusterForm}
-                className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/70 space-y-3 animate-in fade-in"
-              >
-                <div className="font-bold text-xs text-amber-950 dark:text-amber-200">
-                  {editingCluster ? `Chỉnh sửa Cụm Sion: ${editingCluster.name}` : 'Tạo Cụm Sion mới'}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      Mã Cụm <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={clusterCode}
-                      onChange={(e) => setClusterCode(e.target.value)}
-                      placeholder="VD: ÊLI, HBC, PER, YSAC..."
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-white"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      Tên Cụm <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={clusterName}
-                      onChange={(e) => setClusterName(e.target.value)}
-                      placeholder="VD: ÊLI"
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                      Mô tả ngắn
-                    </label>
-                    <input
-                      type="text"
-                      value={clusterDesc}
-                      onChange={(e) => setClusterDesc(e.target.value)}
-                      placeholder="Ghi chú phạm vi cụm..."
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setClusterIsCatchAll((v) => !v)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                      clusterIsCatchAll
-                        ? 'bg-amber-600 text-white border-amber-600'
-                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-                    }`}
-                  >
-                    {clusterIsCatchAll ? (
-                      <ToggleRight className="w-4 h-4" />
-                    ) : (
-                      <ToggleLeft className="w-4 h-4" />
-                    )}
-                    <span>Cụm "Còn lại" (tự động gom toàn bộ Sion chưa thuộc cụm khác)</span>
-                  </button>
-                </div>
-
-                {clusterIsCatchAll ? (
-                  <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/60 text-xs text-slate-600 dark:text-slate-300">
-                    <div className="font-bold text-amber-800 dark:text-amber-300 mb-1">
-                      Danh sách Sion tự động thuộc cụm "Còn lại":
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {resolveClusterCompanyCodes(
-                        {
-                          id: editingCluster?.id || '__draft_catchall__',
-                          code: clusterCode || 'YSAC',
-                          name: clusterName || 'YSAC',
-                          companyCodes: [],
-                          isCatchAll: true,
-                          active: true,
-                        },
-                        clustersList.map((c) =>
-                          editingCluster && c.id === editingCluster.id
-                            ? { ...c, isCatchAll: true }
-                            : { ...c, isCatchAll: false }
-                        ),
-                        companies
-                      ).map((code) => (
-                        <span
-                          key={code}
-                          className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 font-bold text-[11px]"
-                        >
-                          {code}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      Chọn các Sion có sẵn trực thuộc Cụm này ({clusterCompanyCodes.length} đã chọn):
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {companies.map((c) => {
-                        const checked = clusterCompanyCodes.some(
-                          (cc) => normalizeOrgCode(cc) === normalizeOrgCode(c.code)
-                        );
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => toggleClusterCompany(c.code)}
-                            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${
-                              checked
-                                ? 'bg-blue-700 text-white border-blue-700 shadow-2xs'
-                                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                            }`}
-                          >
-                            {checked && <Check className="w-3 h-3 shrink-0" />}
-                            <span>
-                              {c.code} · {c.name}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    disabled={isSavingCluster}
-                    onClick={() => {
-                      setIsClusterFormOpen(false);
-                      setEditingCluster(null);
-                    }}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer"
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSavingCluster}
-                    className="px-4 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50"
-                  >
-                    {isSavingCluster
-                      ? 'Đang lưu & đồng bộ...'
-                      : editingCluster
-                      ? 'Cập nhật Cụm Sion'
-                      : 'Lưu Cụm Sion'}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {clustersList.length === 0 ? (
-              <div className="p-8 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center space-y-2 bg-slate-50/70 dark:bg-slate-900/40">
-                <Layers className="w-8 h-8 text-amber-500 mx-auto" />
-                <div className="font-bold text-sm text-slate-800 dark:text-white">
-                  Chưa có Cụm Sion nào được cấu hình
-                </div>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  {isAdmin
-                    ? 'Bấm nút "Khởi tạo 5 cụm mẫu (TH1, ÊLI, HBC, PER, YSAC)" ở góc trên để tạo nhanh cấu hình cụm từ các Sion hiện có, sau đó có thể chỉnh sửa hoặc mở rộng thêm.'
-                    : 'Liên hệ Quản trị viên để cấu hình danh sách Cụm Sion.'}
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-2xl">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 uppercase font-bold border-b border-slate-100 dark:border-slate-700">
-                    <tr>
-                      <th className="py-3 px-4">Mã / Tên Cụm</th>
-                      <th className="py-3 px-4">Danh sách Sion trực thuộc</th>
-                      <th className="py-3 px-4 text-center">Khu vực</th>
-                      <th className="py-3 px-4 text-center">Thành viên</th>
-                      <th className="py-3 px-4 text-center">QL Cụm gán</th>
-                      {isAdmin && <th className="py-3 px-4 text-right">Thao tác</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {clustersList.map((cl) => {
-                      const resolvedSions = resolveClusterCompanyCodes(cl, clustersList, companies);
-                      const resolvedNorms = new Set(resolvedSions.map(normalizeOrgCode));
-                      const clAreasCount = scopedAreas.filter((a) =>
-                        resolvedNorms.has(normalizeOrgCode(a.companyCode))
-                      ).length;
-                      const clMembersCount = scopedMembers.filter((m) =>
-                        resolvedNorms.has(normalizeOrgCode(m.companyCode))
-                      ).length;
-                      const linkedManagers = (usersList || []).filter(
-                        (u) =>
-                          u.role === 'MANAGER' &&
-                          (u.managedClusterIds || []).some(
-                            (id) => id === cl.id || normalizeOrgCode(id) === normalizeOrgCode(cl.code)
-                          )
-                      );
-
-                      return (
-                        <tr key={cl.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-black text-amber-700 dark:text-amber-300 text-sm">
-                                {cl.name || cl.code}
-                              </span>
-                              {cl.code !== cl.name && (
-                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold">
-                                  {cl.code}
-                                </span>
-                              )}
-                              {cl.isCatchAll && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/70 text-amber-800 dark:text-amber-200 text-[10px] font-extrabold">
-                                  Tự động · Còn lại
-                                </span>
-                              )}
-                            </div>
-                            {cl.description && (
-                              <div className="text-[11px] text-slate-400 mt-0.5">{cl.description}</div>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            {resolvedSions.length === 0 ? (
-                              <span className="text-[11px] text-slate-400 italic">Chưa có Sion</span>
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {resolvedSions.map((code) => (
-                                  <span
-                                    key={code}
-                                    className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border border-blue-200/70 dark:border-blue-800/60 font-bold text-[11px]"
-                                  >
-                                    {code}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-center font-semibold text-slate-600 dark:text-slate-300">
-                            {clAreasCount} KV
-                          </td>
-                          <td className="py-3 px-4 text-center font-semibold text-slate-600 dark:text-slate-300">
-                            {clMembersCount} người
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                                linkedManagers.length > 0
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-slate-100 text-slate-500'
-                              }`}
-                              title={linkedManagers.map((m) => m.fullName).join(', ')}
-                            >
-                              {linkedManagers.length} QL Cụm · Auto-sync
-                            </span>
-                          </td>
-                          {isAdmin && (
-                            <td className="py-3 px-4 text-right whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => openEditClusterForm(cl)}
-                                className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
-                                title="Chỉnh sửa Cụm Sion"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setConfirmDeleteTarget({
-                                    title: `Xóa Cụm Sion "${cl.name}"? Các Sion bên trong vẫn giữ nguyên trong hệ thống.`,
-                                    onConfirm: () => {
-                                      const next = clustersList.filter((x) => x.id !== cl.id);
-                                      void saveClustersList(
-                                        next,
-                                        `Đã xóa Cụm Sion "${cl.name}".`
-                                      );
-                                    },
-                                  })
-                                }
-                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                                title="Xóa Cụm Sion"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* TAB 1: COMPANIES */}
         {activeTab === 'COMPANIES' && (
           <div>
@@ -1691,13 +1149,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {scopedCompanies.map((comp) => {
-                    const compNorm = normalizeOrgCode(comp.code);
-                    const compAreas = scopedAreas.filter(
-                      (a) => normalizeOrgCode(a.companyCode) === compNorm
-                    );
-                    const compMembers = scopedMembers.filter(
-                      (m) => normalizeOrgCode(m.companyCode) === compNorm
-                    );
+                    const compAreas = scopedAreas.filter((a) => a.companyCode === comp.code);
+                    const compMembers = scopedMembers.filter((m) => m.companyCode === comp.code);
                     const canEditThisComp = canEditCompany(comp);
 
                     return (
@@ -1807,46 +1260,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* TAB 2: AREAS */}
         {activeTab === 'AREAS' && (
           <div className="mt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-4">
-              <div>
-                <h3 className="font-bold text-sm text-slate-800 dark:text-white">
-                  Danh sách Khu vực theo từng Sion
-                </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Mỗi Sion có danh sách Khu vực độc lập (có thể dùng cùng mã/tên KV ở các Sion khác nhau).
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="w-44">
-                  <CustomSelect
-                    size="sm"
-                    searchable={false}
-                    value={areaFilterCompany}
-                    onChange={setAreaFilterCompany}
-                    options={[
-                      { value: 'ALL', label: 'Tất cả Sion' },
-                      ...scopedCompanies.map((c) => ({
-                        value: c.code,
-                        label: `${c.code} · ${c.name}`,
-                      })),
-                    ]}
-                  />
-                </div>
-                {canCreateArea && (
-                  <button
-                    onClick={() => {
-                      if (areaFilterCompany !== 'ALL') {
-                        setNewAreaCompany(areaFilterCompany);
-                      }
-                      setIsAddAreaOpen(true);
-                    }}
-                    className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Thêm Khu vực</span>
-                  </button>
-                )}
-              </div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-sm text-slate-800">Danh sách Khu vực (1.1, 1.2, 2.1, 2.2...)</h3>
+              {canCreateArea && (
+                <button
+                  onClick={() => setIsAddAreaOpen(true)}
+                  className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Thêm Khu vực</span>
+                </button>
+              )}
             </div>
 
             {/* Add Area Form */}
@@ -1855,7 +1279,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="font-bold text-xs text-blue-950 mb-3">Thêm Khu vực mới</div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Thuộc Sion / Công ty</label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Thuộc Công ty</label>
                     <CustomSelect
                       size="sm"
                       value={newAreaCompany}
@@ -1868,12 +1292,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Mã KV (VD: 1.1, KV1, Nội thành...)</label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Mã KV (ví dụ: 1.3, 2.3...)</label>
                     <input
                       type="text"
                       value={newAreaCode}
                       onChange={(e) => setNewAreaCode(e.target.value)}
-                      placeholder="1.1"
+                      placeholder="1.3"
                       className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
                     />
                   </div>
@@ -1883,7 +1307,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       type="text"
                       value={newAreaName}
                       onChange={(e) => setNewAreaName(e.target.value)}
-                      placeholder="Khu vực 1.1"
+                      placeholder="Khu vực 1.3"
                       className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800"
                     />
                   </div>
@@ -1913,72 +1337,62 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <tr>
                     <th className="py-3 px-4">Mã Khu vực</th>
                     <th className="py-3 px-4">Tên Khu vực</th>
-                    <th className="py-3 px-4">Trực thuộc Sion</th>
+                    <th className="py-3 px-4">Trực thuộc Cty</th>
                     <th className="py-3 px-4 text-center">Số thành viên</th>
                     <th className="py-3 px-4 text-center">Trạng thái</th>
                     <th className="py-3 px-4 text-right">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {scopedAreas
-                    .filter(
-                      (area) =>
-                        areaFilterCompany === 'ALL' ||
-                        normalizeOrgCode(area.companyCode) === normalizeOrgCode(areaFilterCompany)
-                    )
-                    .map((area) => {
-                      const areaMembers = scopedMembers.filter(
-                        (m) =>
-                          normalizeOrgCode(m.companyCode) === normalizeOrgCode(area.companyCode) &&
-                          normalizeOrgCode(m.areaCode) === normalizeOrgCode(area.code)
-                      );
-                      const editable = canEditArea(area);
-                      const deletable = canDeleteArea(area);
+                  {scopedAreas.map((area) => {
+                    const areaMembers = scopedMembers.filter((m) => m.areaCode === area.code);
+                    const editable = canEditArea(area);
+                    const deletable = canDeleteArea(area);
 
-                      return (
-                        <tr key={area.id} className="hover:bg-slate-50/80 transition">
-                          <td className="py-3 px-4 font-black text-blue-700">{area.code}</td>
-                          <td className="py-3 px-4 font-bold text-slate-900">{area.name}</td>
-                          <td className="py-3 px-4 text-slate-600 font-semibold">{area.companyCode}</td>
-                          <td className="py-3 px-4 text-center font-semibold text-slate-600">{areaMembers.length} người</td>
-                          <td className="py-3 px-4 text-center">
-                            <span className="px-2 py-0.5 rounded-full font-extrabold text-[10px] bg-emerald-100 text-emerald-800">
-                              Hoạt động
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
-                            {editable ? (
-                              <button
-                                onClick={() => setEditingArea(area)}
-                                className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
-                                title="Chỉnh sửa"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-400 italic">Chỉ xem</span>
-                            )}
-                            {deletable && (
-                              <button
-                                onClick={() =>
-                                  setConfirmDeleteTarget({
-                                    title: `Xóa khu vực ${area.name} (${area.companyCode})?`,
-                                    onConfirm: () => {
-                                      onDeleteArea(area.id);
-                                      onShowNotification(`Đã xóa khu vực ${area.name}.`);
-                                    },
-                                  })
-                                }
-                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                                title="Xóa khu vực"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    return (
+                      <tr key={area.id} className="hover:bg-slate-50/80 transition">
+                        <td className="py-3 px-4 font-black text-blue-700">{area.code}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900">{area.name}</td>
+                        <td className="py-3 px-4 text-slate-600 font-semibold">{area.companyCode}</td>
+                        <td className="py-3 px-4 text-center font-semibold text-slate-600">{areaMembers.length} người</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="px-2 py-0.5 rounded-full font-extrabold text-[10px] bg-emerald-100 text-emerald-800">
+                            Hoạt động
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          {editable ? (
+                            <button
+                              onClick={() => setEditingArea(area)}
+                              className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 mr-1 transition cursor-pointer"
+                              title="Chỉnh sửa"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">Chỉ xem</span>
+                          )}
+                          {deletable && (
+                            <button
+                              onClick={() =>
+                                setConfirmDeleteTarget({
+                                  title: `Xóa khu vực ${area.name}?`,
+                                  onConfirm: () => {
+                                    onDeleteArea(area.id);
+                                    onShowNotification(`Đã xóa khu vực ${area.name}.`);
+                                  },
+                                })
+                              }
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+                              title="Xóa khu vực"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -2599,7 +2013,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     <span className="text-[11px] font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md shrink-0">
-                      4 Sheets
+                      3 Sheets
                     </span>
                   </div>
 
@@ -2633,7 +2047,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <li><strong>Sion - Công Ty:</strong> Mã Sion, Tên Sion, Mô Tả, Trạng Thái.</li>
                       <li><strong>Khu Vực:</strong> Mã Khu Vực, Tên Khu Vực, Mã Sion Trực Thuộc.</li>
                       <li><strong>Ban Ngành:</strong> Mã Ban Ngành, Tên Ban Ngành, Trạng Thái.</li>
-                      <li><strong>Cụm Sion:</strong> Mã Cụm, Tên Cụm, Danh Sách Sion, Tự Động Còn Lại.</li>
                     </ul>
                   </div>
 
@@ -2649,9 +2062,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     <button
                       type="button"
-                      onClick={() =>
-                        exportSystemConfigExcel(companies, areas, departments, clustersList)
-                      }
+                      onClick={() => exportSystemConfigExcel(companies, areas, departments)}
                       className="py-2 px-3 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
@@ -2752,14 +2163,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       options={[
                         { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (phạm vi)' },
                         ...memAreas.map((a) => ({
-                          value:
-                            memExportCompany === 'ALL'
-                              ? makeAreaScopeKey(a.companyCode, a.code)
-                              : a.code,
-                          label:
-                            memExportCompany === 'ALL'
-                              ? `${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''} (${a.companyCode})`
-                              : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
+                          value: a.code,
+                          label: memExportCompany === 'ALL' ? `KV ${a.code} (${a.companyCode})` : `KV ${a.code}`,
                         })),
                       ]}
                     />
@@ -2873,14 +2278,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       mdExportCompany === 'ALL' ||
                       normalizeOrgCode(d.companyCode) === normalizeOrgCode(mdExportCompany)
                   )
-                  .filter((d) => {
-                    if (mdExportArea === 'ALL') return true;
-                    const p = parseAreaScopeEntry(mdExportArea);
-                    if (p.hasCompanyPrefix && normalizeOrgCode(d.companyCode) !== p.companyCode) {
-                      return false;
-                    }
-                    return !p.areaCode || normalizeOrgCode(d.areaCode) === p.areaCode;
-                  })
+                  .filter(
+                    (d) =>
+                      mdExportArea === 'ALL' ||
+                      normalizeOrgCode(d.areaCode) === normalizeOrgCode(mdExportArea)
+                  )
                   .forEach((d) => {
                     const key = d.ownerMemberId || d.ownerUid;
                     if (key && !mdOwnerMap.has(key)) {
@@ -2968,14 +2370,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       options={[
                         { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
                         ...mdAreas.map((a) => ({
-                          value:
-                            mdExportCompany === 'ALL'
-                              ? makeAreaScopeKey(a.companyCode, a.code)
-                              : a.code,
-                          label:
-                            mdExportCompany === 'ALL'
-                              ? `${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''} (${a.companyCode})`
-                              : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
+                          value: a.code,
+                          label: mdExportCompany === 'ALL' ? `KV ${a.code} (${a.companyCode})` : `KV ${a.code}`,
                         })),
                       ]}
                     />
@@ -3138,14 +2534,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             options={[
                               { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
                               ...selectableAreas.map((a) => ({
-                                value:
-                                  adminReportCompany === 'ALL'
-                                    ? makeAreaScopeKey(a.companyCode, a.code)
-                                    : a.code,
+                                value: a.code,
                                 label:
                                   adminReportCompany === 'ALL'
-                                    ? `${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''} (${a.companyCode})`
-                                    : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
+                                    ? `KV ${a.code} (${a.companyCode})`
+                                    : `KV ${a.code}`,
                               })),
                             ]}
                           />
@@ -3277,14 +2670,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       options={[
                         { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
                         ...eduAreas.map((a) => ({
-                          value:
-                            eduExportCompany === 'ALL'
-                              ? makeAreaScopeKey(a.companyCode, a.code)
-                              : a.code,
-                          label:
-                            eduExportCompany === 'ALL'
-                              ? `${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''} (${a.companyCode})`
-                              : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
+                          value: a.code,
+                          label: eduExportCompany === 'ALL' ? `KV ${a.code} (${a.companyCode})` : `KV ${a.code}`,
                         })),
                       ]}
                     />
@@ -3370,14 +2757,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         wsExportCompany === 'ALL' ||
                         normalizeOrgCode(w.companyCode) === normalizeOrgCode(wsExportCompany)
                     )
-                    .filter((w) => {
-                      if (wsExportArea === 'ALL') return true;
-                      const p = parseAreaScopeEntry(wsExportArea);
-                      if (p.hasCompanyPrefix && normalizeOrgCode(w.companyCode) !== p.companyCode) {
-                        return false;
-                      }
-                      return !p.areaCode || normalizeOrgCode(w.areaCode) === p.areaCode;
-                    })
+                    .filter(
+                      (w) =>
+                        wsExportArea === 'ALL' ||
+                        normalizeOrgCode(w.areaCode) === normalizeOrgCode(wsExportArea)
+                    )
                     .forEach((w) => {
                       const key = w.ownerMemberId || w.ownerUid;
                       if (key && !ownerOptionsMap.has(key)) {
@@ -3483,14 +2867,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             options={[
                               { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
                               ...selectableWsAreas.map((a) => ({
-                                value:
-                                  wsExportCompany === 'ALL'
-                                    ? makeAreaScopeKey(a.companyCode, a.code)
-                                    : a.code,
+                                value: a.code,
                                 label:
                                   wsExportCompany === 'ALL'
-                                    ? `${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''} (${a.companyCode})`
-                                    : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
+                                    ? `KV ${a.code} (${a.companyCode})`
+                                    : `KV ${a.code}`,
                               })),
                             ]}
                           />
@@ -3799,7 +3180,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               companies={companies}
               areas={areas}
               departments={departments}
-              clusters={clustersList}
               onUpdateUserRole={onUpdateUserRole || (async () => {})}
               onDeleteUserAccount={onDeleteUserAccount}
               preAssignedRoles={preAssignedRoles}

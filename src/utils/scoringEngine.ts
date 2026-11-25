@@ -236,12 +236,10 @@ export function computeAreaRankings(areas: Area[], members: Member[]): AreaRankI
   }[] = [];
 
   areas.forEach((area, index) => {
-    const normAreaCode = (area.code || '').trim().toUpperCase();
-    const normAreaCompany = (area.companyCode || '').trim().toUpperCase();
     const areaMembers = members.filter(
       (m) =>
-        (m.areaCode || '').trim().toUpperCase() === normAreaCode &&
-        (!normAreaCompany || (m.companyCode || '').trim().toUpperCase() === normAreaCompany) &&
+        m.areaCode === area.code &&
+        (!area.companyCode || m.companyCode === area.companyCode) &&
         m.active
     );
     const count = areaMembers.length;

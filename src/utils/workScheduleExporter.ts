@@ -14,7 +14,6 @@ import {
   isAdminRole,
   isMemberInManagerCluster,
   normalizeOrgCode,
-  parseAreaScopeEntry,
 } from './rbac';
 import { sanitizeExcelCell } from './excelSanitizer';
 
@@ -194,11 +193,7 @@ export function exportWorkSchedulesByRbacExcel(
       if (normalizeOrgCode(comp) !== normalizeOrgCode(opts.filterCompanyCode)) return false;
     }
     if (opts.filterAreaCode && opts.filterAreaCode !== 'ALL') {
-      const parsedArea = parseAreaScopeEntry(opts.filterAreaCode);
-      if (parsedArea.hasCompanyPrefix && normalizeOrgCode(comp) !== parsedArea.companyCode) {
-        return false;
-      }
-      if (parsedArea.areaCode && normalizeOrgCode(area) !== parsedArea.areaCode) return false;
+      if (normalizeOrgCode(area) !== normalizeOrgCode(opts.filterAreaCode)) return false;
     }
     return true;
   };
