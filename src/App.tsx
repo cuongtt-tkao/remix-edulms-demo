@@ -146,6 +146,7 @@ import {
   isBootstrapSuperAdminEmail,
   FIRESTORE_DATABASE_ID,
 } from './firebase';
+import { diagnoseWriteDenied } from './utils/rulesDiagnostics';
 
 function getAreaLeaderQueryPairs(
   compCodes: string[],
@@ -2206,7 +2207,12 @@ export default function App() {
       })
     );
 
-    await setDoc(doc(db, 'dailyReports', reportId), payload);
+    try {
+      await setDoc(doc(db, 'dailyReports', reportId), payload);
+    } catch (err) {
+      void diagnoseWriteDenied('dailyReports', reportId, payload as Record<string, any>, err);
+      throw err;
+    }
 
     // Cập nhật tức thì tổng điểm lên document member để đồng bộ dữ liệu
     const mergedReports = [
@@ -2237,13 +2243,19 @@ export default function App() {
     if (!firebaseUser) return;
     const uid = firebaseUser.uid;
     const goalId = `${uid}_${periodType}_${periodKey}`;
-    await setDoc(doc(db, 'periodGoals', goalId), {
+    const goalPayload = {
       uid,
       periodType,
       periodKey,
       goals,
       updatedAt: new Date().toISOString(),
-    });
+    };
+    try {
+      await setDoc(doc(db, 'periodGoals', goalId), goalPayload);
+    } catch (err) {
+      void diagnoseWriteDenied('periodGoals', goalId, goalPayload, err);
+      throw err;
+    }
   };
 
   // ---------- CRUD Trang thông tin MĐ (disciples) ----------
