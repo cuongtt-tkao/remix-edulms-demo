@@ -8,6 +8,7 @@ import {
   DailyReportMetrics,
   DAILY_METRIC_DEFINITIONS,
   ROLE_DISPLAY_META,
+  canExportExcel,
 } from '../types/edulms';
 import { computeDailyMetricsScore, sumDailyReportMetrics } from './scoringEngine';
 import {
@@ -65,6 +66,9 @@ export function exportDailyReportsByRbacExcel(
   opts: DailyReportExportOptions
 ): DailyReportExportSummary {
   const { viewer, dailyReports, members, weights } = opts;
+  if (!viewer || !canExportExcel(viewer.role)) {
+    throw new Error('Chỉ tài khoản từ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+  }
   const wb = XLSX.utils.book_new();
   const memberById = new Map<string, Member>();
   members.forEach((m) => memberById.set(m.id, m));

@@ -33,11 +33,13 @@ import {
   Member,
   ROLE_DISPLAY_META,
   UserAccount,
+  canExportExcel,
 } from '../types/edulms';
 import {
   canAccessMemberReportOverview,
   getMemberUnitCode,
   getRbacScopeDescription,
+  getRoleScopedDropdownLabels,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   getScopedMemberOptions,
@@ -483,24 +485,34 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
     [unitOverviewRows]
   );
 
+  const canDownloadExcel = canExportExcel(currentUser?.role);
+
   const handleExportExcel = () => {
     if (!currentUser) return;
-    const summary = exportDailyReportsByRbacExcel({
-      viewer: currentUser,
-      dailyReports,
-      members,
-      weights,
-      period: periodMode,
-      periodDate: selectedDate,
-      periodMonth: selectedMonth,
-      periodYear: selectedYear,
-      filterCompanyCode: isPersonalOnly ? undefined : companyFilter,
-      filterAreaCode: isPersonalOnly ? undefined : areaFilter,
-      filterMemberId: isPersonalOnly ? undefined : memberFilter,
-    });
-    onShowNotification(
-      `Đã xuất ${summary.fileName} (${summary.reportsCount} báo cáo · ${summary.membersCount} nhân sự).`
-    );
+    if (!canExportExcel(currentUser.role)) {
+      onShowNotification('Chỉ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+      return;
+    }
+    try {
+      const summary = exportDailyReportsByRbacExcel({
+        viewer: currentUser,
+        dailyReports,
+        members,
+        weights,
+        period: periodMode,
+        periodDate: selectedDate,
+        periodMonth: selectedMonth,
+        periodYear: selectedYear,
+        filterCompanyCode: isPersonalOnly ? undefined : companyFilter,
+        filterAreaCode: isPersonalOnly ? undefined : areaFilter,
+        filterMemberId: isPersonalOnly ? undefined : memberFilter,
+      });
+      onShowNotification(
+        `Đã xuất ${summary.fileName} (${summary.reportsCount} báo cáo · ${summary.membersCount} nhân sự).`
+      );
+    } catch (err: any) {
+      onShowNotification(err?.message || 'Không có quyền xuất Excel.');
+    }
   };
 
   if (!currentUser) {
@@ -569,14 +581,16 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
               <span>Nhập báo cáo</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="px-4 min-h-[40px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>Xuất Excel</span>
-            </button>
+            {canDownloadExcel && (
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="px-4 min-h-[40px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Xuất Excel</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -706,7 +720,16 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
           </div>
 
           {/* Scope Filter Row: 3 tầng liên hoàn Sion -> Khu vực -> Cá nhân (only for Cấp 2-7) */}
-          {!isPersonalOnly && (
+          {!isPersonalOnly && (() => {
+            const scopeDropdownLabels = getRoleScopedDropdownLabels(currentUser, {
+              selectedCompanyCode: companyFilter,
+              companiesCount: selectableCompanies.length,
+              singleCompanyCode: selectableCompanies[0]?.code,
+              areasCount: selectableAreas.length,
+              singleAreaCode: selectableAreas[0]?.code,
+              membersCount: selectableMembers.length,
+            });
+            return (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2">
               <div
                 className={`relative ${
@@ -741,9 +764,10 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
                       setMemberFilter('ALL');
                     }}
                     options={[
-                      { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
-                      ...selectableCompanies.map((c) => ({ value: c.code, label: c.name || c.code })),
+                      { value: 'ALL', label: scopeDropdownLabels.allCompaniesLabel },
+                      ...selectableCompanies.map((c) => ({ value: c.code, label: c.code })),
                     ]}
+                    ariaLabel="Chọn Sion lọc báo cáo"
                   />
                 </div>
               )}
@@ -759,9 +783,10 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
                       setMemberFilter('ALL');
                     }}
                     options={[
-                      { value: 'ALL', label: isAdmin ? 'Tất cả Khu vực' : 'Tất cả KV (phạm vi)' },
+                      { value: 'ALL', label: scopeDropdownLabels.allAreasLabel },
                       ...selectableAreas.map((a) => ({ value: a.code, label: `KV ${a.code}` })),
                     ]}
+                    ariaLabel="Chọn Khu vực lọc báo cáo"
                   />
                 </div>
               )}
@@ -776,7 +801,7 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
                     options={[
                       {
                         value: 'ALL',
-                        label: `Tất cả cá nhân (${selectableMembers.length})`,
+                        label: scopeDropdownLabels.allMembersLabel,
                       },
                       ...selectableMembers.map((m) => ({
                         value: m.id,
@@ -784,11 +809,13 @@ export const DailyReportOverviewPage: React.FC<DailyReportOverviewPageProps> = (
                         badge: m.areaCode ? `KV ${m.areaCode}` : m.companyCode,
                       })),
                     ]}
+                    ariaLabel="Chọn cá nhân lọc báo cáo"
                   />
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
         </div>
       </section>
 

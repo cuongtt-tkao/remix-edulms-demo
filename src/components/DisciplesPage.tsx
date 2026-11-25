@@ -28,9 +28,11 @@ import {
   DISCIPLE_PROGRESS_STEPS,
   DISCIPLE_AGE_RANGES,
   mapAgeToRange,
+  canExportExcel,
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
 import {
+  getRoleScopedDropdownLabels,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   isAdminRole,
@@ -468,32 +470,41 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                if (!currentUser) return;
-                const statusOpt =
-                  progressFilter === 'ACTIVE' || progressFilter === 'STOPPED'
-                    ? progressFilter
-                    : 'ALL';
-                const res = exportDisciplesExcel(filteredDisciples, {
-                  viewer: currentUser,
-                  companyCode: companyFilter,
-                  areaCode: areaFilter,
-                  ownerKey: ownerFilter,
-                  status: statusOpt,
-                });
-                onShowNotification(
-                  `Đã xuất ${res.fileName} (${res.count} MĐ theo phạm vi phân quyền).`
-                );
-              }}
-              title="Xuất Excel Sổ tay MĐ theo phân quyền hiện tại"
-              className="px-2.5 sm:px-3.5 h-9 sm:h-10 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
-            >
-              <FileDown className="w-4 h-4 shrink-0" />
-              <span className="hidden xs:inline sm:inline">Xuất Excel</span>
-              <span className="xs:hidden">Excel</span>
-            </button>
+            {canExportExcel(currentUser?.role) && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!currentUser || !canExportExcel(currentUser.role)) {
+                    onShowNotification('Chỉ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+                    return;
+                  }
+                  try {
+                    const statusOpt =
+                      progressFilter === 'ACTIVE' || progressFilter === 'STOPPED'
+                        ? progressFilter
+                        : 'ALL';
+                    const res = exportDisciplesExcel(filteredDisciples, {
+                      viewer: currentUser,
+                      companyCode: companyFilter,
+                      areaCode: areaFilter,
+                      ownerKey: ownerFilter,
+                      status: statusOpt,
+                    });
+                    onShowNotification(
+                      `Đã xuất ${res.fileName} (${res.count} MĐ theo phạm vi phân quyền).`
+                    );
+                  } catch (err: any) {
+                    onShowNotification(err?.message || 'Không có quyền xuất Excel.');
+                  }
+                }}
+                title="Xuất Excel Sổ tay MĐ theo phân quyền hiện tại"
+                className="px-2.5 sm:px-3.5 h-9 sm:h-10 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
+              >
+                <FileDown className="w-4 h-4 shrink-0" />
+                <span className="hidden xs:inline sm:inline">Xuất Excel</span>
+                <span className="xs:hidden">Excel</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -580,7 +591,17 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
           </div>
         </div>
 
-        {(showCompanyDropdown || showAreaDropdown || showOwnerDropdown) && (
+        {(showCompanyDropdown || showAreaDropdown || showOwnerDropdown) && (() => {
+          const discipleDropdownLabels = getRoleScopedDropdownLabels(currentUser, {
+            selectedCompanyCode: companyFilter,
+            companiesCount: selectableCompanies.length,
+            singleCompanyCode: selectableCompanies[0]?.code,
+            areasCount: selectableAreas.length,
+            singleAreaCode: selectableAreas[0]?.code,
+            membersCount: selectableOwners.length,
+            memberNoun: 'người phụ trách',
+          });
+          return (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {showCompanyDropdown && (
               <CustomSelect
@@ -594,10 +615,10 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                   setOwnerFilter('ALL');
                 }}
                 options={[
-                  { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
+                  { value: 'ALL', label: discipleDropdownLabels.allCompaniesLabel },
                   ...selectableCompanies.map((c) => ({
                     value: c.code,
-                    label: c.name || c.code,
+                    label: c.code,
                   })),
                 ]}
               />
@@ -614,10 +635,15 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                   setOwnerFilter('ALL');
                 }}
                 options={[
-                  { value: 'ALL', label: 'Mọi khu vực', badge: String(selectableAreas.length) },
+                  { value: 'ALL', label: discipleDropdownLabels.allAreasLabel, badge: String(selectableAreas.length) },
                   ...selectableAreas.map((a) => ({
                     value: a.code,
-                    label: a.name && a.name !== `KV ${a.code}` ? `KV ${a.code} - ${a.name}` : `KV ${a.code}`,
+                    label:
+                      a.name &&
+                      normalizeOrgCode(a.name) !== normalizeOrgCode(a.code) &&
+                      normalizeOrgCode(a.name) !== normalizeOrgCode(`KV ${a.code}`)
+                        ? `KV ${a.code} - ${a.name}`
+                        : `KV ${a.code}`,
                   })),
                 ]}
               />
@@ -631,7 +657,7 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
                 value={ownerFilter}
                 onChange={setOwnerFilter}
                 options={[
-                  { value: 'ALL', label: `Tất cả người phụ trách (${selectableOwners.length})` },
+                  { value: 'ALL', label: discipleDropdownLabels.allMembersLabel },
                   ...selectableOwners.map((o) => ({
                     value: o.id,
                     label: o.fullName,
@@ -641,7 +667,8 @@ export const DisciplesPage: React.FC<DisciplesPageProps> = ({
               />
             )}
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Loading / Empty / List */}

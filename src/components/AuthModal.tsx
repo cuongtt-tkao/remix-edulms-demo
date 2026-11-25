@@ -17,7 +17,7 @@ import {
   ExternalLink,
   Loader2,
 } from 'lucide-react';
-import { Company, Area, Department, formatCompanyDisplayName } from '../types/edulms';
+import { Company, Area, Department } from '../types/edulms';
 import { signInWithGoogle, signInWithEmail, sendResetPasswordEmail, describeAuthError } from '../firebase';
 import { CustomSelect } from './CustomSelect';
 
@@ -558,8 +558,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     leadingIcon={<Building2 className="w-3.5 h-3.5" />}
                     options={effectiveCompanies.map((c) => ({
                       value: c.code,
-                      label: formatCompanyDisplayName(c.name, c.code),
-                      badge: c.code,
+                      label: c.code,
                     }))}
                     ariaLabel="Chọn Sion / Công ty"
                   />
@@ -598,11 +597,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       size="sm"
                       leadingIcon={<MapPin className="w-3.5 h-3.5" />}
                       options={[
-                        ...areasForRegCompany.map((a) => ({
-                          value: a.code,
-                          label: a.name || `Khu vực ${a.code}`,
-                          badge: a.code,
-                        })),
+                        ...areasForRegCompany.map((a) => {
+                          const cleanCode = cleanRawAreaCode(a.code) || a.code;
+                          const cleanName = (a.name || '').trim();
+                          const isDupName =
+                            !cleanName ||
+                            normalizeOrgCode(cleanName) === normalizeOrgCode(cleanCode) ||
+                            normalizeOrgCode(cleanName) === normalizeOrgCode(`KV ${cleanCode}`) ||
+                            normalizeOrgCode(cleanName) === normalizeOrgCode(`Khu vực ${cleanCode}`);
+                          return isDupName
+                            ? {
+                                value: a.code,
+                                label: `KV ${cleanCode}`,
+                              }
+                            : {
+                                value: a.code,
+                                label: cleanName,
+                                badge: cleanCode,
+                              };
+                        }),
                         {
                           value: '__CREATE_NEW_AREA__',
                           label: '+ Tạo khu vực mới...',

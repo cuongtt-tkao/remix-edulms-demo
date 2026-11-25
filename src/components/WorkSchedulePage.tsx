@@ -33,10 +33,12 @@ import {
   WORK_WEEK_DAYS,
   WorkScheduleRecord,
   createEmptyWeekSessionsMap,
+  canExportExcel,
 } from '../types/edulms';
 import {
   canViewMemberDetail,
   getMemberUnitCode,
+  getRoleScopedDropdownLabels,
   isAdminRole,
   isMemberInManagerCluster,
   isSupervisorRole,
@@ -535,32 +537,42 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
     setIsDirty(false);
   };
 
+  const canDownloadExcel = canExportExcel(currentUser?.role);
+
   const handleExportExcel = (scopeMode: 'SELF' | 'TEAM', specificOwnerKey?: string) => {
     if (!currentUser) {
       onOpenAuthModal();
       return;
     }
-    const res = exportWorkSchedulesByRbacExcel({
-      viewer: currentUser,
-      workSchedules,
-      members,
-      period: exportPeriod,
-      selectedWeekStart,
-      targetMonth: selectedMonthStr,
-      scopeMode,
-      filterCompanyCode: scopeMode === 'TEAM' ? teamFilterCompany : undefined,
-      filterAreaCode: scopeMode === 'TEAM' ? teamFilterArea : undefined,
-      filterOwnerKey: specificOwnerKey || 'ALL',
-      includeWs: showWsSection,
-    });
-    if (res.recordsCount === 0) {
-      onShowNotification(
-        `Đã tạo ${res.fileName} (chưa có lịch đã lưu trong kỳ chọn — nếu vừa nhập hãy bấm "Lưu lịch" trước).`
-      );
-    } else {
-      onShowNotification(
-        `Đã xuất ${res.fileName} (${res.recordsCount} tuần · ${res.peopleCount} nhân sự).`
-      );
+    if (!canExportExcel(currentUser.role)) {
+      onShowNotification('Chỉ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+      return;
+    }
+    try {
+      const res = exportWorkSchedulesByRbacExcel({
+        viewer: currentUser,
+        workSchedules,
+        members,
+        period: exportPeriod,
+        selectedWeekStart,
+        targetMonth: selectedMonthStr,
+        scopeMode,
+        filterCompanyCode: scopeMode === 'TEAM' ? teamFilterCompany : undefined,
+        filterAreaCode: scopeMode === 'TEAM' ? teamFilterArea : undefined,
+        filterOwnerKey: specificOwnerKey || 'ALL',
+        includeWs: showWsSection,
+      });
+      if (res.recordsCount === 0) {
+        onShowNotification(
+          `Đã tạo ${res.fileName} (chưa có lịch đã lưu trong kỳ chọn — nếu vừa nhập hãy bấm "Lưu lịch" trước).`
+        );
+      } else {
+        onShowNotification(
+          `Đã xuất ${res.fileName} (${res.recordsCount} tuần · ${res.peopleCount} nhân sự).`
+        );
+      }
+    } catch (err: any) {
+      onShowNotification(err?.message || 'Không có quyền xuất Excel.');
     }
   };
 
@@ -901,40 +913,42 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
               </>
             )}
 
-            {/* Quick Excel Export (Tuần đang chọn / Tháng / Tất cả) */}
-            <div className="inline-flex items-center rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/60 dark:bg-emerald-950/30 p-0.5">
-              <select
-                value={exportPeriod}
-                onChange={(e) => setExportPeriod(e.target.value as WorkScheduleExportPeriod)}
-                aria-label="Kỳ xuất báo cáo lịch làm việc"
-                className="bg-transparent pl-2 pr-1 py-1 text-[11px] font-bold text-emerald-900 dark:text-emerald-200 outline-none cursor-pointer"
-              >
-                <option value="WEEK" className="bg-white dark:bg-slate-900">
-                  Tuần chọn
-                </option>
-                <option value="MONTH" className="bg-white dark:bg-slate-900">
-                  {monthOptionLabel}
-                </option>
-                <option value="ALL" className="bg-white dark:bg-slate-900">
-                  Tất cả tuần
-                </option>
-              </select>
-              <button
-                type="button"
-                onClick={() =>
-                  handleExportExcel(viewMode === 'TEAM_SCHEDULES' ? 'TEAM' : 'SELF')
-                }
-                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold flex items-center gap-1 transition cursor-pointer"
-                title={
-                  viewMode === 'TEAM_SCHEDULES'
-                    ? 'Xuất Excel LLV theo phạm vi quản lý'
-                    : 'Xuất Excel LLV cá nhân của bạn'
-                }
-              >
-                <FileDown className="w-3.5 h-3.5" />
-                <span>{viewMode === 'TEAM_SCHEDULES' ? 'Xuất Excel TV' : 'Xuất LLV'}</span>
-              </button>
-            </div>
+            {/* Quick Excel Export (Tuần đang chọn / Tháng / Tất cả — chỉ từ Cấp 4 TS, NQ trở lên) */}
+            {canDownloadExcel && (
+              <div className="inline-flex items-center rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/60 dark:bg-emerald-950/30 p-0.5">
+                <select
+                  value={exportPeriod}
+                  onChange={(e) => setExportPeriod(e.target.value as WorkScheduleExportPeriod)}
+                  aria-label="Kỳ xuất báo cáo lịch làm việc"
+                  className="bg-transparent pl-2 pr-1 py-1 text-[11px] font-bold text-emerald-900 dark:text-emerald-200 outline-none cursor-pointer"
+                >
+                  <option value="WEEK" className="bg-white dark:bg-slate-900">
+                    Tuần chọn
+                  </option>
+                  <option value="MONTH" className="bg-white dark:bg-slate-900">
+                    {monthOptionLabel}
+                  </option>
+                  <option value="ALL" className="bg-white dark:bg-slate-900">
+                    Tất cả tuần
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleExportExcel(viewMode === 'TEAM_SCHEDULES' ? 'TEAM' : 'SELF')
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold flex items-center gap-1 transition cursor-pointer"
+                  title={
+                    viewMode === 'TEAM_SCHEDULES'
+                      ? 'Xuất Excel LLV theo phạm vi quản lý'
+                      : 'Xuất Excel LLV cá nhân của bạn'
+                  }
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  <span>{viewMode === 'TEAM_SCHEDULES' ? 'Xuất Excel TV' : 'Xuất LLV'}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1454,38 +1468,62 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                 />
               </div>
 
-              {availableTeamCompanies.length > 1 && (
+              {availableTeamCompanies.length > 1 && (() => {
+                const wsTeamLabels = getRoleScopedDropdownLabels(currentUser, {
+                  selectedCompanyCode: teamFilterCompany,
+                  companiesCount: availableTeamCompanies.length,
+                  singleCompanyCode: availableTeamCompanies[0]?.code,
+                  areasCount: availableTeamAreas.length,
+                  singleAreaCode: availableTeamAreas[0]?.code,
+                });
+                return (
                 <select
                   value={teamFilterCompany}
                   onChange={(e) => {
                     setTeamFilterCompany(e.target.value);
                     setTeamFilterArea('ALL');
                   }}
+                  aria-label="Lọc theo Sion"
                   className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:border-blue-500"
                 >
-                  <option value="ALL">Tất cả Sion</option>
+                  <option value="ALL">{wsTeamLabels.allCompaniesLabel}</option>
                   {availableTeamCompanies.map((c) => (
                     <option key={c.code} value={c.code}>
-                      {c.name}
+                      {c.code}
                     </option>
                   ))}
                 </select>
-              )}
+                );
+              })()}
 
-              {availableTeamAreas.length > 1 && (
+              {availableTeamAreas.length > 1 && (() => {
+                const wsAreaLabels = getRoleScopedDropdownLabels(currentUser, {
+                  selectedCompanyCode: teamFilterCompany,
+                  companiesCount: availableTeamCompanies.length,
+                  singleCompanyCode: availableTeamCompanies[0]?.code,
+                  areasCount: availableTeamAreas.length,
+                  singleAreaCode: availableTeamAreas[0]?.code,
+                });
+                return (
                 <select
                   value={teamFilterArea}
                   onChange={(e) => setTeamFilterArea(e.target.value)}
+                  aria-label="Lọc theo Khu vực"
                   className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:border-blue-500"
                 >
-                  <option value="ALL">Tất cả Khu vực</option>
+                  <option value="ALL">{wsAreaLabels.allAreasLabel}</option>
                   {availableTeamAreas.map((a) => (
                     <option key={a.code} value={a.code}>
-                      KV {a.code} · {a.name}
+                      {a.name &&
+                      normalizeOrgCode(a.name) !== normalizeOrgCode(a.code) &&
+                      normalizeOrgCode(a.name) !== normalizeOrgCode(`KV ${a.code}`)
+                        ? `KV ${a.code} · ${a.name}`
+                        : `KV ${a.code}`}
                     </option>
                   ))}
                 </select>
-              )}
+                );
+              })()}
 
               <select
                 value={teamStatusFilter}
@@ -1596,14 +1634,16 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
                                   ? new Date(rec.updatedAt).toLocaleString('vi-VN')
                                   : '—'}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => handleExportExcel('TEAM', rec.ownerUid)}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                              >
-                                <FileDown className="w-3.5 h-3.5" />
-                                <span>Xuất LLV cá nhân</span>
-                              </button>
+                              {canDownloadExcel && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleExportExcel('TEAM', rec.ownerUid)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                                >
+                                  <FileDown className="w-3.5 h-3.5" />
+                                  <span>Xuất LLV cá nhân</span>
+                                </button>
+                              )}
                             </div>
                             {/* Read-only Desktop Matrix */}
                             <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">

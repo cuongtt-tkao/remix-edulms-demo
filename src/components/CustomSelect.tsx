@@ -144,7 +144,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       const selectedIdx = filteredOptions.findIndex((o) => o.value === value && !o.disabled);
       setActiveIndex(selectedIdx >= 0 ? selectedIdx : 0);
       if (showSearch) {
-        requestAnimationFrame(() => searchInputRef.current?.focus());
+        requestAnimationFrame(() => {
+          const ua = (navigator as any)?.userActivation;
+          if (!ua || ua.isActive) {
+            searchInputRef.current?.focus();
+          }
+        });
       }
     } else {
       setQuery('');

@@ -1076,7 +1076,7 @@ export function getScopedCompanyOptions(
     });
   }
 
-  return merged.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'vi'));
+  return merged.sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name, 'vi'));
 }
 
 export function getScopedAreaOptions(
@@ -1152,5 +1152,90 @@ export function getScopedMemberOptions(
       return true;
     })
     .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'vi'));
+}
+
+export interface RoleScopedDropdownLabels {
+  allCompaniesLabel: string;
+  allAreasLabel: string;
+  allMembersLabel: string;
+}
+
+export function getRoleScopedDropdownLabels(
+  viewer: UserAccount | null | undefined,
+  opts?: {
+    selectedCompanyCode?: string;
+    companiesCount?: number;
+    singleCompanyCode?: string;
+    areasCount?: number;
+    singleAreaCode?: string;
+    membersCount?: number;
+    memberNoun?: string;
+  }
+): RoleScopedDropdownLabels {
+  const selectedComp = (opts?.selectedCompanyCode || '').trim();
+  const hasSpecificCompany = Boolean(selectedComp && selectedComp !== 'ALL');
+  const companiesCount = opts?.companiesCount;
+  const singleCompanyCode = (opts?.singleCompanyCode || '').trim();
+  const areasCount = opts?.areasCount;
+  const singleAreaCode = (opts?.singleAreaCode || '').trim();
+  const memberNoun = opts?.memberNoun || 'cá nhân';
+  const countSuffix = typeof opts?.membersCount === 'number' ? ` (${opts.membersCount})` : '';
+
+  if (!viewer || isAdminRole(viewer.role)) {
+    return {
+      allCompaniesLabel: 'Tất cả Sion (Toàn HT)',
+      allAreasLabel: hasSpecificCompany ? `Tất cả KV (${selectedComp})` : 'Tất cả KV (Toàn HT)',
+      allMembersLabel: `Tất cả ${memberNoun} (Toàn HT)${countSuffix}`,
+    };
+  }
+
+  switch (viewer.role) {
+    case 'MANAGER':
+      return {
+        allCompaniesLabel:
+          companiesCount === 1 && singleCompanyCode
+            ? `Sion Cụm QL (${singleCompanyCode})`
+            : 'Tất cả Sion (Cụm QL)',
+        allAreasLabel: hasSpecificCompany ? `Tất cả KV (${selectedComp})` : 'Tất cả KV (Cụm QL)',
+        allMembersLabel: `Tất cả ${memberNoun} (Cụm QL)${countSuffix}`,
+      };
+    case 'SION_LEADER':
+      return {
+        allCompaniesLabel:
+          companiesCount === 1 && singleCompanyCode
+            ? `Sion phụ trách (${singleCompanyCode})`
+            : 'Tất cả Sion phụ trách',
+        allAreasLabel: hasSpecificCompany
+          ? `Tất cả KV (${selectedComp})`
+          : 'Tất cả KV (Sion phụ trách)',
+        allMembersLabel: `Tất cả ${memberNoun} (Sion phụ trách)${countSuffix}`,
+      };
+    case 'AREA_LEADER':
+      return {
+        allCompaniesLabel:
+          companiesCount === 1 && singleCompanyCode
+            ? `Sion (${singleCompanyCode})`
+            : 'Sion phụ trách',
+        allAreasLabel:
+          areasCount === 1 && singleAreaCode
+            ? `KV phụ trách (${singleAreaCode})`
+            : 'Tất cả KV phụ trách',
+        allMembersLabel: `Tất cả ${memberNoun} (KV phụ trách)${countSuffix}`,
+      };
+    case 'UNI_LEADER':
+      return {
+        allCompaniesLabel:
+          companiesCount === 1 && singleCompanyCode ? `Sion (${singleCompanyCode})` : 'Sion của Uni',
+        allAreasLabel:
+          areasCount === 1 && singleAreaCode ? `KV (${singleAreaCode})` : 'KV của Uni',
+        allMembersLabel: `Tất cả thành viên (Uni)${countSuffix}`,
+      };
+    default:
+      return {
+        allCompaniesLabel: singleCompanyCode ? `Sion (${singleCompanyCode})` : 'Sion của tôi',
+        allAreasLabel: singleAreaCode ? `KV (${singleAreaCode})` : 'KV của tôi',
+        allMembersLabel: `Cá nhân${countSuffix}`,
+      };
+  }
 }
 

@@ -19,7 +19,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { Member, CompanyRankItem, AreaRankItem } from '../types/edulms';
-import { exportCompetitionToExcel, printCompetitionReport } from '../utils/reportExporter';
+import { printCompetitionReport } from '../utils/reportExporter';
 import { TrendingChartsModal } from './TrendingChartsModal';
 import { CustomSelect } from './CustomSelect';
 

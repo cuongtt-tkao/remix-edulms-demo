@@ -16,6 +16,7 @@ import {
   EDU_TRACK_LABELS,
   EDU_CMS_STAGE_LABELS,
   EDU_ASSIGNMENT_STATUS_LABELS,
+  canExportExcel,
 } from '../types/edulms';
 
 import {
@@ -154,8 +155,11 @@ export function exportMembersAndTargetsExcel(
     memberId?: string;
   }
 ): { membersCount: number; fileName: string } {
-  const wb = XLSX.utils.book_new();
   const viewer = opts?.viewer;
+  if (!viewer || !canExportExcel(viewer.role)) {
+    throw new Error('Chỉ tài khoản từ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+  }
+  const wb = XLSX.utils.book_new();
 
   const scopedMembers = members.filter((m) => {
     if (viewer && !canExportMemberOrgRecord(viewer, m)) return false;
@@ -344,8 +348,11 @@ export function exportDisciplesExcel(
     status?: 'ALL' | 'ACTIVE' | 'STOPPED';
   }
 ): { count: number; fileName: string } {
-  const wb = XLSX.utils.book_new();
   const viewer = opts?.viewer;
+  if (!viewer || !canExportExcel(viewer.role)) {
+    throw new Error('Chỉ tài khoản từ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+  }
+  const wb = XLSX.utils.book_new();
   const compFilter = opts?.companyCode || 'ALL';
   const areaFilter = opts?.areaCode || 'ALL';
   const ownerFilter = opts?.ownerKey || 'ALL';
@@ -548,8 +555,11 @@ export function exportEduDataExcel(
   cmsProfiles: EduCmsProfile[],
   opts?: { viewer?: UserAccount | null; companyCode?: string; areaCode?: string }
 ): { topicsCount: number; assignmentsCount: number; cmsCount: number; fileName: string } {
-  const wb = XLSX.utils.book_new();
   const viewer = opts?.viewer;
+  if (!viewer || !canExportExcel(viewer.role)) {
+    throw new Error('Chỉ tài khoản từ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+  }
+  const wb = XLSX.utils.book_new();
   const compFilter = opts?.companyCode || 'ALL';
   const areaFilter = opts?.areaCode || 'ALL';
 

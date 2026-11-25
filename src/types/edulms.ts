@@ -275,6 +275,10 @@ export function canAccessAdminPanel(role?: UserRole | null): boolean {
   return getRoleLevel(role) >= 2;
 }
 
+export function canExportExcel(role?: UserRole | null): boolean {
+  return getRoleLevel(role) >= 4;
+}
+
 export interface RoleAssignment {
   email: string;
   role: UserRole;

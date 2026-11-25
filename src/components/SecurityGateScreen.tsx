@@ -27,7 +27,6 @@ import {
   Department,
   UserAccount,
   ROLE_DISPLAY_META,
-  formatCompanyDisplayName,
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
 import { signInWithGoogle, describeAuthError, FirebaseUser } from '../firebase';
@@ -239,10 +238,36 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       setCooldownRemaining(0);
       setFailedAttempts(stored.failedAttempts >= MAX_PIN_ATTEMPTS ? 0 : stored.failedAttempts);
     }
-    if (mode === 'PIN_LOCKED') {
-      setTimeout(() => unlockInputRef.current?.focus(), 80);
-    }
   }, [mode, currentUser?.id]);
+
+  // Allow direct physical keyboard PIN entry on PIN_LOCKED without violating iframe focus policy
+  useEffect(() => {
+    if (mode !== 'PIN_LOCKED') return;
+    const handlePinKeyDown = (e: KeyboardEvent) => {
+      if (cooldownRemaining > 0 || isVerifyingPin) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const active = document.activeElement;
+      if (active === unlockInputRef.current) return;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        setGateError('');
+        setUnlockPin((prev) => (prev.length < 6 ? prev + e.key : prev));
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        setGateError('');
+        setUnlockPin((prev) => prev.slice(0, -1));
+      }
+    };
+    window.addEventListener('keydown', handlePinKeyDown);
+    return () => window.removeEventListener('keydown', handlePinKeyDown);
+  }, [mode, cooldownRemaining, isVerifyingPin]);
 
   // Cooldown countdown timer
   useEffect(() => {
@@ -735,8 +760,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                     leadingIcon={<Building2 className="w-3.5 h-3.5" />}
                     options={companies.map((c) => ({
                       value: c.code,
-                      label: formatCompanyDisplayName(c.name, c.code),
-                      badge: c.code,
+                      label: c.code,
                     }))}
                     ariaLabel="Chọn Sion / Công ty"
                   />
@@ -775,11 +799,25 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                       size="sm"
                       leadingIcon={<MapPin className="w-3.5 h-3.5" />}
                       options={[
-                        ...areasForSelectedCompany.map((a) => ({
-                          value: a.code,
-                          label: a.name || `Khu vực ${a.code}`,
-                          badge: a.code,
-                        })),
+                        ...areasForSelectedCompany.map((a) => {
+                          const cleanCode = cleanRawAreaCode(a.code) || a.code;
+                          const cleanName = (a.name || '').trim();
+                          const isDupName =
+                            !cleanName ||
+                            normalizeOrgCode(cleanName) === normalizeOrgCode(cleanCode) ||
+                            normalizeOrgCode(cleanName) === normalizeOrgCode(`KV ${cleanCode}`) ||
+                            normalizeOrgCode(cleanName) === normalizeOrgCode(`Khu vực ${cleanCode}`);
+                          return isDupName
+                            ? {
+                                value: a.code,
+                                label: `KV ${cleanCode}`,
+                              }
+                            : {
+                                value: a.code,
+                                label: cleanName,
+                                badge: cleanCode,
+                              };
+                        }),
                         {
                           value: '__CREATE_NEW_AREA__',
                           label: '+ Tạo khu vực mới...',

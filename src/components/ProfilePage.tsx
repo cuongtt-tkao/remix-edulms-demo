@@ -60,6 +60,7 @@ import {
   EMPTY_DAILY_METRICS,
   DEFAULT_EVENT_WEIGHTS,
   ROLE_DISPLAY_META,
+  canExportExcel,
 } from '../types/edulms';
 import { REACTION_CONFIG } from './GratitudeCheerPage';
 import { SPOTLIGHT_COVERS } from './HeroBanner';
@@ -68,6 +69,7 @@ import { CustomSelect } from './CustomSelect';
 import { PersonalPlannerSection } from './PersonalPlannerSection';
 import {
   canAccessMemberReportOverview,
+  getRoleScopedDropdownLabels,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   getScopedMemberOptions,
@@ -1945,7 +1947,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </button>
               </div>
 
-              {/* Khối Xuất Excel Báo cáo (3 tầng liên hoàn Sion -> KV -> Cá nhân theo RBAC) */}
+              {/* Khối Xuất Excel Báo cáo (3 tầng liên hoàn Sion -> KV -> Cá nhân theo RBAC, chỉ từ Cấp 4 TS, NQ trở lên) */}
+              {canExportExcel(currentUser.role) && (() => {
+                const exportDropdownLabels = getRoleScopedDropdownLabels(currentUser, {
+                  selectedCompanyCode: exportCompanyFilter,
+                  companiesCount: exportScopedCompanies.length,
+                  singleCompanyCode: exportScopedCompanies[0]?.code,
+                  areasCount: exportScopedAreas.length,
+                  singleAreaCode: exportScopedAreas[0]?.code,
+                  membersCount: exportScopedMembers.length,
+                });
+                return (
               <div className="p-3 sm:p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-800/60 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -1993,13 +2005,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         options={[
                           {
                             value: 'ALL',
-                            label: isAdminRole(currentUser.role) ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)',
+                            label: exportDropdownLabels.allCompaniesLabel,
                           },
                           ...exportScopedCompanies.map((c) => ({
                             value: c.code,
-                            label: c.name || c.code,
+                            label: c.code,
                           })),
                         ]}
+                        ariaLabel="Chọn Sion xuất báo cáo"
                       />
                     </div>
                   )}
@@ -2019,12 +2032,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                           setExportMemberFilter('ALL');
                         }}
                         options={[
-                          { value: 'ALL', label: 'Tất cả Khu vực' },
+                          { value: 'ALL', label: exportDropdownLabels.allAreasLabel },
                           ...exportScopedAreas.map((a) => ({
                             value: a.code,
                             label: `KV ${a.code}`,
                           })),
                         ]}
+                        ariaLabel="Chọn Khu vực xuất báo cáo"
                       />
                     </div>
                   )}
@@ -2039,7 +2053,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         options={[
                           {
                             value: 'ALL',
-                            label: `Tất cả cá nhân (${exportScopedMembers.length})`,
+                            label: exportDropdownLabels.allMembersLabel,
                           },
                           ...exportScopedMembers.map((m) => ({
                             value: m.id,
@@ -2047,6 +2061,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                             badge: m.areaCode ? `KV ${m.areaCode}` : m.companyCode,
                           })),
                         ]}
+                        ariaLabel="Chọn cá nhân xuất báo cáo"
                       />
                     </div>
                   )}
@@ -2054,26 +2069,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const weights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
-                      const summary = exportDailyReportsByRbacExcel({
-                        viewer: currentUser,
-                        dailyReports,
-                        members,
-                        weights,
-                        period: exportPeriod,
-                        periodDate: todayStr,
-                        periodMonth: currentMonthStr,
-                        periodYear: currentYearStr,
-                        filterCompanyCode:
-                          currentUser.role !== 'MEMBER' ? exportCompanyFilter : undefined,
-                        filterAreaCode:
-                          currentUser.role !== 'MEMBER' ? exportAreaFilter : undefined,
-                        filterMemberId:
-                          currentUser.role !== 'MEMBER' ? exportMemberFilter : undefined,
-                      });
-                      onShowNotification(
-                        `Đã tải ${summary.fileName} (${summary.reportsCount} báo cáo).`
-                      );
+                      if (!canExportExcel(currentUser.role)) {
+                        onShowNotification('Chỉ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+                        return;
+                      }
+                      try {
+                        const weights = activeEvent?.weights || defaultWeights || DEFAULT_EVENT_WEIGHTS;
+                        const summary = exportDailyReportsByRbacExcel({
+                          viewer: currentUser,
+                          dailyReports,
+                          members,
+                          weights,
+                          period: exportPeriod,
+                          periodDate: todayStr,
+                          periodMonth: currentMonthStr,
+                          periodYear: currentYearStr,
+                          filterCompanyCode:
+                            currentUser.role !== 'MEMBER' ? exportCompanyFilter : undefined,
+                          filterAreaCode:
+                            currentUser.role !== 'MEMBER' ? exportAreaFilter : undefined,
+                          filterMemberId:
+                            currentUser.role !== 'MEMBER' ? exportMemberFilter : undefined,
+                        });
+                        onShowNotification(
+                          `Đã tải ${summary.fileName} (${summary.reportsCount} báo cáo).`
+                        );
+                      } catch (err: any) {
+                        onShowNotification(err?.message || 'Không có quyền xuất Excel.');
+                      }
                     }}
                     className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
                   >
@@ -2082,6 +2105,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </button>
                 </div>
               </div>
+              );
+              })()}
 
               {/* Bộ chuyển kỳ + Thanh tóm tắt gọn */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">

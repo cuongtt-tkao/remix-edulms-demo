@@ -8,6 +8,7 @@ import {
   WeekDayKey,
   WORK_WEEK_DAYS,
   WorkScheduleRecord,
+  canExportExcel,
 } from '../types/edulms';
 import {
   canViewMemberDetail,
@@ -173,6 +174,9 @@ export function exportWorkSchedulesByRbacExcel(
   opts: WorkScheduleExportOptions
 ): WorkScheduleExportSummary {
   const { viewer, workSchedules, members } = opts;
+  if (!viewer || !canExportExcel(viewer.role)) {
+    throw new Error('Chỉ tài khoản từ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+  }
   const includeWs = opts.includeWs !== false;
   const wb = XLSX.utils.book_new();
   const ownMemberId = viewer.memberId || `m-${viewer.id}`;

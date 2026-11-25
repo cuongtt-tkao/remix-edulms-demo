@@ -65,12 +65,14 @@ import {
   DEFAULT_EVENT_WEIGHTS,
   getRoleLevel,
   ROLE_DISPLAY_META,
+  canExportExcel,
 } from '../types/edulms';
 import {
   canManageOrgRecord,
   canModifyDiscipleRecord,
   canViewEduRecord,
   createDefaultClustersForCompanies,
+  getRoleScopedDropdownLabels,
   getScopedAreaOptions,
   getScopedCompanyOptions,
   getScopedMemberOptions,
@@ -296,6 +298,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   workSchedules = [],
 }) => {
   const isAdmin = isAdminRole(currentUser?.role);
+  const canDownloadExcel = canExportExcel(currentUser?.role);
   const actorRoleLevel = getRoleLevel(currentUser?.role);
   const [isSyncingOrg, setIsSyncingOrg] = useState(false);
 
@@ -309,8 +312,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
   const supervisorAllowedTabs: AdminSectionId[] = React.useMemo(
-    () => ['CLUSTERS', 'COMPANIES', 'REGIONS', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC'],
-    []
+    () =>
+      canDownloadExcel
+        ? ['CLUSTERS', 'COMPANIES', 'REGIONS', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES', 'EXCEL_SYNC']
+        : ['CLUSTERS', 'COMPANIES', 'REGIONS', 'AREAS', 'DEPARTMENTS', 'MEMBERS', 'ROLES'],
+    [canDownloadExcel]
   );
 
   const [activeTab, setActiveTab] = useState<AdminSectionId>(() => {
@@ -1157,12 +1163,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       : undefined,
                   isAlert: isAdmin && pendingApprovalCount > 0,
                 },
-                {
-                  id: 'EXCEL_SYNC' as AdminSectionId,
-                  label: isAdmin ? 'Nhập / Xuất Excel' : 'Xuất Báo cáo',
-                  icon: FileSpreadsheet,
-                  badge: isAdmin ? undefined : '5 loại',
-                },
+                ...(canDownloadExcel
+                  ? [
+                      {
+                        id: 'EXCEL_SYNC' as AdminSectionId,
+                        label: isAdmin ? 'Nhập / Xuất Excel' : 'Xuất Báo cáo',
+                        icon: FileSpreadsheet,
+                        badge: isAdmin ? undefined : '5 loại',
+                      },
+                    ]
+                  : []),
                 ...(isAdmin
                   ? [
                       {
@@ -2730,7 +2740,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         )}
 
         {/* TAB: TRUNG TÂM NHẬP & XUẤT EXCEL / XUẤT BÁO CÁO PHÂN QUYỀN */}
-        {activeTab === 'EXCEL_SYNC' && (
+        {activeTab === 'EXCEL_SYNC' && canDownloadExcel && (
           <div className="space-y-5 animate-in fade-in">
             {/* Intro Banner */}
             <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-emerald-950 dark:text-emerald-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -2877,6 +2887,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   memExportCompany,
                   memExportArea
                 );
+                const memDropdownLabels = getRoleScopedDropdownLabels(currentUser || null, {
+                  selectedCompanyCode: memExportCompany,
+                  companiesCount: memCompanies.length,
+                  singleCompanyCode: memCompanies[0]?.code,
+                  areasCount: memAreas.length,
+                  singleAreaCode: memAreas[0]?.code,
+                  membersCount: memPersonOptions.length,
+                });
                 return (
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
@@ -2928,9 +2946,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         setMemExportMemberId('ALL');
                       }}
                       options={[
-                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (phạm vi)' },
-                        ...memCompanies.map((c) => ({ value: c.code, label: c.name })),
+                        { value: 'ALL', label: memDropdownLabels.allCompaniesLabel },
+                        ...memCompanies.map((c) => ({ value: c.code, label: c.code })),
                       ]}
+                      ariaLabel="Chọn Sion xuất hồ sơ"
                     />
                   </div>
                   <div className="min-w-0">
@@ -2943,7 +2962,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         setMemExportMemberId('ALL');
                       }}
                       options={[
-                        { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (phạm vi)' },
+                        { value: 'ALL', label: memDropdownLabels.allAreasLabel },
                         ...memAreas.map((a) => ({
                           value:
                             memExportCompany === 'ALL'
@@ -2955,6 +2974,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
                         })),
                       ]}
+                      ariaLabel="Chọn Khu vực xuất hồ sơ"
                     />
                   </div>
                   <div className="min-w-0">
@@ -2964,12 +2984,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       value={memExportMemberId}
                       onChange={setMemExportMemberId}
                       options={[
-                        { value: 'ALL', label: 'Tất cả cá nhân' },
+                        { value: 'ALL', label: memDropdownLabels.allMembersLabel },
                         ...memPersonOptions.map((m) => ({
                           value: m.id,
                           label: `${m.fullName} (${m.companyCode}·${m.areaCode})`,
                         })),
                       ]}
+                      ariaLabel="Chọn cá nhân xuất hồ sơ"
                     />
                   </div>
                 </div>
@@ -3088,6 +3109,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   (d) => !d.isStopped && !(d.progress || []).includes('Dừng')
                 ).length;
                 const stoppedMdCount = scopedDisciples.length - activeMdCount;
+                const mdDropdownLabels = getRoleScopedDropdownLabels(currentUser || null, {
+                  selectedCompanyCode: mdExportCompany,
+                  companiesCount: mdCompanies.length,
+                  singleCompanyCode: mdCompanies[0]?.code,
+                  areasCount: mdAreas.length,
+                  singleAreaCode: mdAreas[0]?.code,
+                  membersCount: mdOwnerOptions.length,
+                  memberNoun: 'người phụ trách',
+                });
 
                 return (
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
@@ -3144,9 +3174,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         setMdExportOwnerKey('ALL');
                       }}
                       options={[
-                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
-                        ...mdCompanies.map((c) => ({ value: c.code, label: c.name })),
+                        { value: 'ALL', label: mdDropdownLabels.allCompaniesLabel },
+                        ...mdCompanies.map((c) => ({ value: c.code, label: c.code })),
                       ]}
+                      ariaLabel="Chọn Sion xuất danh sách MĐ"
                     />
                   </div>
                   <div className="min-w-0">
@@ -3159,7 +3190,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         setMdExportOwnerKey('ALL');
                       }}
                       options={[
-                        { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                        { value: 'ALL', label: mdDropdownLabels.allAreasLabel },
                         ...mdAreas.map((a) => ({
                           value:
                             mdExportCompany === 'ALL'
@@ -3171,6 +3202,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
                         })),
                       ]}
+                      ariaLabel="Chọn Khu vực xuất danh sách MĐ"
                     />
                   </div>
                   <div className="min-w-0">
@@ -3180,9 +3212,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       value={mdExportOwnerKey}
                       onChange={setMdExportOwnerKey}
                       options={[
-                        { value: 'ALL', label: 'Tất cả cá nhân' },
+                        { value: 'ALL', label: mdDropdownLabels.allMembersLabel },
                         ...mdOwnerOptions,
                       ]}
+                      ariaLabel="Chọn người phụ trách xuất danh sách MĐ"
                     />
                   </div>
                   <div className="min-w-0">
@@ -3285,6 +3318,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     adminReportCompany,
                     adminReportArea
                   );
+                  const reportDropdownLabels = getRoleScopedDropdownLabels(currentUser || null, {
+                    selectedCompanyCode: adminReportCompany,
+                    companiesCount: selectableCompanies.length,
+                    singleCompanyCode: selectableCompanies[0]?.code,
+                    areasCount: selectableAreas.length,
+                    singleAreaCode: selectableAreas[0]?.code,
+                    membersCount: selectableMembers.length,
+                  });
 
                   return (
                     <>
@@ -3314,9 +3355,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setAdminReportMemberId('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
-                              ...selectableCompanies.map((c) => ({ value: c.code, label: c.name })),
+                              { value: 'ALL', label: reportDropdownLabels.allCompaniesLabel },
+                              ...selectableCompanies.map((c) => ({ value: c.code, label: c.code })),
                             ]}
+                            ariaLabel="Chọn Sion xuất báo cáo"
                           />
                         </div>
                         <div className="min-w-0">
@@ -3329,7 +3371,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setAdminReportMemberId('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                              { value: 'ALL', label: reportDropdownLabels.allAreasLabel },
                               ...selectableAreas.map((a) => ({
                                 value:
                                   adminReportCompany === 'ALL'
@@ -3341,6 +3383,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
                               })),
                             ]}
+                            ariaLabel="Chọn Khu vực xuất báo cáo"
                           />
                         </div>
                         <div className="min-w-0">
@@ -3350,12 +3393,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={adminReportMemberId}
                             onChange={setAdminReportMemberId}
                             options={[
-                              { value: 'ALL', label: 'Tất cả cá nhân' },
+                              { value: 'ALL', label: reportDropdownLabels.allMembersLabel },
                               ...selectableMembers.map((m) => ({
                                 value: m.id,
                                 label: `${m.fullName} (${m.companyCode}·${m.areaCode})`,
                               })),
                             ]}
+                            ariaLabel="Chọn cá nhân xuất báo cáo"
                           />
                         </div>
                       </div>
@@ -3402,6 +3446,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   eduExportCompany,
                   scopedMembers
                 );
+                const eduDropdownLabels = getRoleScopedDropdownLabels(currentUser || null, {
+                  selectedCompanyCode: eduExportCompany,
+                  companiesCount: eduCompanies.length,
+                  singleCompanyCode: eduCompanies[0]?.code,
+                  areasCount: eduAreas.length,
+                  singleAreaCode: eduAreas[0]?.code,
+                });
                 return (
               <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-3">
@@ -3456,9 +3507,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         setEduExportArea('ALL');
                       }}
                       options={[
-                        { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
-                        ...eduCompanies.map((c) => ({ value: c.code, label: c.name })),
+                        { value: 'ALL', label: eduDropdownLabels.allCompaniesLabel },
+                        ...eduCompanies.map((c) => ({ value: c.code, label: c.code })),
                       ]}
+                      ariaLabel="Chọn Sion xuất dữ liệu Edu"
                     />
                   </div>
                   <div className="min-w-0">
@@ -3468,7 +3520,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       value={eduExportArea}
                       onChange={setEduExportArea}
                       options={[
-                        { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                        { value: 'ALL', label: eduDropdownLabels.allAreasLabel },
                         ...eduAreas.map((a) => ({
                           value:
                             eduExportCompany === 'ALL'
@@ -3480,6 +3532,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
                         })),
                       ]}
+                      ariaLabel="Chọn Khu vực xuất dữ liệu Edu"
                     />
                   </div>
                 </div>
@@ -3595,6 +3648,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     wsExportCompany,
                     scopedMembers
                   );
+                  const wsDropdownLabels = getRoleScopedDropdownLabels(currentUser || null, {
+                    selectedCompanyCode: wsExportCompany,
+                    companiesCount: selectableWsCompanies.length,
+                    singleCompanyCode: selectableWsCompanies[0]?.code,
+                    areasCount: selectableWsAreas.length,
+                    singleAreaCode: selectableWsAreas[0]?.code,
+                    membersCount: ownerOptions.length,
+                  });
 
                   return (
                     <>
@@ -3659,9 +3720,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setWsExportOwnerKey('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả Sion' : 'Tất cả Sion (PV)' },
-                              ...selectableWsCompanies.map((c) => ({ value: c.code, label: c.name })),
+                              { value: 'ALL', label: wsDropdownLabels.allCompaniesLabel },
+                              ...selectableWsCompanies.map((c) => ({ value: c.code, label: c.code })),
                             ]}
+                            ariaLabel="Chọn Sion xuất lịch làm việc"
                           />
                         </div>
                         <div className="min-w-0">
@@ -3674,7 +3736,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setWsExportOwnerKey('ALL');
                             }}
                             options={[
-                              { value: 'ALL', label: isAdmin ? 'Tất cả KV' : 'Tất cả KV (PV)' },
+                              { value: 'ALL', label: wsDropdownLabels.allAreasLabel },
                               ...selectableWsAreas.map((a) => ({
                                 value:
                                   wsExportCompany === 'ALL'
@@ -3686,6 +3748,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     : `KV ${a.code}${a.name && a.name !== a.code ? ` · ${a.name}` : ''}`,
                               })),
                             ]}
+                            ariaLabel="Chọn Khu vực xuất lịch làm việc"
                           />
                         </div>
                         <div className="min-w-0">
@@ -3695,9 +3758,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={wsExportOwnerKey}
                             onChange={setWsExportOwnerKey}
                             options={[
-                              { value: 'ALL', label: 'Tất cả cá nhân' },
+                              { value: 'ALL', label: wsDropdownLabels.allMembersLabel },
                               ...ownerOptions,
                             ]}
+                            ariaLabel="Chọn cá nhân xuất lịch làm việc"
                           />
                         </div>
                       </div>
