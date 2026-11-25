@@ -648,6 +648,16 @@ service cloud.firestore {
         && data.updatedAt is string && data.updatedAt.size() <= 50;
     }
 
+    function isValidArea(data) {
+      return data.keys().hasAll(['code', 'name', 'companyCode', 'active'])
+        && data.keys().hasOnly(['code', 'name', 'companyCode', 'active', '_order'])
+        && data.code is string && data.code.size() > 0 && data.code.size() <= 30
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.companyCode is string && data.companyCode.size() > 0 && data.companyCode.size() <= 30
+        && data.active is bool
+        && (!('_order' in data) || data._order is number);
+    }
+
     // Mã thành viên của chính người dùng đang đăng nhập
     function ownMemberId() {
       return 'm-' + (request.auth != null ? request.auth.uid : '_none_');
@@ -1071,12 +1081,26 @@ service cloud.firestore {
 
     match /areas/{id} {
       allow read: if true;
-      allow create: if isAdmin() || (
-        isApprovedUser()
-        && (isManager() || isSionLeader())
-        && (
-          eqOrg(request.resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
-          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(request.resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
+      allow create: if isValidId(id) && (
+        isAdmin()
+        || (
+          isApprovedUser()
+          && (isManager() || isSionLeader())
+          && isValidArea(request.resource.data)
+          && (
+            eqOrg(request.resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+            || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(request.resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
+          )
+        )
+        || (
+          isSignedIn()
+          && id.matches('^a-[a-z0-9-]+$')
+          && !exists(userDocPath())
+          && existsAfter(userDocPath())
+          && isValidArea(request.resource.data)
+          && request.resource.data.active == true
+          && eqOrg(request.resource.data.companyCode, getAfter(userDocPath()).data.get('companyCode', ''))
+          && eqOrg(request.resource.data.code, getAfter(userDocPath()).data.get('areaCode', ''))
         )
       );
       allow update: if isAdmin() || (

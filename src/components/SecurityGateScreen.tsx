@@ -37,6 +37,7 @@ import {
   sanitizePinInput,
   isValidPersonalPin,
 } from '../utils/pinSecurity';
+import { cleanRawAreaCode, normalizeOrgCode } from '../utils/rbac';
 
 export type SecurityGateMode =
   | 'LOADING'
@@ -52,6 +53,8 @@ export interface OnboardingSubmitData {
   fullName: string;
   companyCode: string;
   areaCode: string;
+  areaName?: string;
+  isNewArea?: boolean;
   departmentCode: string;
   unitCode?: string;
   pin: string;
@@ -145,6 +148,9 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   const [obFullName, setObFullName] = useState('');
   const [obCompany, setObCompany] = useState(companies[0]?.code || 'Th1');
   const [obArea, setObArea] = useState('');
+  const [isCreatingNewArea, setIsCreatingNewArea] = useState(false);
+  const [obNewAreaCode, setObNewAreaCode] = useState('');
+  const [obNewAreaName, setObNewAreaName] = useState('');
   const [obDept, setObDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
   const [obUnitCode, setObUnitCode] = useState('');
   const [obPin, setObPin] = useState('');
@@ -195,7 +201,12 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   }, [mode, firebaseUser?.displayName, firebaseUser?.email, companies, departments]);
 
   const areasForSelectedCompany = useMemo(
-    () => areas.filter((a) => a.companyCode === obCompany && a.active !== false),
+    () =>
+      areas.filter(
+        (a) =>
+          normalizeOrgCode(a.companyCode) === normalizeOrgCode(obCompany) &&
+          a.active !== false
+      ),
     [areas, obCompany]
   );
 
@@ -204,10 +215,10 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       if (!areasForSelectedCompany.some((a) => a.code === obArea)) {
         setObArea(areasForSelectedCompany[0].code);
       }
-    } else if (!obArea && areas.length > 0) {
-      setObArea(areas[0].code);
+    } else {
+      setObArea('');
     }
-  }, [areasForSelectedCompany, areas, obCompany]);
+  }, [areasForSelectedCompany, obCompany]);
 
   // Reset / restore PIN lockout state when switching modes or account
   useEffect(() => {
@@ -414,8 +425,16 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       setGateError('Vui lòng chọn Sion / Công ty.');
       return;
     }
-    if (!obArea.trim()) {
-      setGateError('Vui lòng chọn Khu vực.');
+    const creatingAreaMode = isCreatingNewArea || areasForSelectedCompany.length === 0;
+    const rawAreaInput = creatingAreaMode ? obNewAreaCode : obArea;
+    const cleanArea = cleanRawAreaCode(rawAreaInput);
+
+    if (!cleanArea) {
+      setGateError(creatingAreaMode ? 'Vui lòng nhập mã Khu vực mới.' : 'Vui lòng chọn Khu vực.');
+      return;
+    }
+    if (cleanArea.length > 30) {
+      setGateError('Mã Khu vực tối đa 30 ký tự.');
       return;
     }
     if (!isValidPersonalPin(obPin)) {
@@ -427,12 +446,22 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       return;
     }
 
+    const matchedExistingArea = areasForSelectedCompany.find(
+      (a) => normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanArea)
+    );
+    const resolvedAreaCode = matchedExistingArea ? matchedExistingArea.code : cleanArea;
+    const resolvedAreaName = matchedExistingArea
+      ? matchedExistingArea.name
+      : (obNewAreaName.trim().slice(0, 80) || `Khu vực ${cleanArea}`);
+
     setIsSubmittingOb(true);
     try {
       await onCompleteOnboarding({
         fullName: obFullName.trim(),
         companyCode: obCompany.trim(),
-        areaCode: obArea.trim(),
+        areaCode: resolvedAreaCode,
+        areaName: resolvedAreaName,
+        isNewArea: !matchedExistingArea,
         departmentCode: obDept.trim(),
         unitCode: obUnitCode.trim() || undefined,
         pin: obPin,
@@ -698,7 +727,10 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   </label>
                   <CustomSelect
                     value={obCompany}
-                    onChange={setObCompany}
+                    onChange={(val) => {
+                      setObCompany(val);
+                      setIsCreatingNewArea(false);
+                    }}
                     size="sm"
                     leadingIcon={<Building2 className="w-3.5 h-3.5" />}
                     options={companies.map((c) => ({
@@ -711,34 +743,95 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Khu vực *
-                  </label>
-                  {areasForSelectedCompany.length > 0 ? (
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Khu vực *
+                    </label>
+                    {areasForSelectedCompany.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreatingNewArea((prev) => !prev);
+                          setGateError('');
+                        }}
+                        className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                      >
+                        {isCreatingNewArea ? 'Chọn có sẵn' : '+ Tạo mới'}
+                      </button>
+                    )}
+                  </div>
+                  {!isCreatingNewArea && areasForSelectedCompany.length > 0 ? (
                     <CustomSelect
                       value={obArea}
-                      onChange={setObArea}
+                      onChange={(val) => {
+                        if (val === '__CREATE_NEW_AREA__') {
+                          setIsCreatingNewArea(true);
+                          setObNewAreaCode('');
+                          setObNewAreaName('');
+                        } else {
+                          setObArea(val);
+                        }
+                      }}
                       size="sm"
                       leadingIcon={<MapPin className="w-3.5 h-3.5" />}
-                      options={areasForSelectedCompany.map((a) => ({
-                        value: a.code,
-                        label: a.name || `Khu vực ${a.code}`,
-                        badge: a.code,
-                      }))}
+                      options={[
+                        ...areasForSelectedCompany.map((a) => ({
+                          value: a.code,
+                          label: a.name || `Khu vực ${a.code}`,
+                          badge: a.code,
+                        })),
+                        {
+                          value: '__CREATE_NEW_AREA__',
+                          label: '+ Tạo khu vực mới...',
+                          description: 'Nhập mã/tên nếu chưa có trong danh sách',
+                        },
+                      ]}
                       ariaLabel="Chọn Khu vực"
                     />
                   ) : (
                     <input
                       type="text"
-                      value={obArea}
-                      onChange={(e) => setObArea(e.target.value)}
-                      placeholder="VD: 1.1"
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
+                      maxLength={30}
+                      value={obNewAreaCode}
+                      onChange={(e) => setObNewAreaCode(e.target.value)}
+                      placeholder="Nhập mã KV mới (VD: 1.5)"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-blue-400 dark:border-blue-600 text-xs font-semibold text-slate-900 dark:text-white"
                       required
                     />
                   )}
                 </div>
               </div>
+
+              {(isCreatingNewArea || areasForSelectedCompany.length === 0) && (
+                <div className="p-2.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-[11px] font-bold text-blue-900 dark:text-blue-200">
+                      Tên hiển thị Khu vực mới (tuỳ chọn)
+                    </label>
+                    <span className="text-[10px] text-blue-700 dark:text-blue-300 font-semibold">
+                      Sion {obCompany}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={80}
+                    value={obNewAreaName}
+                    onChange={(e) => setObNewAreaName(e.target.value)}
+                    placeholder={`VD: Khu vực ${cleanRawAreaCode(obNewAreaCode) || '1.5'} (để trống sẽ tự đặt)`}
+                    className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 text-xs font-semibold text-slate-900 dark:text-white"
+                  />
+                  {cleanRawAreaCode(obNewAreaCode) &&
+                    areasForSelectedCompany.some(
+                      (a) =>
+                        normalizeOrgCode(cleanRawAreaCode(a.code)) ===
+                        normalizeOrgCode(cleanRawAreaCode(obNewAreaCode))
+                    ) && (
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold">
+                        Mã khu vực này đã tồn tại trong Sion {obCompany} — hệ thống sẽ tự chọn khu vực sẵn có.
+                      </p>
+                    )}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>

@@ -293,6 +293,19 @@
         "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["ownerUid", "ownerName", "weekStart", "weekEnd", "sessions", "createdAt", "updatedAt"]
+    },
+    "Area": {
+      "title": "Area",
+      "description": "Organizational area belonging to a Sion/Company",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "maxLength": 80 },
+        "companyCode": { "type": "string", "maxLength": 30 },
+        "active": { "type": "boolean" },
+        "_order": { "type": "number" }
+      },
+      "required": ["code", "name", "companyCode", "active"]
     }
   },
   "firestore": {
@@ -351,6 +364,10 @@
     "/personal_planners/{plannerId}": {
       "schema": "PersonalPlanner",
       "description": "Private weekly personal planner records"
+    },
+    "/areas/{areaId}": {
+      "schema": "Area",
+      "description": "Organizational areas under each Sion/Company, publicly readable for registration and creatable by admins, managers, or atomically on user registration"
     }
   }
 }

@@ -1144,7 +1144,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                   <div className="space-y-1.5">
                     <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1">
                       <Layers className="w-3.5 h-3.5" />
-                      <span>Theo Cụm Sion (tự động đồng bộ danh sách Sion):</span>
+                      <span>Theo Cụm Sion (chọn nhanh danh sách Sion):</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {clusters.map((cl) => {
@@ -1722,7 +1722,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               <div className="space-y-2">
                 <div className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Chọn Cụm Sion (tự động đồng bộ Sion trực thuộc):</span>
+                  <span>Chọn Cụm Sion (chọn nhanh Sion trực thuộc):</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {clusters.map((cl) => {
