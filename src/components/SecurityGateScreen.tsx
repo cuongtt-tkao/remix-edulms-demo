@@ -39,8 +39,8 @@ import {
 
 export type SecurityGateMode =
   | 'LOADING'
-  | 'PROFILE_ERROR'
   | 'UNAUTHENTICATED'
+  | 'PROFILE_ERROR'
   | 'ONBOARDING'
   | 'PENDING_APPROVAL'
   | 'REJECTED_APPROVAL'
@@ -75,40 +75,6 @@ interface SecurityGateScreenProps {
 
 const MAX_PIN_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 30;
-const PIN_GUARD_STORAGE_PREFIX = 'htl_pin_guard_';
-
-interface PinGuardState {
-  fails: number;
-  lockedUntilMs: number;
-  lockCount: number;
-}
-
-function readPinGuardState(uid?: string | null): PinGuardState {
-  if (!uid) return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
-  try {
-    const raw = localStorage.getItem(`${PIN_GUARD_STORAGE_PREFIX}${uid}`);
-    if (!raw) return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
-    const parsed = JSON.parse(raw);
-    return {
-      fails: Number(parsed?.fails) || 0,
-      lockedUntilMs: Number(parsed?.lockedUntilMs) || 0,
-      lockCount: Number(parsed?.lockCount) || 0,
-    };
-  } catch {
-    return { fails: 0, lockedUntilMs: 0, lockCount: 0 };
-  }
-}
-
-function writePinGuardState(uid: string | undefined | null, state: PinGuardState | null): void {
-  if (!uid) return;
-  try {
-    const key = `${PIN_GUARD_STORAGE_PREFIX}${uid}`;
-    if (!state) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify(state));
-  } catch {
-    // Ignore storage quota errors
-  }
-}
 
 export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   mode,
@@ -129,16 +95,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   // ---------- Auth Gate (Google quick sign-in) ----------
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [gateError, setGateError] = useState('');
-  const [loadingTakingLong, setLoadingTakingLong] = useState(false);
-
-  useEffect(() => {
-    if (mode !== 'LOADING') {
-      setLoadingTakingLong(false);
-      return;
-    }
-    const timer = setTimeout(() => setLoadingTakingLong(true), 3500);
-    return () => clearTimeout(timer);
-  }, [mode]);
 
   // ---------- Onboarding state ----------
   const [obFullName, setObFullName] = useState('');
@@ -160,7 +116,6 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   const [unlockPin, setUnlockPin] = useState('');
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockCount, setLockCount] = useState(0);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const unlockInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -198,28 +153,14 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
     }
   }, [areasForSelectedCompany, areas, obCompany]);
 
-  // Restore persisted PIN lockout & reset fields when switching modes/users
+  // Reset PIN fields when switching modes
   useEffect(() => {
     setGateError('');
     setUnlockPin('');
     setSetupPin('');
     setSetupPinConfirm('');
-    if (mode === 'PIN_LOCKED' && currentUser?.id) {
-      const saved = readPinGuardState(currentUser.id);
-      const remainingSec =
-        saved.lockedUntilMs > Date.now()
-          ? Math.ceil((saved.lockedUntilMs - Date.now()) / 1000)
-          : 0;
-      setFailedAttempts(remainingSec > 0 ? 0 : saved.fails);
-      setLockCount(saved.lockCount);
-      setCooldownRemaining(remainingSec);
-      if (remainingSec > 0) {
-        setGateError(`Bạn đã nhập sai quá số lần quy định. Vui lòng chờ ${remainingSec} giây hoặc đăng xuất.`);
-      }
+    if (mode === 'PIN_LOCKED') {
       setTimeout(() => unlockInputRef.current?.focus(), 80);
-    } else {
-      setFailedAttempts(0);
-      setCooldownRemaining(0);
     }
   }, [mode, currentUser?.id]);
 
@@ -227,19 +168,10 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   useEffect(() => {
     if (cooldownRemaining <= 0) return;
     const t = setInterval(() => {
-      setCooldownRemaining((prev) => {
-        if (prev <= 1) {
-          if (currentUser?.id) {
-            writePinGuardState(currentUser.id, { fails: 0, lockedUntilMs: 0, lockCount });
-          }
-          setFailedAttempts(0);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setCooldownRemaining((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(t);
-  }, [cooldownRemaining, currentUser?.id, lockCount]);
+  }, [cooldownRemaining]);
 
   // Verify PIN helper
   const handleVerifyUnlockPin = async (candidatePin: string) => {
@@ -257,36 +189,18 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       const ok = await verifyPersonalPin(currentUser.id, clean, currentUser.pinHash);
       if (ok) {
         setFailedAttempts(0);
-        setLockCount(0);
-        setCooldownRemaining(0);
-        writePinGuardState(currentUser.id, null);
         setUnlockPin('');
         onPinUnlocked();
       } else {
         const nextFails = failedAttempts + 1;
+        setFailedAttempts(nextFails);
         setUnlockPin('');
         if (nextFails >= MAX_PIN_ATTEMPTS) {
-          const nextLockCount = Math.min(4, lockCount + 1);
-          const durationSec = LOCKOUT_SECONDS * Math.pow(2, nextLockCount - 1);
-          const lockedUntilMs = Date.now() + durationSec * 1000;
-          setFailedAttempts(0);
-          setLockCount(nextLockCount);
-          setCooldownRemaining(durationSec);
-          writePinGuardState(currentUser.id, {
-            fails: 0,
-            lockedUntilMs,
-            lockCount: nextLockCount,
-          });
+          setCooldownRemaining(LOCKOUT_SECONDS);
           setGateError(
-            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${durationSec} giây hoặc đăng xuất.`
+            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${LOCKOUT_SECONDS} giây hoặc đăng xuất.`
           );
         } else {
-          setFailedAttempts(nextFails);
-          writePinGuardState(currentUser.id, {
-            fails: nextFails,
-            lockedUntilMs: 0,
-            lockCount,
-          });
           setGateError(
             `Mã cá nhân chưa đúng (còn ${MAX_PIN_ATTEMPTS - nextFails} lần thử).`
           );
@@ -437,84 +351,60 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
         {/* Main Card */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-white/15 dark:border-slate-800 p-5 sm:p-6 space-y-4">
           {mode === 'LOADING' && (
-            <div className="py-8 flex flex-col items-center justify-center text-center space-y-3">
+            <div className="py-10 flex flex-col items-center justify-center text-center space-y-3">
               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
               <div className="text-sm font-bold text-slate-800 dark:text-white">
                 Đang kiểm tra xác thực bảo mật...
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {firebaseUser?.email
-                  ? `Đang tải hồ sơ ${firebaseUser.email} từ Firestore (default)...`
-                  : 'Vui lòng chờ trong giây lát.'}
+                Vui lòng chờ trong giây lát.
               </p>
-              {loadingTakingLong && (
-                <div className="pt-2 w-full space-y-2 border-t border-slate-100 dark:border-slate-800">
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                    Quá trình kiểm tra đang mất thời gian hơn bình thường.
-                  </p>
-                  <div className="flex items-center justify-center gap-2">
-                    {onRetryProfile && (
-                      <button
-                        type="button"
-                        onClick={onRetryProfile}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 transition-colors"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Thử lại</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={onLogout}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 transition-colors"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Đăng xuất</span>
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
           {mode === 'PROFILE_ERROR' && (
-            <div className="py-4 space-y-4">
+            <div className="space-y-4">
               <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70">
-                <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                <div className="min-w-0 space-y-1">
-                  <div className="text-xs font-extrabold text-rose-800 dark:text-rose-200">
-                    Không thể hoàn tất kiểm tra xác thực
+                <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-extrabold text-rose-900 dark:text-rose-200">
+                    Không thể tải hồ sơ tài khoản
                   </div>
-                  {firebaseUser?.email && (
-                    <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 truncate">
-                      Tài khoản: {firebaseUser.email}
-                    </div>
-                  )}
-                  <p className="text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed whitespace-pre-line">
+                  <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1 leading-relaxed whitespace-pre-line break-words">
                     {profileError ||
-                      'Không thể kết nối tới cơ sở dữ liệu Firestore (default). Vui lòng thử lại hoặc đăng xuất.'}
+                      'Đã xảy ra lỗi khi đọc dữ liệu hồ sơ từ Firestore. Vui lòng thử lại.'}
                   </p>
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-2">
+              {firebaseUser?.email && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 text-center truncate">
+                  Tài khoản đang đăng nhập: <strong>{firebaseUser.email}</strong>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
                 {onRetryProfile && (
                   <button
                     type="button"
                     onClick={onRetryProfile}
-                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold shadow-sm transition-colors"
+                    className="py-2.5 px-3 rounded-2xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
                   >
                     <RefreshCw className="w-4 h-4" />
-                    <span>Thử kết nối lại</span>
+                    <span>Thử lại</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors"
+                  className={`${
+                    onRetryProfile ? '' : 'col-span-2'
+                  } py-2.5 px-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-200 border border-rose-200 dark:border-rose-800 text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer`}
                 >
                   <LogOut className="w-4 h-4" />
-                  <span>Đăng xuất / Đổi tài khoản</span>
+                  <span>Đăng xuất</span>
                 </button>
               </div>
             </div>
