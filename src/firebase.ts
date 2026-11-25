@@ -98,6 +98,22 @@ export async function changeCurrentPassword(newPassword: string): Promise<'OK' |
   return 'OK';
 }
 
+/** Gửi lại email xác thực cho tài khoản đang đăng nhập */
+export async function resendVerificationEmail(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Chưa đăng nhập.');
+  await sendEmailVerification(user);
+}
+
+/** Tải lại trạng thái tài khoản Auth để cập nhật emailVerified và token mới nhất */
+export async function reloadCurrentAuthUser(): Promise<{ emailVerified: boolean }> {
+  const user = auth.currentUser;
+  if (!user) return { emailVerified: false };
+  await user.reload();
+  await user.getIdToken(true);
+  return { emailVerified: Boolean(user.emailVerified) };
+}
+
 /** Đăng xuất */
 export async function logOutFirebase(): Promise<void> {
   await signOut(auth);

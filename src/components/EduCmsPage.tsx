@@ -28,7 +28,13 @@ import {
   Area,
 } from '../types/edulms';
 import { CustomSelect } from './CustomSelect';
-import { canModifyEduRecord, canViewEduRecord, isAdminRole } from '../utils/rbac';
+import {
+  canModifyEduRecord,
+  canViewEduRecord,
+  getScopedAreaOptions,
+  getScopedCompanyOptions,
+  isAdminRole,
+} from '../utils/rbac';
 
 interface EduCmsPageProps {
   currentUser: UserAccount | null;
@@ -183,11 +189,34 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
   const canModifyProfile = (p: EduCmsProfile): boolean =>
     canModifyEduRecord(currentUser, p);
 
+  const scopedCompanyOptions = useMemo(
+    () => getScopedCompanyOptions(currentUser, companies),
+    [currentUser, companies]
+  );
+
+  const scopedAreaOptions = useMemo(
+    () => getScopedAreaOptions(currentUser, areas, pCompanyCode),
+    [currentUser, areas, pCompanyCode]
+  );
+
   const openCreateModal = (defaultStage: EduCmsStage) => {
     setEditingProfileId(null);
     setPFullName('');
-    setPCompanyCode(currentUser?.companyCode || companies[0]?.code || 'Th1');
-    setPAreaCode(currentUser?.areaCode || areas[0]?.code || '1.1');
+    const defComp =
+      scopedCompanyOptions.find((c) => c.code === currentUser?.companyCode)?.code ||
+      scopedCompanyOptions[0]?.code ||
+      currentUser?.companyCode ||
+      companies[0]?.code ||
+      'Th1';
+    const defAreas = getScopedAreaOptions(currentUser, areas, defComp);
+    const defArea =
+      defAreas.find((a) => a.code === currentUser?.areaCode)?.code ||
+      defAreas[0]?.code ||
+      currentUser?.areaCode ||
+      areas[0]?.code ||
+      '1.1';
+    setPCompanyCode(defComp);
+    setPAreaCode(defArea);
     setPStage(defaultStage);
     setPNgvName('');
     setPSpecialty('');
@@ -346,7 +375,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
             </p>
           </div>
 
-          {subTab !== 'CURRICULUM' && (
+          {subTab !== 'CURRICULUM' && currentUser.role !== 'MEMBER' && (
             <button
               type="button"
               onClick={() => openCreateModal(subTab === 'NGV' ? 'NGV' : 'TD_MOI')}
@@ -981,13 +1010,14 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 </label>
                 <CustomSelect
                   size="sm"
+                  disabled={!isAdmin && scopedCompanyOptions.length <= 1}
                   value={pCompanyCode}
                   onChange={(nextC) => {
                     setPCompanyCode(nextC);
-                    const firstArea = areas.find((a) => a.companyCode === nextC)?.code;
-                    if (firstArea) setPAreaCode(firstArea);
+                    const allowedAreas = getScopedAreaOptions(currentUser, areas, nextC);
+                    if (allowedAreas[0]?.code) setPAreaCode(allowedAreas[0].code);
                   }}
-                  options={companies.map((c) => ({
+                  options={scopedCompanyOptions.map((c) => ({
                     value: c.code,
                     label: c.name,
                     badge: c.code,
@@ -1000,12 +1030,18 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Khu vực
                 </label>
-                {areaOptions.length > 0 ? (
+                {scopedAreaOptions.length > 0 ? (
                   <CustomSelect
                     size="sm"
+                    disabled={
+                      !isAdmin &&
+                      currentUser.role !== 'MANAGER' &&
+                      currentUser.role !== 'SION_LEADER' &&
+                      scopedAreaOptions.length <= 1
+                    }
                     value={pAreaCode}
                     onChange={setPAreaCode}
-                    options={areaOptions.map((a) => ({
+                    options={scopedAreaOptions.map((a) => ({
                       value: a.code,
                       label: `KV ${a.code}`,
                       description: a.name,
@@ -1016,9 +1052,10 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 ) : (
                   <input
                     type="text"
+                    disabled={currentUser.role === 'UNI_LEADER'}
                     value={pAreaCode}
                     onChange={(e) => setPAreaCode(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold disabled:opacity-60"
                   />
                 )}
               </div>

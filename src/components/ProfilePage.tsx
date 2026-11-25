@@ -108,7 +108,7 @@ interface ProfilePageProps {
   onNavigateToJournalCheer?: () => void;
   onLogout: () => void;
   onOpenRules: () => void;
-  onAddHuongKhi: (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => void;
+  onAddHuongKhi: (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => Promise<void> | void;
   onDeleteHuongKhi?: (id: string) => Promise<void> | void;
   onAddTurboJournal?: (payload: { title: string; content: string }) => Promise<void> | void;
   onUpdateTurboJournal?: (
@@ -171,8 +171,8 @@ async function compressImageFile(
 
   let quality = initialQuality;
   let result = canvas.toDataURL('image/jpeg', quality);
-  while (result.length > 220_000 && quality > 0.45) {
-    quality -= 0.12;
+  while (result.length > 190_000 && quality > 0.35) {
+    quality -= 0.1;
     result = canvas.toDataURL('image/jpeg', quality);
   }
   return result;

@@ -49,7 +49,9 @@ import { CustomSelect } from './CustomSelect';
 import {
   canAssignTargetRole,
   canManageOrgRecord,
+  makeAreaScopeKey,
   normalizeOrgCode,
+  parseAreaScopeEntry,
   resolveCompanyCodesFromClusterIds,
 } from '../utils/rbac';
 import { isValidPersonalPin } from '../utils/pinSecurity';
@@ -350,13 +352,36 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         ? resolvedFromClusters
         : user.managedCompanyCodes || (user.companyCode ? [user.companyCode] : [])
     );
-    setModalAreas(
-      user.managedAreaCodes?.length
-        ? user.managedAreaCodes
-        : user.areaCode
-        ? [user.areaCode]
-        : []
+    const rawModalAreas = user.managedAreaCodes?.length
+      ? user.managedAreaCodes
+      : user.areaCode
+      ? [user.areaCode]
+      : [];
+    const normalizedModalAreas = Array.from(
+      new Set(
+        rawModalAreas.map((entry) => {
+          const parsed = parseAreaScopeEntry(entry);
+          if (parsed.hasCompanyPrefix && parsed.rawCompanyCode && parsed.rawAreaCode) {
+            return makeAreaScopeKey(parsed.rawCompanyCode, parsed.rawAreaCode);
+          }
+          const matchingArea =
+            areas.find(
+              (a) =>
+                normalizeOrgCode(a.code) === parsed.areaCode &&
+                (!user.companyCode ||
+                  normalizeOrgCode(a.companyCode) === normalizeOrgCode(user.companyCode))
+            ) || areas.find((a) => normalizeOrgCode(a.code) === parsed.areaCode);
+          if (matchingArea) {
+            return makeAreaScopeKey(matchingArea.companyCode, matchingArea.code);
+          }
+          if (user.companyCode && parsed.rawAreaCode) {
+            return makeAreaScopeKey(user.companyCode, parsed.rawAreaCode);
+          }
+          return entry;
+        })
+      )
     );
+    setModalAreas(normalizedModalAreas);
     const defaultUnits = user.managedUnitCodes?.length
       ? user.managedUnitCodes
       : user.unitCode
@@ -390,6 +415,10 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
 
+    const targetAreaKey = targetUser.areaCode
+      ? makeAreaScopeKey(targetUser.companyCode, targetUser.areaCode)
+      : '';
+
     const defaultScope: ScopeSelection =
       targetRole === 'SION_LEADER'
         ? {
@@ -400,13 +429,13 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         : targetRole === 'AREA_LEADER'
         ? {
             managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
-            managedAreaCodes: targetUser.areaCode ? [targetUser.areaCode] : [],
+            managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
             managedUnitCodes: targetUser.managedUnitCodes || [],
           }
         : targetRole === 'UNI_LEADER'
         ? {
-            managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
-            managedAreaCodes: targetUser.areaCode ? [targetUser.areaCode] : [],
+            managedCompanyCodes: [],
+            managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
             managedUnitCodes: targetUser.managedUnitCodes?.length
               ? targetUser.managedUnitCodes
               : targetUser.unitCode
@@ -536,6 +565,36 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
 
   const toggleItem = (list: string[], code: string, setter: (next: string[]) => void) => {
     setter(list.includes(code) ? list.filter((c) => c !== code) : [...list, code]);
+  };
+
+  const isAreaSelected = (list: string[], area: Area): boolean => {
+    const compNorm = normalizeOrgCode(area.companyCode);
+    const areaNorm = normalizeOrgCode(area.code);
+    return list.some((entry) => {
+      const p = parseAreaScopeEntry(entry);
+      return p.hasCompanyPrefix
+        ? p.companyCode === compNorm && p.areaCode === areaNorm
+        : p.areaCode === areaNorm;
+    });
+  };
+
+  const toggleAreaItem = (list: string[], area: Area, setter: (next: string[]) => void) => {
+    const compNorm = normalizeOrgCode(area.companyCode);
+    const areaNorm = normalizeOrgCode(area.code);
+    const canonicalKey = makeAreaScopeKey(area.companyCode, area.code);
+    const already = isAreaSelected(list, area);
+    if (already) {
+      setter(
+        list.filter((entry) => {
+          const p = parseAreaScopeEntry(entry);
+          return p.hasCompanyPrefix
+            ? !(p.companyCode === compNorm && p.areaCode === areaNorm)
+            : p.areaCode !== areaNorm;
+        })
+      );
+    } else {
+      setter([...list, canonicalKey]);
+    }
   };
 
   const handleToggleSecurityFlag = async (
@@ -1148,12 +1207,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                     <div className="text-[11px] font-semibold text-slate-500">Theo Khu vực:</div>
                     <div className="flex flex-wrap gap-1.5">
                       {areas.map((a) => {
-                        const checked = newManagedAreas.includes(a.code);
+                        const checked = isAreaSelected(newManagedAreas, a);
                         return (
                           <button
                             key={a.id}
                             type="button"
-                            onClick={() => toggleItem(newManagedAreas, a.code, setNewManagedAreas)}
+                            onClick={() => toggleAreaItem(newManagedAreas, a, setNewManagedAreas)}
                             className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
                               checked
                                 ? 'bg-teal-600 text-white border-teal-600'
@@ -1735,12 +1794,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                   {scopedAreasForActor.map((a) => {
-                    const selected = modalAreas.includes(a.code);
+                    const selected = isAreaSelected(modalAreas, a);
                     return (
                       <button
                         key={a.id}
                         type="button"
-                        onClick={() => toggleItem(modalAreas, a.code, setModalAreas)}
+                        onClick={() => toggleAreaItem(modalAreas, a, setModalAreas)}
                         className={`px-2.5 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1 cursor-pointer ${
                           selected
                             ? 'bg-teal-600 text-white border-teal-600'

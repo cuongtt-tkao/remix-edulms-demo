@@ -19,6 +19,7 @@ import {
   Clock,
   XCircle,
   RefreshCw,
+  Mail,
 } from 'lucide-react';
 import {
   Company,
@@ -70,11 +71,53 @@ interface SecurityGateScreenProps {
   onSetupPin: (pinHash: string) => Promise<void>;
   onPinUnlocked: () => void;
   onRetryProfile?: () => void;
+  onResendVerificationEmail?: () => Promise<void>;
+  onCheckEmailVerified?: () => Promise<boolean>;
   onLogout: () => void;
 }
 
 const MAX_PIN_ATTEMPTS = 5;
-const LOCKOUT_SECONDS = 30;
+const LOCKOUT_BASE_SECONDS = 30;
+const LOCKOUT_MAX_SECONDS = 300;
+const PIN_LOCK_STORAGE_PREFIX = 'htl_pin_lock_';
+
+interface PinLockStorageState {
+  failedAttempts: number;
+  lockoutUntilMs: number;
+  lockoutCount: number;
+}
+
+function readPinLockState(uid?: string): PinLockStorageState {
+  if (!uid || typeof window === 'undefined') {
+    return { failedAttempts: 0, lockoutUntilMs: 0, lockoutCount: 0 };
+  }
+  try {
+    const raw = window.localStorage.getItem(`${PIN_LOCK_STORAGE_PREFIX}${uid}`);
+    if (!raw) return { failedAttempts: 0, lockoutUntilMs: 0, lockoutCount: 0 };
+    const parsed = JSON.parse(raw) as Partial<PinLockStorageState>;
+    return {
+      failedAttempts: Number(parsed.failedAttempts) || 0,
+      lockoutUntilMs: Number(parsed.lockoutUntilMs) || 0,
+      lockoutCount: Number(parsed.lockoutCount) || 0,
+    };
+  } catch {
+    return { failedAttempts: 0, lockoutUntilMs: 0, lockoutCount: 0 };
+  }
+}
+
+function writePinLockState(uid: string | undefined, state: PinLockStorageState | null): void {
+  if (!uid || typeof window === 'undefined') return;
+  try {
+    const key = `${PIN_LOCK_STORAGE_PREFIX}${uid}`;
+    if (!state) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, JSON.stringify(state));
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+}
 
 export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   mode,
@@ -90,6 +133,8 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   onSetupPin,
   onPinUnlocked,
   onRetryProfile,
+  onResendVerificationEmail,
+  onCheckEmailVerified,
   onLogout,
 }) => {
   // ---------- Auth Gate (Google quick sign-in) ----------
@@ -116,8 +161,19 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   const [unlockPin, setUnlockPin] = useState('');
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockoutCount, setLockoutCount] = useState(0);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const unlockInputRef = useRef<HTMLInputElement | null>(null);
+
+  // ---------- Email verification helper state ----------
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+  const [emailVerifyMessage, setEmailVerifyMessage] = useState('');
+  const needsEmailVerification = Boolean(
+    firebaseUser &&
+      !firebaseUser.emailVerified &&
+      firebaseUser.providerData?.some((p) => p.providerId === 'password')
+  );
 
   // Sync defaults when companies/areas/departments load or onboarding opens
   useEffect(() => {
@@ -153,12 +209,25 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
     }
   }, [areasForSelectedCompany, areas, obCompany]);
 
-  // Reset PIN fields when switching modes
+  // Reset / restore PIN lockout state when switching modes or account
   useEffect(() => {
     setGateError('');
+    setEmailVerifyMessage('');
     setUnlockPin('');
     setSetupPin('');
     setSetupPinConfirm('');
+    const stored = readPinLockState(currentUser?.id);
+    const now = Date.now();
+    const remainSec =
+      stored.lockoutUntilMs > now ? Math.ceil((stored.lockoutUntilMs - now) / 1000) : 0;
+    setLockoutCount(stored.lockoutCount);
+    if (remainSec > 0) {
+      setCooldownRemaining(remainSec);
+      setFailedAttempts(stored.failedAttempts);
+    } else {
+      setCooldownRemaining(0);
+      setFailedAttempts(stored.failedAttempts >= MAX_PIN_ATTEMPTS ? 0 : stored.failedAttempts);
+    }
     if (mode === 'PIN_LOCKED') {
       setTimeout(() => unlockInputRef.current?.focus(), 80);
     }
@@ -168,10 +237,23 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   useEffect(() => {
     if (cooldownRemaining <= 0) return;
     const t = setInterval(() => {
-      setCooldownRemaining((prev) => (prev <= 1 ? 0 : prev - 1));
+      setCooldownRemaining((prev) => {
+        if (prev <= 1) {
+          setFailedAttempts(0);
+          if (currentUser?.id) {
+            writePinLockState(currentUser.id, {
+              failedAttempts: 0,
+              lockoutUntilMs: 0,
+              lockoutCount,
+            });
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => clearInterval(t);
-  }, [cooldownRemaining]);
+  }, [cooldownRemaining, currentUser?.id, lockoutCount]);
 
   // Verify PIN helper
   const handleVerifyUnlockPin = async (candidatePin: string) => {
@@ -189,6 +271,9 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       const ok = await verifyPersonalPin(currentUser.id, clean, currentUser.pinHash);
       if (ok) {
         setFailedAttempts(0);
+        setLockoutCount(0);
+        setCooldownRemaining(0);
+        writePinLockState(currentUser.id, null);
         setUnlockPin('');
         onPinUnlocked();
       } else {
@@ -196,11 +281,27 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
         setFailedAttempts(nextFails);
         setUnlockPin('');
         if (nextFails >= MAX_PIN_ATTEMPTS) {
-          setCooldownRemaining(LOCKOUT_SECONDS);
+          const lockSec = Math.min(
+            LOCKOUT_MAX_SECONDS,
+            LOCKOUT_BASE_SECONDS * Math.pow(2, lockoutCount)
+          );
+          const nextLockCount = lockoutCount + 1;
+          setLockoutCount(nextLockCount);
+          setCooldownRemaining(lockSec);
+          writePinLockState(currentUser.id, {
+            failedAttempts: nextFails,
+            lockoutUntilMs: Date.now() + lockSec * 1000,
+            lockoutCount: nextLockCount,
+          });
           setGateError(
-            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${LOCKOUT_SECONDS} giây hoặc đăng xuất.`
+            `Bạn đã nhập sai ${MAX_PIN_ATTEMPTS} lần. Vui lòng chờ ${lockSec} giây hoặc đăng xuất.`
           );
         } else {
+          writePinLockState(currentUser.id, {
+            failedAttempts: nextFails,
+            lockoutUntilMs: 0,
+            lockoutCount,
+          });
           setGateError(
             `Mã cá nhân chưa đúng (còn ${MAX_PIN_ATTEMPTS - nextFails} lần thử).`
           );
@@ -210,6 +311,78 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       setIsVerifyingPin(false);
     }
   };
+
+  const handleResendEmailClick = async () => {
+    if (!onResendVerificationEmail || isResendingEmail) return;
+    setIsResendingEmail(true);
+    setEmailVerifyMessage('');
+    try {
+      await onResendVerificationEmail();
+      setEmailVerifyMessage('Đã gửi lại email xác thực. Hãy kiểm tra Hộp thư đến và mục Spam.');
+    } catch (err: any) {
+      setEmailVerifyMessage(err?.message || 'Không gửi lại được email lúc này. Thử lại sau.');
+    } finally {
+      setIsResendingEmail(false);
+    }
+  };
+
+  const handleCheckEmailClick = async () => {
+    if (!onCheckEmailVerified || isCheckingEmail) return;
+    setIsCheckingEmail(true);
+    setEmailVerifyMessage('');
+    try {
+      const verified = await onCheckEmailVerified();
+      setEmailVerifyMessage(
+        verified
+          ? 'Email đã được xác thực thành công!'
+          : 'Email vẫn chưa được xác thực. Hãy bấm vào liên kết trong hộp thư rồi thử lại.'
+      );
+    } catch (err: any) {
+      setEmailVerifyMessage(err?.message || 'Không kiểm tra được trạng thái xác thực.');
+    } finally {
+      setIsCheckingEmail(false);
+    }
+  };
+
+  const emailVerificationBanner =
+    needsEmailVerification && (onResendVerificationEmail || onCheckEmailVerified) ? (
+      <div className="p-3 rounded-2xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-950 dark:text-indigo-100 space-y-2">
+        <div className="font-extrabold flex items-center gap-1.5 text-indigo-800 dark:text-indigo-200">
+          <Mail className="w-4 h-4 shrink-0" />
+          <span>Email chưa xác thực</span>
+        </div>
+        <p className="text-[11px] text-indigo-800/90 dark:text-indigo-200/90 leading-relaxed">
+          Nếu tài khoản đã được cấp quyền trước, hệ thống chỉ tự kích hoạt vai trò đó sau khi bạn xác thực địa chỉ email.
+        </p>
+        {emailVerifyMessage && (
+          <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-100 bg-white/70 dark:bg-slate-900/60 px-2.5 py-1.5 rounded-xl border border-indigo-200/80 dark:border-indigo-800">
+            {emailVerifyMessage}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {onResendVerificationEmail && (
+            <button
+              type="button"
+              disabled={isResendingEmail}
+              onClick={handleResendEmailClick}
+              className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-200 text-[11px] font-bold cursor-pointer disabled:opacity-50"
+            >
+              {isResendingEmail ? 'Đang gửi...' : 'Gửi lại email xác thực'}
+            </button>
+          )}
+          {onCheckEmailVerified && (
+            <button
+              type="button"
+              disabled={isCheckingEmail}
+              onClick={handleCheckEmailClick}
+              className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
+            >
+              {isCheckingEmail ? 'Đang kiểm tra...' : 'Tôi đã xác thực · Kiểm tra lại'}
+            </button>
+          )}
+        </div>
+      </div>
+    ) : null;
 
   // Auto-submit when 6 digits entered on PIN_LOCKED
   useEffect(() => {
@@ -690,6 +863,8 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 </p>
               </div>
 
+              {emailVerificationBanner}
+
               <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500 dark:text-slate-400">Họ và tên:</span>
@@ -795,6 +970,8 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   <div className="text-slate-500 dark:text-slate-400">{roleMeta.scopeSummary}</div>
                 </div>
               )}
+
+              {emailVerificationBanner}
 
               {gateError && (
                 <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs font-semibold">
@@ -909,6 +1086,8 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                   </span>
                 </div>
               )}
+
+              {emailVerificationBanner}
 
               <div className="text-center space-y-1">
                 <div className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center justify-center gap-1.5">

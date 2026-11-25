@@ -648,7 +648,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newMemberDept, setNewMemberDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
   const [newMemberUnit, setNewMemberUnit] = useState(
     currentUser?.role === 'UNI_LEADER'
-      ? currentUser?.unitCode || currentUser?.managedUnitCodes?.[0] || ''
+      ? currentUser?.unitCode ||
+          currentUser?.managedUnitCodes?.[0] ||
+          currentUser?.departmentCode ||
+          ''
       : ''
   );
 
@@ -664,7 +667,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setNewMemberArea(scopedAreas[0].code);
       }
       if (currentUser?.role === 'UNI_LEADER') {
-        const ownU = currentUser.managedUnitCodes?.[0] || currentUser.unitCode || '';
+        const ownU =
+          currentUser.managedUnitCodes?.[0] ||
+          currentUser.unitCode ||
+          currentUser.departmentCode ||
+          '';
         if (ownU && !viewerUnitScope.has(normalizeOrgCode(newMemberUnit))) {
           setNewMemberUnit(ownU);
         }
@@ -920,18 +927,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onShowNotification('Vui lòng điền họ tên cá nhân.');
       return;
     }
+    const resolvedMemberUnit =
+      newMemberUnit.trim() ||
+      (currentUser?.role === 'UNI_LEADER'
+        ? currentUser.unitCode ||
+          currentUser.managedUnitCodes?.[0] ||
+          currentUser.departmentCode ||
+          ''
+        : '');
     onAddMember({
       fullName: newMemberName.trim(),
       companyCode: newMemberCompany,
       areaCode: newMemberArea,
       departmentCode: newMemberDept,
-      unitCode: newMemberUnit.trim() || undefined,
+      unitCode: resolvedMemberUnit || undefined,
       active: true,
       goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
       results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
     });
     setNewMemberName('');
-    setNewMemberUnit('');
+    setNewMemberUnit(
+      currentUser?.role === 'UNI_LEADER'
+        ? currentUser.unitCode ||
+            currentUser.managedUnitCodes?.[0] ||
+            currentUser.departmentCode ||
+            ''
+        : ''
+    );
     setIsAddMemberOpen(false);
     onShowNotification('Đã thêm thành viên mới thành công!');
   };
@@ -2019,11 +2041,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <td className="py-3 px-4 text-slate-600 font-semibold">{area.companyCode}</td>
                           <td className="py-3 px-4 text-center font-semibold text-slate-600">{areaMembers.length} người</td>
                           <td className="py-3 px-4 text-center">
-                            <span className="px-2 py-0.5 rounded-full font-extrabold text-[10px] bg-emerald-100 text-emerald-800">
-                              Hoạt động
+                            <span
+                              className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] ${
+                                area.active !== false
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {area.active !== false ? 'Hoạt động' : 'Tạm ngừng'}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
+                            {editable &&
+                              (isAdmin ||
+                                currentUser?.role === 'MANAGER' ||
+                                currentUser?.role === 'SION_LEADER') && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextActive = area.active === false;
+                                    onUpdateArea({ ...area, active: nextActive });
+                                    onShowNotification(
+                                      nextActive
+                                        ? `Đã kích hoạt lại khu vực ${area.code}.`
+                                        : `Đã tạm ngừng hoạt động khu vực ${area.code}.`
+                                    );
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 mr-1 transition cursor-pointer"
+                                  title={
+                                    area.active !== false
+                                      ? 'Tạm ngừng hoạt động khu vực'
+                                      : 'Kích hoạt lại khu vực'
+                                  }
+                                >
+                                  {area.active !== false ? (
+                                    <ToggleRight className="w-4 h-4 text-emerald-600" />
+                                  ) : (
+                                    <ToggleLeft className="w-4 h-4 text-slate-400" />
+                                  )}
+                                </button>
+                              )}
                             {editable ? (
                               <button
                                 onClick={() => setEditingArea(area)}
@@ -2038,7 +2095,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {deletable && (
                               <button
                                 onClick={() => {
-                                  if (!isAdmin && area.active) {
+                                  if (!isAdmin && area.active !== false) {
                                     onShowNotification('Hãy ngừng hoạt động Khu vực trước khi xóa.');
                                     return;
                                   }

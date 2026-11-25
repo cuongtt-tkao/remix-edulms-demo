@@ -9,6 +9,7 @@ import {
   setDoc,
   deleteDoc,
   writeBatch,
+  runTransaction,
   getDocFromServer,
   deleteField,
 } from 'firebase/firestore';
@@ -141,6 +142,8 @@ import {
   logOutFirebase,
   registerWithEmail,
   changeCurrentPassword,
+  resendVerificationEmail,
+  reloadCurrentAuthUser,
   describeAuthError,
   BOOTSTRAP_SUPER_ADMIN_EMAILS,
   isBootstrapSuperAdminEmail,
@@ -786,7 +789,11 @@ export default function App() {
       );
     } else if (role === 'UNI_LEADER') {
       const ownUnit = currentUser.unitCode || '';
-      const effectiveUnits = Array.from(new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean)));
+      const ownDept = currentUser.departmentCode || '';
+      const useDeptFallback = unitCodes.length === 0 && !ownUnit && Boolean(ownDept);
+      const effectiveUnits = Array.from(
+        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : []), ...(useDeptFallback ? [ownDept] : [])].filter(Boolean))
+      );
       if (currentUser.companyCode && currentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
           attachUserQuery(
@@ -798,6 +805,17 @@ export default function App() {
               where('unitCode', '==', uCode)
             )
           );
+          if (useDeptFallback && uCode === ownDept) {
+            attachUserQuery(
+              `dept_${uCode}`,
+              query(
+                collection(db, 'users'),
+                where('companyCode', '==', currentUser.companyCode),
+                where('areaCode', '==', currentUser.areaCode),
+                where('departmentCode', '==', uCode)
+              )
+            );
+          }
         });
       }
     }
@@ -816,6 +834,7 @@ export default function App() {
     currentUser?.companyCode,
     currentUser?.areaCode,
     currentUser?.unitCode,
+    currentUser?.departmentCode,
     managedCompKeyEarly,
     managedAreaKeyEarly,
     managedUnitKeyEarly,
@@ -1672,8 +1691,15 @@ export default function App() {
       attachQuery('own', query(collection(db, 'disciples'), where('ownerUid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
       const ownUnit = effectiveCurrentUser.unitCode || '';
+      const ownDept = effectiveCurrentUser.departmentCode || '';
       const effectiveUnits = Array.from(
-        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
+        new Set(
+          [
+            ...unitCodes,
+            ...(ownUnit ? [ownUnit] : []),
+            ...(unitCodes.length === 0 && !ownUnit && ownDept ? [ownDept] : []),
+          ].filter(Boolean)
+        )
       );
       if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
@@ -1702,6 +1728,7 @@ export default function App() {
     effectiveCurrentUser?.companyCode,
     effectiveCurrentUser?.areaCode,
     effectiveCurrentUser?.unitCode,
+    effectiveCurrentUser?.departmentCode,
     managedCompKey,
     managedAreaKey,
     managedUnitKey,
@@ -1830,8 +1857,15 @@ export default function App() {
       attachQuery('own', query(collection(db, 'work_schedules'), where('ownerUid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
       const ownUnit = effectiveCurrentUser.unitCode || '';
+      const ownDept = effectiveCurrentUser.departmentCode || '';
       const effectiveUnits = Array.from(
-        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
+        new Set(
+          [
+            ...unitCodes,
+            ...(ownUnit ? [ownUnit] : []),
+            ...(unitCodes.length === 0 && !ownUnit && ownDept ? [ownDept] : []),
+          ].filter(Boolean)
+        )
       );
       if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
@@ -1860,6 +1894,7 @@ export default function App() {
     effectiveCurrentUser?.companyCode,
     effectiveCurrentUser?.areaCode,
     effectiveCurrentUser?.unitCode,
+    effectiveCurrentUser?.departmentCode,
     managedCompKey,
     managedAreaKey,
     managedUnitKey,
@@ -1972,8 +2007,15 @@ export default function App() {
       attachQuery('own', query(collection(db, 'dailyReports'), where('uid', '==', uid)));
       const unitCodes: string[] = JSON.parse(managedUnitKey);
       const ownUnit = effectiveCurrentUser.unitCode || '';
+      const ownDept = effectiveCurrentUser.departmentCode || '';
       const effectiveUnits = Array.from(
-        new Set([...unitCodes, ...(ownUnit ? [ownUnit] : [])].filter(Boolean))
+        new Set(
+          [
+            ...unitCodes,
+            ...(ownUnit ? [ownUnit] : []),
+            ...(unitCodes.length === 0 && !ownUnit && ownDept ? [ownDept] : []),
+          ].filter(Boolean)
+        )
       );
       if (effectiveCurrentUser.companyCode && effectiveCurrentUser.areaCode) {
         effectiveUnits.forEach((uCode) => {
@@ -2002,6 +2044,7 @@ export default function App() {
     effectiveCurrentUser?.companyCode,
     effectiveCurrentUser?.areaCode,
     effectiveCurrentUser?.unitCode,
+    effectiveCurrentUser?.departmentCode,
     managedCompKey,
     managedAreaKey,
     managedUnitKey,
@@ -2308,13 +2351,14 @@ export default function App() {
     const memberId = currentUser.memberId || `m-${uid}`;
     const [year, month] = date.split('-');
     const reportId = `${uid}_${date}`;
+    const resolvedUnit = (currentUser.unitCode || currentUser.departmentCode || '').trim();
     const payload: Omit<DailyReportRecord, 'id'> = JSON.parse(
       JSON.stringify({
         uid,
         memberId,
         companyCode: currentUser.companyCode,
         areaCode: currentUser.areaCode,
-        ...(currentUser.unitCode ? { unitCode: currentUser.unitCode } : {}),
+        ...(resolvedUnit ? { unitCode: resolvedUnit } : {}),
         date,
         month: `${year}-${month}`,
         year,
@@ -2344,11 +2388,36 @@ export default function App() {
     const weights = activeEvent?.weights || effectiveDefaultWeights;
     const newScore = computeDailyMetricsScore(aggregated, weights);
 
-    updateDoc(doc(db, 'members', memberId), {
-      dailyResults: aggregated,
-      dailyGoals: goals,
-      score: newScore,
-    }).catch((err) => console.warn('Cập nhật điểm member:', err));
+    const hasMemberDoc = members.some((m) => m.id === memberId);
+    const memberSyncOp = hasMemberDoc
+      ? updateDoc(doc(db, 'members', memberId), {
+          dailyResults: aggregated,
+          dailyGoals: goals,
+          score: newScore,
+        })
+      : setDoc(
+          doc(db, 'members', memberId),
+          JSON.parse(
+            JSON.stringify({
+              code: `MEM-${uid.slice(0, 6).toUpperCase()}`,
+              fullName: currentUser.fullName,
+              companyCode: currentUser.companyCode,
+              areaCode: currentUser.areaCode,
+              departmentCode: currentUser.departmentCode,
+              ...(currentUser.unitCode ? { unitCode: currentUser.unitCode } : {}),
+              active: true,
+              score: newScore,
+              dailyResults: aggregated,
+              dailyGoals: goals,
+              goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
+              results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+              targets: [],
+              createdAt: new Date().toISOString().split('T')[0],
+            })
+          ),
+          { merge: true }
+        );
+    memberSyncOp.catch((err) => console.warn('Cập nhật điểm member:', err));
     setLastUpdated(getCurrentFormattedTime());
   };
 
@@ -3334,7 +3403,13 @@ export default function App() {
       throw err;
     }
 
+    const linkedMemberId =
+      usersList.find((u) => u.id === targetUserId)?.memberId || `m-${targetUserId}`;
     setUsersList((prev) => prev.filter((u) => u.id !== targetUserId));
+    setMembers((prev) => prev.filter((m) => m.id !== linkedMemberId));
+    deleteDoc(doc(db, 'members', linkedMemberId)).catch((e) =>
+      console.warn('[Firestore] Lỗi xóa member sau khi xóa TK:', e)
+    );
 
     const cleanEmail = (targetEmail || '').trim().toLowerCase();
     if (cleanEmail) {
@@ -3489,9 +3564,39 @@ export default function App() {
     const cleanEmail = email.trim().toLowerCase();
     const updated = preAssignedRoles.filter((a) => a.email.toLowerCase() !== cleanEmail);
 
-    deleteDoc(doc(db, 'role_claims', cleanEmail)).catch((err) =>
+    await deleteDoc(doc(db, 'role_claims', cleanEmail)).catch((err) =>
       console.warn('Lỗi xóa role_claims:', err)
     );
+
+    const linkedUser = usersList.find((u) => (u.email || '').toLowerCase().trim() === cleanEmail);
+    if (
+      linkedUser &&
+      linkedUser.id !== currentUser?.id &&
+      !isBootstrapSuperAdminEmail(cleanEmail) &&
+      linkedUser.role !== 'MEMBER'
+    ) {
+      setUsersList((prev) =>
+        prev.map((u) =>
+          u.id === linkedUser.id
+            ? {
+                ...u,
+                role: 'MEMBER',
+                managedClusterIds: [],
+                managedCompanyCodes: [],
+                managedAreaCodes: [],
+                managedUnitCodes: [],
+              }
+            : u
+        )
+      );
+      updateDoc(doc(db, 'users', linkedUser.id), {
+        role: 'MEMBER',
+        managedClusterIds: [],
+        managedCompanyCodes: [],
+        managedAreaCodes: [],
+        managedUnitCodes: [],
+      }).catch((err) => console.warn('Lỗi hạ quyền tài khoản sau khi thu hồi:', err));
+    }
 
     const superAdmins = Array.from(
       new Set([
@@ -3577,6 +3682,7 @@ export default function App() {
     const today = nowIso.split('T')[0];
     const memberId = `m-${firebaseUser.uid}`;
     const pinHash = await hashPersonalPin(firebaseUser.uid, data.pin);
+    const cleanArea = cleanRawAreaCode(data.areaCode) || '1.1';
     const unitCode = data.unitCode?.trim() || undefined;
 
     const account = JSON.parse(
@@ -3587,7 +3693,7 @@ export default function App() {
         role: initialRole,
         memberId,
         companyCode: data.companyCode,
-        areaCode: data.areaCode,
+        areaCode: cleanArea,
         departmentCode: data.departmentCode,
         unitCode,
         ...(preMatch?.managedClusterIds?.length
@@ -3612,7 +3718,7 @@ export default function App() {
         code: `MEM-${firebaseUser.uid.slice(0, 6).toUpperCase()}`,
         fullName: data.fullName,
         companyCode: data.companyCode,
-        areaCode: data.areaCode,
+        areaCode: cleanArea,
         departmentCode: data.departmentCode,
         unitCode,
         active: shouldAutoApprove,
@@ -3734,63 +3840,97 @@ export default function App() {
         : currentUser.unitCode || ''
       : currentUser.unitCode || '';
 
-    const patch = JSON.parse(
-      JSON.stringify({
-        fullName: updated.fullName,
-        avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
-        coverUrl: updated.coverUrl || currentUser.coverUrl,
-        bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
-        ...(canEditOrg
-          ? {
+    const wantsClearAvatar = updated.avatarUrl === '';
+    const wantsClearCover = updated.coverUrl === '';
+    const resolvedAvatarUrl =
+      updated.avatarUrl === undefined ? currentUser.avatarUrl : updated.avatarUrl || undefined;
+    const resolvedCoverUrl =
+      updated.coverUrl === undefined ? currentUser.coverUrl : updated.coverUrl || undefined;
+    const resolvedBio = updated.bio !== undefined ? updated.bio : currentUser.bio;
+
+    const orgPatch: Record<string, unknown> = canEditOrg
+      ? {
+          companyCode: effectiveCompanyCode,
+          areaCode: effectiveAreaCode,
+          departmentCode: effectiveDepartmentCode,
+          ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
+        }
+      : {};
+
+    const userPatch: Record<string, unknown> = {
+      fullName: updated.fullName,
+      ...(wantsClearAvatar
+        ? { avatarUrl: deleteField() }
+        : resolvedAvatarUrl
+        ? { avatarUrl: resolvedAvatarUrl }
+        : {}),
+      ...(wantsClearCover
+        ? { coverUrl: deleteField() }
+        : resolvedCoverUrl
+        ? { coverUrl: resolvedCoverUrl }
+        : {}),
+      ...(resolvedBio !== undefined ? { bio: resolvedBio } : {}),
+      ...orgPatch,
+    };
+
+    const memberId = currentUser.memberId || `m-${currentUser.id}`;
+    const hasMemberDoc = members.some((m) => m.id === memberId);
+
+    try {
+      // Đồng bộ nguyên tử hồ sơ tài khoản & thành viên
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'users', currentUser.id), userPatch);
+
+      if (hasMemberDoc) {
+        batch.update(doc(db, 'members', memberId), userPatch);
+      } else {
+        batch.set(
+          doc(db, 'members', memberId),
+          JSON.parse(
+            JSON.stringify({
+              code: `MEM-${currentUser.id.slice(0, 6).toUpperCase()}`,
+              fullName: updated.fullName,
               companyCode: effectiveCompanyCode,
               areaCode: effectiveAreaCode,
               departmentCode: effectiveDepartmentCode,
               ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
-            }
-          : {}),
-      })
-    );
-
-    try {
-      // Đồng bộ nguyên tử hồ sơ tài khoản, thành viên và các MĐ của chính mình để không lệch khu vực / Uni
-      const batch = writeBatch(db);
-      batch.update(doc(db, 'users', currentUser.id), patch);
-
-      if (currentUser.memberId) {
-        batch.set(
-          doc(db, 'members', currentUser.memberId),
-          JSON.parse(
-            JSON.stringify({
-              fullName: updated.fullName,
-              avatarUrl: updated.avatarUrl || currentUser.avatarUrl,
-              coverUrl: updated.coverUrl || currentUser.coverUrl,
-              bio: updated.bio !== undefined ? updated.bio : currentUser.bio,
-              ...(canEditOrg
-                ? {
-                    companyCode: effectiveCompanyCode,
-                    areaCode: effectiveAreaCode,
-                    departmentCode: effectiveDepartmentCode,
-                    ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
-                  }
-                : {}),
+              active: resolveUserApprovalStatus(currentUser) === 'APPROVED',
+              score: 0,
+              ...(resolvedAvatarUrl ? { avatarUrl: resolvedAvatarUrl } : {}),
+              ...(resolvedCoverUrl ? { coverUrl: resolvedCoverUrl } : {}),
+              ...(resolvedBio !== undefined ? { bio: resolvedBio } : {}),
+              goals: { s1: 10, s2: 8, s3: 5, s4: 4, s5: 4, s6: 2 },
+              results: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0 },
+              targets: [],
+              createdAt: currentUser.createdAt || new Date().toISOString().split('T')[0],
             })
           ),
           { merge: true }
         );
       }
 
-      const orgOrNameChanged =
-        (canEditOrg &&
-          (effectiveCompanyCode !== currentUser.companyCode ||
-            effectiveAreaCode !== currentUser.areaCode ||
-            nextUnitCode !== (currentUser.unitCode || ''))) ||
-        updated.fullName !== currentUser.fullName;
+      await batch.commit();
+    } catch (err: any) {
+      console.error(err);
+      showNotification(`Không lưu được hồ sơ: ${err.message}`);
+      return false;
+    }
 
-      if (orgOrNameChanged) {
-        const ownDisciples = disciples.filter((d) => d.ownerUid === currentUser.id);
+    // Đồng bộ phụ sang Sổ tay MĐ & Lịch làm việc (không làm hỏng việc lưu hồ sơ nếu có bản ghi cũ)
+    const orgOrNameChanged =
+      (canEditOrg &&
+        (effectiveCompanyCode !== currentUser.companyCode ||
+          effectiveAreaCode !== currentUser.areaCode ||
+          nextUnitCode !== (currentUser.unitCode || ''))) ||
+      updated.fullName !== currentUser.fullName;
+
+    if (orgOrNameChanged) {
+      try {
+        const syncBatch = writeBatch(db);
         const syncedUnit = (nextUnitCode || effectiveDepartmentCode || '').slice(0, 50);
+        const ownDisciples = disciples.filter((d) => d.ownerUid === currentUser.id);
         ownDisciples.slice(0, 350).forEach((d) => {
-          batch.update(doc(db, 'disciples', d.id), {
+          syncBatch.update(doc(db, 'disciples', d.id), {
             ...(canEditOrg
               ? {
                   companyCode: effectiveCompanyCode,
@@ -3805,7 +3945,7 @@ export default function App() {
 
         const ownSchedules = workSchedules.filter((w) => w.ownerUid === currentUser.id);
         ownSchedules.slice(0, 100).forEach((w) => {
-          batch.update(doc(db, 'work_schedules', w.id), {
+          syncBatch.update(doc(db, 'work_schedules', w.id), {
             ...(canEditOrg
               ? {
                   companyCode: effectiveCompanyCode,
@@ -3817,23 +3957,23 @@ export default function App() {
             updatedAt: new Date().toISOString(),
           });
         });
-      }
 
-      await batch.commit();
-    } catch (err: any) {
-      console.error(err);
-      showNotification(`Không lưu được hồ sơ: ${err.message}`);
-      return false;
+        if (ownDisciples.length > 0 || ownSchedules.length > 0) {
+          await syncBatch.commit();
+        }
+      } catch (syncErr) {
+        console.warn('[Firestore] Đồng bộ phụ sang MĐ/LLV gặp cảnh báo:', syncErr);
+      }
     }
 
     return true;
   };
 
   // ---------- Nhật ký Cảm tạ (24h công khai) & Nhật ký Turbo (cá nhân) & Kế hoạch LLV ----------
-  const handleAddHuongKhi = (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => {
+  const handleAddHuongKhi = async (item: Omit<HuongKhiItem, 'id' | 'likesCount'>) => {
     if (!currentUser) {
       showNotification('Vui lòng đăng nhập để đăng Nhật ký cảm tạ.');
-      return;
+      throw new Error('Vui lòng đăng nhập để đăng Nhật ký cảm tạ.');
     }
     const createdMs = Date.now();
     const createdAtIso = new Date(createdMs).toISOString();
@@ -3848,30 +3988,38 @@ export default function App() {
       vocabularyConfig.rules,
       vocabularyConfig.enabled
     ).slice(0, 4000);
+    const id = `hk-${createdMs}`;
 
-    const newItem: HuongKhiItem = {
-      ...item,
-      title: encodedTitle,
-      content: encodedContent,
-      authorId: currentUser.memberId || item.authorId,
-      authorUid: currentUser.id,
-      journalType: 'GRATITUDE',
-      category: 'GRATITUDE',
-      createdAtIso,
-      expiresAtIso,
-      id: `hk-${createdMs}`,
-      likesCount: 1,
-      reactions: item.reactions || {
-        heart: 1,
-        pray: 1,
-        praise: 0,
-        fire: 0,
-        blessing: 0,
-        like: 0,
-      },
-      comments: item.comments || [],
-    };
-    setHuongKhiList((prev) => [newItem, ...prev]);
+    const docBody = JSON.parse(
+      JSON.stringify({
+        ...item,
+        title: encodedTitle,
+        content: encodedContent,
+        authorId: currentUser.memberId || `m-${currentUser.id}`,
+        authorUid: currentUser.id,
+        journalType: 'GRATITUDE',
+        category: 'GRATITUDE',
+        createdAtIso,
+        expiresAtIso,
+        likesCount: 1,
+        reactions: item.reactions || {
+          heart: 1,
+          pray: 1,
+          praise: 0,
+          fire: 0,
+          blessing: 0,
+          like: 0,
+        },
+        comments: item.comments || [],
+      })
+    );
+
+    try {
+      await setDoc(doc(db, 'huongKhi', id), docBody);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `huongKhi/${id}`);
+      throw err;
+    }
   };
 
   const handleDeleteHuongKhi = async (id: string) => {
@@ -3885,8 +4033,12 @@ export default function App() {
       showNotification('Bạn chỉ có thể xóa bài viết do chính mình đăng.');
       return;
     }
-    setHuongKhiList((prev) => prev.filter((item) => item.id !== id));
-    showNotification('Đã xóa bài Nhật ký cảm tạ.');
+    try {
+      await deleteDoc(doc(db, 'huongKhi', id));
+      showNotification('Đã xóa bài Nhật ký cảm tạ.');
+    } catch (err: any) {
+      showNotification(`Không xóa được bài viết: ${err?.message || 'Lỗi quyền'}`);
+    }
   };
 
   const handleAddTurboJournal = async (payload: { title: string; content: string }) => {
@@ -3983,18 +4135,19 @@ export default function App() {
     }
   };
 
-  const handleReactHuongKhi = (id: string, reaction: ReactionType) => {
+  const handleReactHuongKhi = async (id: string, reaction: ReactionType) => {
     if (!currentUser) {
       showNotification('Vui lòng đăng nhập để bày tỏ cảm xúc.');
       setIsAuthModalOpen(true);
       return;
     }
     const uid = currentUser.id;
-
-    setHuongKhiList((prev) =>
-      prev.map((hk) => {
-        if (hk.id !== id) return hk;
-
+    try {
+      await runTransaction(db, async (tx) => {
+        const ref = doc(db, 'huongKhi', id);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const hk = snap.data() as Omit<HuongKhiItem, 'id'>;
         const reactions: ReactionCounts = {
           heart: 0,
           pray: 0,
@@ -4006,7 +4159,7 @@ export default function App() {
         };
         const userReactions: Record<string, ReactionType> = { ...(hk.userReactions || {}) };
         const prevUserReaction = userReactions[uid];
-        let likesCount = hk.likesCount;
+        let likesCount = Number(hk.likesCount) || 0;
 
         if (prevUserReaction === reaction) {
           reactions[reaction] = Math.max(0, (reactions[reaction] || 1) - 1);
@@ -4022,13 +4175,16 @@ export default function App() {
           userReactions[uid] = reaction;
         }
 
-        return { ...hk, reactions, userReactions, likesCount };
-      })
-    );
-    showNotification('Đã bày tỏ cảm xúc thành công!');
+        tx.update(ref, { reactions, userReactions, likesCount });
+      });
+      showNotification('Đã bày tỏ cảm xúc thành công!');
+    } catch (err: any) {
+      console.warn('[Firestore] Lỗi bày tỏ cảm xúc:', err);
+      showNotification(`Không lưu được cảm xúc: ${err?.message || 'Vui lòng thử lại'}`);
+    }
   };
 
-  const handleAddComment = (huongKhiId: string, content: string) => {
+  const handleAddComment = async (huongKhiId: string, content: string) => {
     if (!content.trim()) return;
     if (!currentUser) {
       showNotification('Vui lòng đăng nhập để bình luận.');
@@ -4036,27 +4192,37 @@ export default function App() {
       return;
     }
 
-    const newComment: HuongKhiComment = {
-      id: `c-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      authorId: currentUser.id,
-      authorName: currentUser.fullName,
-      authorAvatar: currentUser.avatarUrl,
-      companyCode: currentUser.companyCode,
-      areaCode: currentUser.areaCode,
-      content: content.trim(),
-      createdAt: getCurrentFormattedTime(),
-    };
-
-    setHuongKhiList((prev) =>
-      prev.map((hk) => {
-        if (hk.id !== huongKhiId) return hk;
-        return {
-          ...hk,
-          comments: [...(hk.comments || []), newComment],
-        };
+    const newComment: HuongKhiComment = JSON.parse(
+      JSON.stringify({
+        id: `c-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        authorId: currentUser.id,
+        authorName: currentUser.fullName,
+        authorAvatar: currentUser.avatarUrl,
+        companyCode: currentUser.companyCode,
+        areaCode: currentUser.areaCode,
+        content: content.trim(),
+        createdAt: getCurrentFormattedTime(),
       })
     );
-    showNotification('Đã đăng bình luận khích lệ thành công!');
+
+    try {
+      await runTransaction(db, async (tx) => {
+        const ref = doc(db, 'huongKhi', huongKhiId);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const currentComments = Array.isArray(snap.data()?.comments)
+          ? (snap.data()?.comments as HuongKhiComment[])
+          : [];
+        if (currentComments.length >= 200) {
+          throw new Error('Bài viết đã đạt tối đa 200 bình luận.');
+        }
+        tx.update(ref, { comments: [...currentComments, newComment] });
+      });
+      showNotification('Đã đăng bình luận khích lệ thành công!');
+    } catch (err: any) {
+      console.warn('[Firestore] Lỗi đăng bình luận:', err);
+      showNotification(`Không gửi được bình luận: ${err?.message || 'Vui lòng thử lại'}`);
+    }
   };
 
   // Admin CRUD functions
@@ -4245,8 +4411,19 @@ export default function App() {
   };
 
   const handleBatchUpdateMembers = (newMembers: Member[], mode: 'MERGE' | 'REPLACE' = 'MERGE') => {
+    const registeredMemberIds = new Set(usersList.map((u) => u.memberId || `m-${u.id}`));
     setMembers((prev) => {
-      if (mode === 'REPLACE') return newMembers;
+      if (mode === 'REPLACE') {
+        const importedIds = new Set(newMembers.map((m) => m.id));
+        const importedCodes = new Set(newMembers.map((m) => m.code).filter(Boolean));
+        const preservedRegistered = prev.filter(
+          (m) =>
+            registeredMemberIds.has(m.id) &&
+            !importedIds.has(m.id) &&
+            !(m.code && importedCodes.has(m.code))
+        );
+        return [...newMembers, ...preservedRegistered];
+      }
       const map = new Map(prev.map((m) => [m.code, m]));
       newMembers.forEach((m) => {
         const existing = map.get(m.code);
@@ -4313,6 +4490,18 @@ export default function App() {
             if (firebaseUser?.uid) setPinUnlockedUid(firebaseUser.uid);
           }}
           onRetryProfile={handleRetryProfile}
+          onResendVerificationEmail={async () => {
+            await resendVerificationEmail();
+            showNotification('Đã gửi lại thư xác thực tới email của bạn.');
+          }}
+          onCheckEmailVerified={async () => {
+            const res = await reloadCurrentAuthUser();
+            if (res.emailVerified) {
+              setFirebaseUser(auth.currentUser);
+              setProfileRetryTick((n) => n + 1);
+            }
+            return res.emailVerified;
+          }}
           onLogout={handleLogout}
         />
 

@@ -157,50 +157,62 @@ service cloud.firestore {
         : 1;
     }
 
+    function eqOrg(a, b) {
+      return a is string && b is string && a.upper() == b.upper();
+    }
+
+    function orgInList(val, list) {
+      return val is string && list is list
+        && (val in list || val.upper() in list || val.lower() in list);
+    }
+
     function matchesUniUnit(viewerData, targetData) {
       return (
         ('unitCode' in targetData && targetData.unitCode is string && targetData.unitCode.size() > 0)
           ? (
-              ('unitCode' in viewerData && targetData.unitCode == viewerData.unitCode)
-              || ('managedUnitCodes' in viewerData && targetData.unitCode in viewerData.managedUnitCodes)
+              ('unitCode' in viewerData && eqOrg(targetData.unitCode, viewerData.unitCode))
+              || ('managedUnitCodes' in viewerData && orgInList(targetData.unitCode, viewerData.managedUnitCodes))
             )
           : (
               ('departmentCode' in targetData && targetData.departmentCode is string) && (
-                ('unitCode' in viewerData && viewerData.unitCode is string && viewerData.unitCode.size() > 0 && targetData.departmentCode == viewerData.unitCode)
-                || ('managedUnitCodes' in viewerData && viewerData.managedUnitCodes.size() > 0 && targetData.departmentCode in viewerData.managedUnitCodes)
+                ('unitCode' in viewerData && viewerData.unitCode is string && viewerData.unitCode.size() > 0 && eqOrg(targetData.departmentCode, viewerData.unitCode))
+                || ('managedUnitCodes' in viewerData && viewerData.managedUnitCodes is list && viewerData.managedUnitCodes.size() > 0 && orgInList(targetData.departmentCode, viewerData.managedUnitCodes))
                 || (
                   (!('unitCode' in viewerData) || !(viewerData.unitCode is string) || viewerData.unitCode.size() == 0)
-                  && (!('managedUnitCodes' in viewerData) || viewerData.managedUnitCodes.size() == 0)
-                  && ('departmentCode' in viewerData && targetData.departmentCode == viewerData.departmentCode)
+                  && (!('managedUnitCodes' in viewerData) || !(viewerData.managedUnitCodes is list) || viewerData.managedUnitCodes.size() == 0)
+                  && ('departmentCode' in viewerData && eqOrg(targetData.departmentCode, viewerData.departmentCode))
                 )
               )
             )
       );
     }
 
-    // Helper: Khớp Khu vực theo cả chuẩn mới 'Sion::KV' và chuẩn cũ 'KV'
+    // Helper: Khớp Khu vực theo cả chuẩn mới 'Sion::KV' và chuẩn cũ 'KV' (không phân biệt hoa/thường)
     function matchesManagedAreaEntry(viewerData, compCode, areaCode) {
-      return ('managedAreaCodes' in viewerData) && (
-        areaCode in viewerData.managedAreaCodes
-        || (compCode + '::' + areaCode) in viewerData.managedAreaCodes
-        || (compCode.upper() + '::' + areaCode.upper()) in viewerData.managedAreaCodes
-      );
+      return compCode is string && areaCode is string
+        && ('managedAreaCodes' in viewerData)
+        && viewerData.managedAreaCodes is list
+        && (
+          orgInList(areaCode, viewerData.managedAreaCodes)
+          || orgInList(compCode + '::' + areaCode, viewerData.managedAreaCodes)
+        );
     }
 
     function matchesAreaLeaderOrg(viewerData, data) {
-      return (
-        ('managedAreaCodes' in viewerData) && (
-          (data.companyCode + '::' + data.areaCode) in viewerData.managedAreaCodes
-          || (data.companyCode.upper() + '::' + data.areaCode.upper()) in viewerData.managedAreaCodes
-        )
-      ) || (
+      return ('companyCode' in data && 'areaCode' in data && data.companyCode is string && data.areaCode is string) && (
         (
-          viewerData.areaCode == data.areaCode
-          || ('managedAreaCodes' in viewerData && data.areaCode in viewerData.managedAreaCodes)
-        )
-        && (
-          viewerData.companyCode == data.companyCode
-          || ('managedCompanyCodes' in viewerData && data.companyCode in viewerData.managedCompanyCodes)
+          ('managedAreaCodes' in viewerData) && viewerData.managedAreaCodes is list && (
+            orgInList(data.companyCode + '::' + data.areaCode, viewerData.managedAreaCodes)
+          )
+        ) || (
+          (
+            eqOrg(viewerData.get('areaCode', ''), data.areaCode)
+            || ('managedAreaCodes' in viewerData && orgInList(data.areaCode, viewerData.managedAreaCodes))
+          )
+          && (
+            eqOrg(viewerData.get('companyCode', ''), data.companyCode)
+            || ('managedCompanyCodes' in viewerData && orgInList(data.companyCode, viewerData.managedCompanyCodes))
+          )
         )
       );
     }
@@ -211,8 +223,8 @@ service cloud.firestore {
         (
           isUniLeader()
           && ('areaCode' in data)
-          && get(userDocPath()).data.companyCode == data.companyCode
-          && get(userDocPath()).data.areaCode == data.areaCode
+          && eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+          && eqOrg(get(userDocPath()).data.get('areaCode', ''), data.areaCode)
           && matchesUniUnit(get(userDocPath()).data, data)
         ) || (
           isAreaLeader()
@@ -220,15 +232,15 @@ service cloud.firestore {
         ) || (
           isSionLeader()
           && (
-            get(userDocPath()).data.companyCode == data.companyCode
-            || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+            eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+            || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
           )
         ) || (
           isManager()
           && (
-            get(userDocPath()).data.companyCode == data.companyCode
-            || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
-            || matchesManagedAreaEntry(get(userDocPath()).data, data.companyCode, data.areaCode)
+            eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+            || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
+            || matchesManagedAreaEntry(get(userDocPath()).data, data.companyCode, data.get('areaCode', ''))
           )
         )
       );
@@ -238,12 +250,12 @@ service cloud.firestore {
     function canSupervisorAccessDisciple(data) {
       return (
         isUniLeader()
-        && get(userDocPath()).data.companyCode == data.companyCode
-        && get(userDocPath()).data.areaCode == data.areaCode
+        && eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+        && eqOrg(get(userDocPath()).data.get('areaCode', ''), data.areaCode)
         && ('ownerUnitCode' in data)
         && (
-          ('unitCode' in get(userDocPath()).data && data.ownerUnitCode == get(userDocPath()).data.unitCode)
-          || ('managedUnitCodes' in get(userDocPath()).data && data.ownerUnitCode in get(userDocPath()).data.managedUnitCodes)
+          ('unitCode' in get(userDocPath()).data && eqOrg(data.ownerUnitCode, get(userDocPath()).data.unitCode))
+          || ('managedUnitCodes' in get(userDocPath()).data && orgInList(data.ownerUnitCode, get(userDocPath()).data.managedUnitCodes))
         )
       ) || (
         isAreaLeader()
@@ -251,14 +263,14 @@ service cloud.firestore {
       ) || (
         isSionLeader()
         && (
-          get(userDocPath()).data.companyCode == data.companyCode
-          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       ) || (
         isManager()
         && (
           matchesManagedAreaEntry(get(userDocPath()).data, data.companyCode, data.areaCode)
-          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       );
     }
@@ -270,8 +282,13 @@ service cloud.firestore {
     }
 
     function actorAreaScope() {
-      return get(userDocPath()).data.get('managedAreaCodes', [])
-        .concat([get(userDocPath()).data.get('areaCode', '')]);
+      let u = get(userDocPath()).data;
+      let comp = u.get('companyCode', '');
+      let area = u.get('areaCode', '');
+      let base = u.get('managedAreaCodes', []).concat([area]);
+      return (comp is string && comp.size() > 0 && area is string && area.size() > 0)
+        ? base.concat([comp + '::' + area, comp.upper() + '::' + area.upper()])
+        : base;
     }
 
     function actorUnitScope() {
@@ -279,19 +296,21 @@ service cloud.firestore {
         .concat([get(userDocPath()).data.get('unitCode', '')]);
     }
 
-    // Danh sách phạm vi không đổi, hoặc mọi phần tử mới đều nằm trong phạm vi cho phép
+    // Danh sách phạm vi rỗng (khi hạ quyền), không đổi, hoặc mọi phần tử đều nằm trong phạm vi cho phép
     function grantListWithin(key, allowed) {
-      return request.resource.data.get(key, []) == resource.data.get(key, [])
-        || request.resource.data.get(key, []).hasOnly(allowed);
+      let nextVal = request.resource.data.get(key, []);
+      return nextVal.size() == 0
+        || nextVal == resource.data.get(key, [])
+        || nextVal.hasOnly(allowed);
     }
 
     // Cấp trên chỉ được cấp phạm vi là tập con phạm vi của chính mình.
     // QL Cụm / TS,NQ: giới hạn danh sách Sion; phạm vi Khu vực/Uni do canSupervisorAccessOrg kiểm tra theo Sion.
-    // Gru: giới hạn danh sách Khu vực; Uni: giới hạn danh sách Uni.
+    // Gru: giới hạn danh sách Khu vực (và tối đa Sion của chính mình); Uni: giới hạn danh sách Uni.
     // managedClusterIds chỉ Admin được thay đổi.
     function grantWithinActorScope() {
       return request.resource.data.get('managedClusterIds', []) == resource.data.get('managedClusterIds', [])
-        && grantListWithin('managedCompanyCodes', (isManager() || isSionLeader()) ? actorCompanyScope() : [])
+        && grantListWithin('managedCompanyCodes', (isManager() || isSionLeader() || isAreaLeader()) ? actorCompanyScope() : [])
         && ((isManager() || isSionLeader()) || grantListWithin('managedAreaCodes', actorAreaScope()))
         && ((isManager() || isSionLeader() || isAreaLeader()) || grantListWithin('managedUnitCodes', actorUnitScope()));
     }
@@ -333,22 +352,22 @@ service cloud.firestore {
     function canSupervisorAccessEdu(data) {
       return (
         isUniLeader()
-        && get(userDocPath()).data.areaCode == data.areaCode
-        && get(userDocPath()).data.companyCode == data.companyCode
+        && eqOrg(get(userDocPath()).data.get('areaCode', ''), data.areaCode)
+        && eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
       ) || (
         isAreaLeader()
         && matchesAreaLeaderOrg(get(userDocPath()).data, data)
       ) || (
         isSionLeader()
         && (
-          get(userDocPath()).data.companyCode == data.companyCode
-          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       ) || (
         isManager()
         && (
           matchesManagedAreaEntry(get(userDocPath()).data, data.companyCode, data.areaCode)
-          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       );
     }
@@ -357,29 +376,43 @@ service cloud.firestore {
     function canSupervisorAccessDailyReport(data) {
       return (
         isUniLeader()
-        && get(userDocPath()).data.companyCode == data.companyCode
-        && get(userDocPath()).data.areaCode == data.areaCode
-        && ('unitCode' in data)
+        && ('companyCode' in data) && ('areaCode' in data)
+        && eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+        && eqOrg(get(userDocPath()).data.get('areaCode', ''), data.areaCode)
+        && ('unitCode' in data) && data.unitCode is string && data.unitCode.size() > 0
         && (
-          ('unitCode' in get(userDocPath()).data && data.unitCode == get(userDocPath()).data.unitCode)
-          || ('managedUnitCodes' in get(userDocPath()).data && data.unitCode in get(userDocPath()).data.managedUnitCodes)
+          ('unitCode' in get(userDocPath()).data && eqOrg(data.unitCode, get(userDocPath()).data.unitCode))
+          || ('managedUnitCodes' in get(userDocPath()).data && orgInList(data.unitCode, get(userDocPath()).data.managedUnitCodes))
+          || (
+            get(userDocPath()).data.get('unitCode', '') == ''
+            && get(userDocPath()).data.get('managedUnitCodes', []).size() == 0
+            && ('departmentCode' in get(userDocPath()).data && eqOrg(data.unitCode, get(userDocPath()).data.departmentCode))
+          )
         )
       ) || (
         isAreaLeader()
         && matchesAreaLeaderOrg(get(userDocPath()).data, data)
       ) || (
         isSionLeader()
+        && ('companyCode' in data)
         && (
-          get(userDocPath()).data.companyCode == data.companyCode
-          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          eqOrg(get(userDocPath()).data.get('companyCode', ''), data.companyCode)
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       ) || (
         isManager()
+        && ('companyCode' in data)
         && (
-          matchesManagedAreaEntry(get(userDocPath()).data, data.companyCode, data.areaCode)
-          || ('managedCompanyCodes' in get(userDocPath()).data && data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          matchesManagedAreaEntry(get(userDocPath()).data, data.companyCode, data.get('areaCode', ''))
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       );
+    }
+
+    function matchesOwnDailyReportOrg(data) {
+      let uData = get(userDocPath()).data;
+      return (uData.get('companyCode', '') == '' || eqOrg(data.get('companyCode', ''), uData.get('companyCode', '')))
+        && (uData.get('areaCode', '') == '' || eqOrg(data.get('areaCode', ''), uData.get('areaCode', '')));
     }
 
     function isValidDailyMetricMap(m) {
@@ -698,15 +731,32 @@ service cloud.firestore {
       allow create: if isValidId(assignmentId)
         && isApprovedUser()
         && isValidEduAssignment(request.resource.data)
-        && (request.resource.data.assignedByUid == request.auth.uid || isAdmin());
+        && (
+          isAdmin()
+          || (
+            request.resource.data.assignedByUid == request.auth.uid
+            && (
+              canSupervisorAccessEdu(request.resource.data)
+              || (
+                eqOrg(request.resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+                && eqOrg(request.resource.data.areaCode, get(userDocPath()).data.get('areaCode', ''))
+                && (!('memberId' in request.resource.data) || request.resource.data.memberId == ownMemberId())
+              )
+            )
+          )
+        );
       allow update: if isValidId(assignmentId)
         && isApprovedUser()
         && isValidEduAssignment(request.resource.data)
         && request.resource.data.assignedByUid == resource.data.assignedByUid
         && (
           isAdmin()
-          || resource.data.assignedByUid == request.auth.uid
-          || canSupervisorAccessEdu(resource.data)
+          || (
+            resource.data.assignedByUid == request.auth.uid
+            && eqOrg(request.resource.data.companyCode, resource.data.companyCode)
+            && eqOrg(request.resource.data.areaCode, resource.data.areaCode)
+          )
+          || (canSupervisorAccessEdu(resource.data) && canSupervisorAccessEdu(request.resource.data))
         );
       allow delete: if isValidId(assignmentId)
         && isApprovedUser()
@@ -729,11 +779,10 @@ service cloud.firestore {
         && isValidEduCmsProfile(request.resource.data)
         && (
           isAdmin()
-          || request.resource.data.ownerUid == request.auth.uid
-          || isUniLeader()
-          || isAreaLeader()
-          || isSionLeader()
-          || isManager()
+          || (
+            (isUniLeader() || isAreaLeader() || isSionLeader() || isManager())
+            && canSupervisorAccessEdu(request.resource.data)
+          )
         );
       allow update: if isValidId(profileId)
         && isApprovedUser()
@@ -741,8 +790,12 @@ service cloud.firestore {
         && request.resource.data.ownerUid == resource.data.ownerUid
         && (
           isAdmin()
-          || resource.data.ownerUid == request.auth.uid
-          || canSupervisorAccessEdu(resource.data)
+          || (
+            resource.data.ownerUid == request.auth.uid
+            && eqOrg(request.resource.data.companyCode, resource.data.companyCode)
+            && eqOrg(request.resource.data.areaCode, resource.data.areaCode)
+          )
+          || (canSupervisorAccessEdu(resource.data) && canSupervisorAccessEdu(request.resource.data))
         );
       allow delete: if isValidId(profileId)
         && isApprovedUser()
@@ -846,6 +899,7 @@ service cloud.firestore {
             isApprovedProfile()
             && request.resource.data.uid == request.auth.uid
             && id.matches('^' + request.auth.uid + '_.*')
+            && matchesOwnDailyReportOrg(request.resource.data)
           )
           || isAdmin()
         );
@@ -855,6 +909,7 @@ service cloud.firestore {
           (
             isApprovedProfile()
             && request.resource.data.uid == request.auth.uid
+            && matchesOwnDailyReportOrg(request.resource.data)
             && (
               ('uid' in resource.data && resource.data.uid == request.auth.uid)
               || id.matches('^' + request.auth.uid + '_.*')
@@ -920,6 +975,7 @@ service cloud.firestore {
         && (
           (
             request.resource.data.role == 'MEMBER'
+            && (!('managedClusterIds' in request.resource.data) || request.resource.data.managedClusterIds.size() == 0)
             && (!('managedCompanyCodes' in request.resource.data) || request.resource.data.managedCompanyCodes.size() == 0)
             && (!('managedAreaCodes' in request.resource.data) || request.resource.data.managedAreaCodes.size() == 0)
             && (!('managedUnitCodes' in request.resource.data) || request.resource.data.managedUnitCodes.size() == 0)
@@ -931,6 +987,7 @@ service cloud.firestore {
               || (
                 hasOwnRoleClaim()
                 && request.resource.data.role == ownRoleClaimData().role
+                && request.resource.data.get('managedClusterIds', []) == ownRoleClaimData().get('managedClusterIds', [])
                 && request.resource.data.get('managedCompanyCodes', []) == ownRoleClaimData().get('managedCompanyCodes', [])
                 && request.resource.data.get('managedAreaCodes', []) == ownRoleClaimData().get('managedAreaCodes', [])
                 && request.resource.data.get('managedUnitCodes', []) == ownRoleClaimData().get('managedUnitCodes', [])
@@ -1004,10 +1061,10 @@ service cloud.firestore {
       allow update: if isAdmin() || (
         isApprovedUser()
         && (isManager() || isSionLeader())
-        && request.resource.data.code == resource.data.code
+        && eqOrg(request.resource.data.code, resource.data.code)
         && (
-          resource.data.code == get(userDocPath()).data.companyCode
-          || ('managedCompanyCodes' in get(userDocPath()).data && resource.data.code in get(userDocPath()).data.managedCompanyCodes)
+          eqOrg(resource.data.code, get(userDocPath()).data.get('companyCode', ''))
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(resource.data.code, get(userDocPath()).data.managedCompanyCodes))
         )
       );
     }
@@ -1018,29 +1075,29 @@ service cloud.firestore {
         isApprovedUser()
         && (isManager() || isSionLeader())
         && (
-          request.resource.data.companyCode == get(userDocPath()).data.companyCode
-          || ('managedCompanyCodes' in get(userDocPath()).data && request.resource.data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          eqOrg(request.resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(request.resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       );
       allow update: if isAdmin() || (
         isApprovedUser() && (
           (
             (isManager() || isSionLeader())
-            && request.resource.data.companyCode == resource.data.companyCode
+            && eqOrg(request.resource.data.companyCode, resource.data.companyCode)
             && (
-              resource.data.companyCode == get(userDocPath()).data.companyCode
-              || ('managedCompanyCodes' in get(userDocPath()).data && resource.data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+              eqOrg(resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+              || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
             )
           ) || (
             isAreaLeader()
-            && request.resource.data.companyCode == resource.data.companyCode
-            && request.resource.data.code == resource.data.code
+            && eqOrg(request.resource.data.companyCode, resource.data.companyCode)
+            && eqOrg(request.resource.data.code, resource.data.code)
             && (
               (
-                resource.data.code == get(userDocPath()).data.areaCode
+                eqOrg(resource.data.code, get(userDocPath()).data.get('areaCode', ''))
                 && (
-                  resource.data.companyCode == get(userDocPath()).data.companyCode
-                  || ('managedCompanyCodes' in get(userDocPath()).data && resource.data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+                  eqOrg(resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+                  || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
                 )
               )
               || matchesManagedAreaEntry(get(userDocPath()).data, resource.data.companyCode, resource.data.code)
@@ -1053,8 +1110,8 @@ service cloud.firestore {
         && (isManager() || isSionLeader())
         && resource.data.get('active', true) == false
         && (
-          resource.data.companyCode == get(userDocPath()).data.companyCode
-          || ('managedCompanyCodes' in get(userDocPath()).data && resource.data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+          eqOrg(resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+          || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
         )
       );
     }
@@ -1074,8 +1131,8 @@ service cloud.firestore {
           && request.resource.data.code.size() <= 40
           && request.resource.data.active is bool
           && (
-            request.resource.data.companyCode == get(userDocPath()).data.companyCode
-            || ('managedCompanyCodes' in get(userDocPath()).data && request.resource.data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+            eqOrg(request.resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+            || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(request.resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
           )
         )
       );
@@ -1083,11 +1140,11 @@ service cloud.firestore {
         isAdmin() || (
           isApprovedUser()
           && (isManager() || isSionLeader())
-          && request.resource.data.companyCode == resource.data.companyCode
+          && eqOrg(request.resource.data.companyCode, resource.data.companyCode)
           && request.resource.data.active is bool
           && (
-            resource.data.companyCode == get(userDocPath()).data.companyCode
-            || ('managedCompanyCodes' in get(userDocPath()).data && resource.data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+            eqOrg(resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+            || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
           )
         )
       );
@@ -1097,8 +1154,8 @@ service cloud.firestore {
           && (isManager() || isSionLeader())
           && resource.data.get('active', true) == false
           && (
-            resource.data.companyCode == get(userDocPath()).data.companyCode
-            || ('managedCompanyCodes' in get(userDocPath()).data && resource.data.companyCode in get(userDocPath()).data.managedCompanyCodes)
+            eqOrg(resource.data.companyCode, get(userDocPath()).data.get('companyCode', ''))
+            || ('managedCompanyCodes' in get(userDocPath()).data && orgInList(resource.data.companyCode, get(userDocPath()).data.managedCompanyCodes))
           )
         )
       );
@@ -1204,7 +1261,12 @@ service cloud.firestore {
         || (
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['reactions', 'likesCount', 'userReaction', 'comments', 'userReactions'])
-          && (!('comments' in request.resource.data) || (request.resource.data.comments is list && request.resource.data.comments.size() <= 200))
+          && (!('comments' in request.resource.data) || (
+            request.resource.data.comments is list
+            && request.resource.data.comments.size() <= 200
+            && (!('comments' in resource.data) || request.resource.data.comments.size() >= resource.data.comments.size())
+          ))
+          && (!('likesCount' in request.resource.data) || (request.resource.data.likesCount is number && request.resource.data.likesCount >= 0 && request.resource.data.likesCount <= 100000))
         )
       );
 
