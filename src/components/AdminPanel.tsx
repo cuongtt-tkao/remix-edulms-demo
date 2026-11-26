@@ -172,6 +172,9 @@ interface AdminPanelProps {
       managedCompanyCodes?: string[];
       managedAreaCodes?: string[];
       managedUnitCodes?: string[];
+      companyCode?: string;
+      areaCode?: string;
+      unitCode?: string;
     }
   ) => Promise<void>;
   onDeleteUserAccount?: (

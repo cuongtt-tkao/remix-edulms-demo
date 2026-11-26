@@ -49,6 +49,7 @@ import { CustomSelect } from './CustomSelect';
 import {
   canAssignTargetRole,
   canManageOrgRecord,
+  cleanRawAreaCode,
   makeAreaScopeKey,
   normalizeOrgCode,
   parseAreaScopeEntry,
@@ -61,6 +62,9 @@ interface ScopeSelection {
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
   managedUnitCodes?: string[];
+  companyCode?: string;
+  areaCode?: string;
+  unitCode?: string;
 }
 
 interface RoleManagementTabProps {
@@ -177,6 +181,9 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   const [modalCompanies, setModalCompanies] = useState<string[]>([]);
   const [modalAreas, setModalAreas] = useState<string[]>([]);
   const [modalUnitsText, setModalUnitsText] = useState<string>('');
+  const [modalHomeCompany, setModalHomeCompany] = useState<string>('');
+  const [modalHomeArea, setModalHomeArea] = useState<string>('');
+  const [modalHomeUnit, setModalHomeUnit] = useState<string>('');
 
   const isSuperAdmin = useMemo(() => {
     if (!currentUser) return false;
@@ -377,57 +384,144 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       .filter(Boolean);
   };
 
+  const sanitizeCompaniesForModal = (rawList: string[]): string[] => {
+    const allowedSet = new Set(scopedCompaniesForActor.map((c) => normalizeOrgCode(c.code)));
+    const result: string[] = [];
+    const seen = new Set<string>();
+    rawList.forEach((raw) => {
+      const norm = normalizeOrgCode(raw);
+      if (!norm || seen.has(norm) || !allowedSet.has(norm)) return;
+      const matched = scopedCompaniesForActor.find((c) => normalizeOrgCode(c.code) === norm);
+      if (matched) {
+        seen.add(norm);
+        result.push(matched.code);
+      }
+    });
+    return result;
+  };
+
+  const sanitizeAreasForModal = (rawList: string[], fallbackComp?: string): string[] => {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    rawList.forEach((entry) => {
+      const parsed = parseAreaScopeEntry(entry);
+      if (!parsed.areaCode) return;
+      const compToMatch = parsed.companyCode || normalizeOrgCode(fallbackComp);
+      const matchingArea =
+        scopedAreasForActor.find(
+          (a) =>
+            normalizeOrgCode(a.code) === parsed.areaCode &&
+            (!compToMatch || normalizeOrgCode(a.companyCode) === compToMatch)
+        ) ||
+        (!parsed.hasCompanyPrefix
+          ? scopedAreasForActor.find((a) => normalizeOrgCode(a.code) === parsed.areaCode)
+          : undefined);
+      if (!matchingArea) return;
+      const canonical = makeAreaScopeKey(matchingArea.companyCode, matchingArea.code);
+      const normKey = `${normalizeOrgCode(matchingArea.companyCode)}::${normalizeOrgCode(matchingArea.code)}`;
+      if (!seen.has(normKey)) {
+        seen.add(normKey);
+        result.push(canonical);
+      }
+    });
+    return result;
+  };
+
   const openScopeModal = (user: UserAccount, targetRole?: UserRole) => {
     const roleToEdit = targetRole || resolveEffectiveRole(user);
     setScopeModalUser(user);
     setModalRole(roleToEdit);
-    const initialClusters = user.managedClusterIds || [];
-    setModalClusters(initialClusters);
-    const resolvedFromClusters =
-      roleToEdit === 'MANAGER' && initialClusters.length > 0 && clusters.length > 0
-        ? resolveCompanyCodesFromClusterIds(initialClusters, clusters, companies)
+
+    const matchedHomeComp = companies.find(
+      (c) => normalizeOrgCode(c.code) === normalizeOrgCode(user.companyCode)
+    );
+    const homeComp = matchedHomeComp?.code || user.companyCode || '';
+    const areasForHome = areas.filter(
+      (a) => normalizeOrgCode(a.companyCode) === normalizeOrgCode(homeComp) && a.active !== false
+    );
+    const matchedHomeArea = areasForHome.find(
+      (a) => normalizeOrgCode(cleanRawAreaCode(a.code)) === normalizeOrgCode(cleanRawAreaCode(user.areaCode))
+    );
+    setModalHomeCompany(homeComp);
+    setModalHomeArea(matchedHomeArea?.code || cleanRawAreaCode(user.areaCode) || '');
+    setModalHomeUnit(user.unitCode || '');
+
+    const validClusters =
+      roleToEdit === 'MANAGER'
+        ? (user.managedClusterIds || []).filter((cid) =>
+            clusters.some((cl) => cl.id === cid || normalizeOrgCode(cl.code) === normalizeOrgCode(cid))
+          )
         : [];
-    setModalCompanies(
-      resolvedFromClusters.length > 0
-        ? resolvedFromClusters
-        : user.managedCompanyCodes || (user.companyCode ? [user.companyCode] : [])
-    );
-    const rawModalAreas = user.managedAreaCodes?.length
-      ? user.managedAreaCodes
-      : user.areaCode
-      ? [user.areaCode]
-      : [];
-    const normalizedModalAreas = Array.from(
-      new Set(
-        rawModalAreas.map((entry) => {
-          const parsed = parseAreaScopeEntry(entry);
-          if (parsed.hasCompanyPrefix && parsed.rawCompanyCode && parsed.rawAreaCode) {
-            return makeAreaScopeKey(parsed.rawCompanyCode, parsed.rawAreaCode);
-          }
-          const matchingArea =
-            areas.find(
-              (a) =>
-                normalizeOrgCode(a.code) === parsed.areaCode &&
-                (!user.companyCode ||
-                  normalizeOrgCode(a.companyCode) === normalizeOrgCode(user.companyCode))
-            ) || areas.find((a) => normalizeOrgCode(a.code) === parsed.areaCode);
-          if (matchingArea) {
-            return makeAreaScopeKey(matchingArea.companyCode, matchingArea.code);
-          }
-          if (user.companyCode && parsed.rawAreaCode) {
-            return makeAreaScopeKey(user.companyCode, parsed.rawAreaCode);
-          }
-          return entry;
-        })
-      )
-    );
-    setModalAreas(normalizedModalAreas);
-    const defaultUnits = user.managedUnitCodes?.length
-      ? user.managedUnitCodes
-      : user.unitCode
-      ? [user.unitCode]
-      : [];
+    setModalClusters(validClusters);
+
+    const resolvedFromClusters =
+      roleToEdit === 'MANAGER' && validClusters.length > 0 && clusters.length > 0
+        ? resolveCompanyCodesFromClusterIds(validClusters, clusters, companies)
+        : [];
+
+    if (roleToEdit === 'UNI_LEADER' || !SCOPE_ENABLED_ROLES.includes(roleToEdit)) {
+      setModalCompanies([]);
+    } else if (resolvedFromClusters.length > 0) {
+      setModalCompanies(sanitizeCompaniesForModal(resolvedFromClusters));
+    } else {
+      const rawCompList =
+        user.managedCompanyCodes?.length
+          ? user.managedCompanyCodes
+          : homeComp
+          ? [homeComp]
+          : [];
+      const cleanedComps = sanitizeCompaniesForModal(rawCompList);
+      setModalCompanies(
+        cleanedComps.length > 0 ? cleanedComps : homeComp ? sanitizeCompaniesForModal([homeComp]) : []
+      );
+    }
+
+    if (roleToEdit === 'SION_LEADER' || !SCOPE_ENABLED_ROLES.includes(roleToEdit)) {
+      setModalAreas([]);
+    } else {
+      const rawModalAreas = user.managedAreaCodes?.length
+        ? user.managedAreaCodes
+        : user.areaCode
+        ? [user.areaCode]
+        : [];
+      const cleanedAreas = sanitizeAreasForModal(rawModalAreas, homeComp);
+      setModalAreas(
+        cleanedAreas.length > 0
+          ? cleanedAreas
+          : user.areaCode
+          ? sanitizeAreasForModal([user.areaCode], homeComp)
+          : []
+      );
+    }
+
+    const defaultUnits =
+      roleToEdit === 'AREA_LEADER' || roleToEdit === 'UNI_LEADER'
+        ? user.managedUnitCodes?.length
+          ? user.managedUnitCodes
+          : user.unitCode
+          ? [user.unitCode]
+          : []
+        : [];
     setModalUnitsText(defaultUnits.join(', '));
+  };
+
+  const handleModalRoleSwitch = (nextRole: UserRole) => {
+    setModalRole(nextRole);
+    if (nextRole !== 'MANAGER') {
+      setModalClusters([]);
+    }
+    if (nextRole === 'SION_LEADER') {
+      setModalAreas([]);
+      setModalUnitsText('');
+    } else if (nextRole === 'UNI_LEADER') {
+      setModalCompanies([]);
+    } else if (nextRole === 'MANAGER') {
+      setModalUnitsText('');
+    } else if (!SCOPE_ENABLED_ROLES.includes(nextRole)) {
+      setModalCompanies([]);
+      setModalAreas([]);
+      setModalUnitsText('');
+    }
   };
 
   const handleRoleChange = async (targetUser: UserAccount, targetRole: UserRole) => {
@@ -449,73 +543,23 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
 
-    // Nếu chọn QL Cụm -> mở modal chọn các Sion / Khu vực phụ trách
-    if (targetRole === 'MANAGER') {
-      openScopeModal(targetUser, 'MANAGER');
+    // Các vai trò có phạm vi quản lý -> mở modal chọn phạm vi & đơn vị rõ ràng để tránh giữ dữ liệu cũ
+    if (SCOPE_ENABLED_ROLES.includes(targetRole)) {
+      openScopeModal(targetUser, targetRole);
       return;
     }
 
-    const canonicalComp = canonicalizeActorCompany(targetUser.companyCode);
-    const canGrantCompany =
-      Boolean(canonicalComp) &&
-      (isAdminOrSuperAdmin || viewerCompanyScope.has(normalizeOrgCode(canonicalComp)));
-    const targetAreaKey = targetUser.areaCode
-      ? isAdminOrSuperAdmin
-        ? makeAreaScopeKey(targetUser.companyCode, targetUser.areaCode)
-        : canonicalizeActorAreaEntry(targetUser.companyCode, targetUser.areaCode)
-      : '';
-    const rawDefaultUnits = targetUser.managedUnitCodes?.length
-      ? targetUser.managedUnitCodes
-      : targetUser.unitCode
-      ? [targetUser.unitCode]
-      : targetUser.departmentCode
-      ? [targetUser.departmentCode]
-      : [];
-    const safeUniUnits =
-      isAdminOrSuperAdmin || currentUser?.role !== 'UNI_LEADER'
-        ? rawDefaultUnits
-        : canonicalizeActorUnits(rawDefaultUnits).filter((u) => {
-            const uNorm = normalizeOrgCode(u);
-            const actorSet = new Set(
-              [
-                ...(currentUser?.managedUnitCodes || []),
-                ...(currentUser?.unitCode ? [currentUser.unitCode] : []),
-                ...(currentUser?.departmentCode ? [currentUser.departmentCode] : []),
-              ]
-                .map((x) => normalizeOrgCode(x))
-                .filter(Boolean)
-            );
-            return actorSet.has(uNorm);
-          });
-
-    const defaultScope: ScopeSelection =
-      targetRole === 'SION_LEADER'
-        ? {
-            managedCompanyCodes: canGrantCompany ? [canonicalComp] : [],
-            managedAreaCodes: [],
-            managedUnitCodes: [],
-          }
-        : targetRole === 'AREA_LEADER'
-        ? {
-            managedCompanyCodes: canGrantCompany ? [canonicalComp] : [],
-            managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
-            managedUnitCodes: targetUser.managedUnitCodes || [],
-          }
-        : targetRole === 'UNI_LEADER'
-        ? {
-            managedCompanyCodes: [],
-            managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
-            managedUnitCodes: safeUniUnits,
-          }
-        : {
-            managedCompanyCodes: [],
-            managedAreaCodes: [],
-            managedUnitCodes: [],
-          };
+    // Cấp không dùng phạm vi (TĐ / ADMIN / SUPER_ADMIN): xóa sạch toàn bộ phạm vi quản lý cũ
+    const clearedScope: ScopeSelection = {
+      ...(isAdminOrSuperAdmin ? { managedClusterIds: [] } : {}),
+      managedCompanyCodes: [],
+      managedAreaCodes: [],
+      managedUnitCodes: [],
+    };
 
     setIsUpdating(targetUser.id);
     try {
-      await onUpdateUserRole(targetUser.id, targetRole, targetUser.fullName, defaultScope);
+      await onUpdateUserRole(targetUser.id, targetRole, targetUser.fullName, clearedScope);
     } catch (err: any) {
       onShowNotification(`Lỗi phân quyền: ${err?.message || 'Thao tác thất bại'}`);
     } finally {
@@ -543,22 +587,37 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
           )
         : modalCompanies;
 
-    const effectiveModalCompanies = isAdminOrSuperAdmin
-      ? rawModalCompanies
-      : rawModalCompanies
-          .map((c) => canonicalizeActorCompany(c))
-          .filter((c) => c && viewerCompanyScope.has(normalizeOrgCode(c)));
+    const effectiveModalCompanies =
+      modalRole === 'MANAGER' || modalRole === 'SION_LEADER' || modalRole === 'AREA_LEADER'
+        ? isAdminOrSuperAdmin
+          ? sanitizeCompaniesForModal(rawModalCompanies)
+          : sanitizeCompaniesForModal(rawModalCompanies.map((c) => canonicalizeActorCompany(c))).filter(
+              (c) => c && viewerCompanyScope.has(normalizeOrgCode(c))
+            )
+        : [];
 
-    const effectiveModalAreas = isAdminOrSuperAdmin
-      ? modalAreas
-      : modalAreas.map((entry) => {
-          const p = parseAreaScopeEntry(entry);
-          return canonicalizeActorAreaEntry(p.rawCompanyCode || scopeModalUser.companyCode, p.rawAreaCode);
-        });
+    const effectiveModalAreas =
+      modalRole === 'MANAGER' || modalRole === 'AREA_LEADER' || modalRole === 'UNI_LEADER'
+        ? isAdminOrSuperAdmin
+          ? sanitizeAreasForModal(modalAreas, modalHomeCompany || scopeModalUser.companyCode)
+          : sanitizeAreasForModal(
+              modalAreas.map((entry) => {
+                const p = parseAreaScopeEntry(entry);
+                return canonicalizeActorAreaEntry(
+                  p.rawCompanyCode || scopeModalUser.companyCode,
+                  p.rawAreaCode
+                );
+              }),
+              modalHomeCompany || scopeModalUser.companyCode
+            )
+        : [];
 
-    const effectiveModalUnits = isAdminOrSuperAdmin
-      ? parsedUnits
-      : canonicalizeActorUnits(parsedUnits);
+    const effectiveModalUnits =
+      modalRole === 'AREA_LEADER' || modalRole === 'UNI_LEADER'
+        ? isAdminOrSuperAdmin
+          ? parsedUnits
+          : canonicalizeActorUnits(parsedUnits)
+        : [];
 
     if (
       modalRole === 'MANAGER' &&
@@ -569,6 +628,30 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       onShowNotification('Vui lòng chọn ít nhất 1 Cụm Sion, Sion hoặc Khu vực phụ trách cho QL Cụm.');
       return;
     }
+    if (modalRole === 'SION_LEADER' && effectiveModalCompanies.length === 0) {
+      onShowNotification('Vui lòng chọn ít nhất 1 Sion / Công ty phụ trách cho TS, NQ.');
+      return;
+    }
+    if (
+      modalRole === 'AREA_LEADER' &&
+      effectiveModalAreas.length === 0 &&
+      effectiveModalCompanies.length === 0
+    ) {
+      onShowNotification('Vui lòng chọn ít nhất 1 Khu vực phụ trách cho Gru.');
+      return;
+    }
+
+    const homeUnitPatch: Pick<ScopeSelection, 'companyCode' | 'areaCode' | 'unitCode'> =
+      isAdminOrSuperAdmin
+        ? {
+            ...(modalHomeCompany.trim() ? { companyCode: modalHomeCompany.trim() } : {}),
+            ...(modalHomeArea.trim() ? { areaCode: cleanRawAreaCode(modalHomeArea) } : {}),
+            ...(modalHomeUnit.trim() !== (scopeModalUser.unitCode || '').trim()
+              ? { unitCode: modalHomeUnit.trim() }
+              : {}),
+          }
+        : {};
+
     setIsUpdating(scopeModalUser.id);
     try {
       await onUpdateUserRole(scopeModalUser.id, modalRole, scopeModalUser.fullName, {
@@ -578,6 +661,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         managedCompanyCodes: effectiveModalCompanies,
         managedAreaCodes: effectiveModalAreas,
         managedUnitCodes: effectiveModalUnits,
+        ...homeUnitPatch,
       });
       setScopeModalUser(null);
     } catch (err: any) {
@@ -599,26 +683,38 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
 
-    const parsedUnits = parseUnitList(newManagedUnitsText);
+    const parsedUnits =
+      newRole === 'AREA_LEADER' || newRole === 'UNI_LEADER'
+        ? parseUnitList(newManagedUnitsText)
+        : [];
     const resolvedClusterComps =
       newRole === 'MANAGER' && newManagedClusters.length > 0 && clusters.length > 0
         ? resolveCompanyCodesFromClusterIds(newManagedClusters, clusters, companies)
         : [];
     const effectiveNewCompanies =
-      resolvedClusterComps.length > 0
-        ? Array.from(new Set([...resolvedClusterComps, ...newManagedCompanies]))
-        : newManagedCompanies;
+      newRole === 'MANAGER' || newRole === 'SION_LEADER' || newRole === 'AREA_LEADER'
+        ? resolvedClusterComps.length > 0
+          ? Array.from(new Set([...resolvedClusterComps, ...newManagedCompanies]))
+          : newManagedCompanies
+        : [];
+    const effectiveNewAreas =
+      newRole === 'MANAGER' || newRole === 'AREA_LEADER' || newRole === 'UNI_LEADER'
+        ? newManagedAreas
+        : [];
 
-    const scope: ScopeSelection | undefined = SCOPE_ENABLED_ROLES.includes(newRole)
+    const scope: ScopeSelection = SCOPE_ENABLED_ROLES.includes(newRole)
       ? {
-          ...(newRole === 'MANAGER' && newManagedClusters.length > 0
-            ? { managedClusterIds: newManagedClusters }
-            : {}),
+          managedClusterIds: newRole === 'MANAGER' ? newManagedClusters : [],
           managedCompanyCodes: effectiveNewCompanies,
-          managedAreaCodes: newManagedAreas,
+          managedAreaCodes: effectiveNewAreas,
           managedUnitCodes: parsedUnits,
         }
-      : undefined;
+      : {
+          managedClusterIds: [],
+          managedCompanyCodes: [],
+          managedAreaCodes: [],
+          managedUnitCodes: [],
+        };
 
     setIsSubmittingPreGrant(true);
     try {
@@ -627,7 +723,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         await onUpdateUserRole(existing.id, newRole, existing.fullName, scope);
       }
       if (onPreAssignRole) {
-        await onPreAssignRole(emailClean, newRole, newNote.trim(), scope);
+        await onPreAssignRole(
+          emailClean,
+          newRole,
+          newNote.trim(),
+          SCOPE_ENABLED_ROLES.includes(newRole) ? scope : undefined
+        );
       }
 
       onShowNotification(`Đã cấp quyền ${ROLE_LABELS[newRole]} cho ${emailClean}`);
@@ -1227,7 +1328,24 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                   size="sm"
                   searchable={false}
                   value={newRole}
-                  onChange={(val) => setNewRole(val as UserRole)}
+                  onChange={(val) => {
+                    const next = val as UserRole;
+                    setNewRole(next);
+                    if (next !== 'MANAGER') setNewManagedClusters([]);
+                    if (next === 'SION_LEADER') {
+                      setNewManagedAreas([]);
+                      setNewManagedUnitsText('');
+                    } else if (next === 'UNI_LEADER') {
+                      setNewManagedCompanies([]);
+                    } else if (next === 'MANAGER') {
+                      setNewManagedUnitsText('');
+                    } else if (!SCOPE_ENABLED_ROLES.includes(next)) {
+                      setNewManagedClusters([]);
+                      setNewManagedCompanies([]);
+                      setNewManagedAreas([]);
+                      setNewManagedUnitsText('');
+                    }
+                  }}
                   menuMinWidth={250}
                   options={ROLE_ORDER.map((r) => ({
                     value: r,
@@ -1384,7 +1502,17 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                     </span>
                     {(pa.managedAreaCodes?.length || pa.managedCompanyCodes?.length) ? (
                       <span className="text-[10px] text-slate-500">
-                        ({[...(pa.managedCompanyCodes || []), ...(pa.managedAreaCodes || [])].join(', ')})
+                        (
+                        {[
+                          ...(pa.managedCompanyCodes || []),
+                          ...(pa.managedAreaCodes || []).map((a) => {
+                            const p = parseAreaScopeEntry(a);
+                            return p.hasCompanyPrefix
+                              ? `${p.rawCompanyCode} · KV ${p.rawAreaCode}`
+                              : `KV ${p.rawAreaCode || a}`;
+                          }),
+                        ].join(', ')}
+                        )
                       </span>
                     ) : null}
                     {onDeletePreAssignedRole && (
@@ -1519,7 +1647,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                   const scopeParts = [
                     ...clusterLabels,
                     ...(user.managedCompanyCodes || []).map((c) => `Sion ${c}`),
-                    ...(user.managedAreaCodes || []).map((a) => `KV ${a}`),
+                    ...(user.managedAreaCodes || []).map((a) => {
+                      const p = parseAreaScopeEntry(a);
+                      return p.hasCompanyPrefix
+                        ? `${p.rawCompanyCode} · KV ${p.rawAreaCode}`
+                        : `KV ${p.rawAreaCode || a}`;
+                    }),
                     ...(user.managedUnitCodes || []).map((u) => `Uni ${u}`),
                   ];
 
@@ -1838,10 +1971,10 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
-                  Cấu hình phạm vi cho {scopeModalUser.fullName}
+                  Cấu hình phân quyền · {scopeModalUser.fullName}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Vai trò: <strong>{ROLE_LABELS[modalRole]}</strong>
+                  {scopeModalUser.email}
                 </p>
               </div>
               <button
@@ -1853,11 +1986,134 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               </button>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Vai trò phân quyền:
+              </label>
+              <CustomSelect
+                size="sm"
+                searchable={false}
+                value={modalRole}
+                onChange={(val) => handleModalRoleSwitch(val as UserRole)}
+                menuMinWidth={240}
+                options={ROLE_ORDER.filter((r) => getRoleLevel(r) <= maxAssignableLevel).map(
+                  (r) => ({
+                    value: r,
+                    label: ROLE_DISPLAY_META[r].label,
+                    badge: ROLE_DISPLAY_META[r].codeBadge,
+                  })
+                )}
+              />
+            </div>
+
+            {isAdminOrSuperAdmin && (
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  Đơn vị sinh hoạt trực thuộc:
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                      Sion / Công ty
+                    </label>
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={modalHomeCompany}
+                      onChange={(val) => {
+                        setModalHomeCompany(val);
+                        const matchingAreas = areas.filter(
+                          (a) =>
+                            normalizeOrgCode(a.companyCode) === normalizeOrgCode(val) &&
+                            a.active !== false
+                        );
+                        if (
+                          matchingAreas.length > 0 &&
+                          !matchingAreas.some(
+                            (a) => normalizeOrgCode(a.code) === normalizeOrgCode(modalHomeArea)
+                          )
+                        ) {
+                          setModalHomeArea(matchingAreas[0].code);
+                        } else if (matchingAreas.length === 0) {
+                          setModalHomeArea('');
+                        }
+                      }}
+                      options={
+                        companies.length > 0
+                          ? companies.map((c) => ({
+                              value: c.code,
+                              label: formatCompanyDisplayName(c.name, c.code),
+                              badge: c.code,
+                            }))
+                          : [{ value: modalHomeCompany || '', label: modalHomeCompany || 'Chưa có Sion' }]
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                      Khu vực
+                    </label>
+                    <CustomSelect
+                      size="sm"
+                      searchable={false}
+                      value={modalHomeArea}
+                      onChange={setModalHomeArea}
+                      options={(() => {
+                        const list = areas.filter(
+                          (a) =>
+                            normalizeOrgCode(a.companyCode) === normalizeOrgCode(modalHomeCompany) &&
+                            a.active !== false
+                        );
+                        if (list.length > 0) {
+                          return list.map((a) => ({
+                            value: a.code,
+                            label: a.name || `KV ${a.code}`,
+                            badge: a.code,
+                          }));
+                        }
+                        return [
+                          {
+                            value: modalHomeArea || '',
+                            label: modalHomeArea ? `KV ${modalHomeArea}` : 'Chưa có KV',
+                          },
+                        ];
+                      })()}
+                    />
+                  </div>
+                </div>
+                {(modalRole === 'AREA_LEADER' || modalRole === 'UNI_LEADER' || Boolean(modalHomeUnit)) && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                      Đội / Uni trực thuộc (tùy chọn)
+                    </label>
+                    <input
+                      type="text"
+                      value={modalHomeUnit}
+                      onChange={(e) => setModalHomeUnit(e.target.value)}
+                      placeholder="VD: Uni 1..."
+                      className="w-full px-3 py-1.5 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {modalRole === 'MANAGER' && clusters.length > 0 && (
               <div className="space-y-2">
-                <div className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Chọn Cụm Sion (tự động đồng bộ Sion trực thuộc):</span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Chọn Cụm Sion (tự động đồng bộ Sion trực thuộc):</span>
+                  </div>
+                  {modalClusters.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setModalClusters([])}
+                      className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
+                    >
+                      Bỏ chọn
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {clusters.map((cl) => {
@@ -1872,7 +2128,9 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                             : [...modalClusters, cl.id];
                           setModalClusters(next);
                           setModalCompanies(
-                            resolveCompanyCodesFromClusterIds(next, clusters, companies)
+                            sanitizeCompaniesForModal(
+                              resolveCompanyCodesFromClusterIds(next, clusters, companies)
+                            )
                           );
                         }}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 cursor-pointer ${
@@ -1890,67 +2148,99 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
               </div>
             )}
 
-            {scopedCompaniesForActor.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Building2 className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Chọn Sion / Công ty phụ trách:</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {scopedCompaniesForActor.map((c) => {
-                    const selected = modalCompanies.includes(c.code);
-                    return (
+            {(modalRole === 'MANAGER' || modalRole === 'SION_LEADER' || modalRole === 'AREA_LEADER') &&
+              scopedCompaniesForActor.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Chọn Sion / Công ty phụ trách:</span>
+                    </div>
+                    {modalCompanies.length > 0 && (
                       <button
-                        key={c.id}
                         type="button"
-                        onClick={() => toggleItem(modalCompanies, c.code, setModalCompanies)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 cursor-pointer ${
-                          selected
-                            ? 'bg-blue-700 text-white border-blue-700'
-                            : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                        }`}
+                        onClick={() => setModalCompanies([])}
+                        className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
                       >
-                        {selected && <Check className="w-3 h-3" />}
-                        <span>
-                          {c.code} · {c.name}
-                        </span>
+                        Bỏ chọn
                       </button>
-                    );
-                  })}
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {scopedCompaniesForActor.map((c) => {
+                      const selected = modalCompanies.some(
+                        (mc) => normalizeOrgCode(mc) === normalizeOrgCode(c.code)
+                      );
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() =>
+                            setModalCompanies((prev) =>
+                              selected
+                                ? prev.filter((mc) => normalizeOrgCode(mc) !== normalizeOrgCode(c.code))
+                                : [...prev, c.code]
+                            )
+                          }
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 cursor-pointer ${
+                            selected
+                              ? 'bg-blue-700 text-white border-blue-700'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {selected && <Check className="w-3 h-3" />}
+                          <span>
+                            {c.code} · {c.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {scopedAreasForActor.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Chọn từng Khu vực phụ trách:</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                  {scopedAreasForActor.map((a) => {
-                    const selected = isAreaSelected(modalAreas, a);
-                    return (
+            {(modalRole === 'MANAGER' || modalRole === 'AREA_LEADER' || modalRole === 'UNI_LEADER') &&
+              scopedAreasForActor.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Chọn từng Khu vực phụ trách:</span>
+                    </div>
+                    {modalAreas.length > 0 && (
                       <button
-                        key={a.id}
                         type="button"
-                        onClick={() => toggleAreaItem(modalAreas, a, setModalAreas)}
-                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1 cursor-pointer ${
-                          selected
-                            ? 'bg-teal-600 text-white border-teal-600'
-                            : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                        }`}
+                        onClick={() => setModalAreas([])}
+                        className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
                       >
-                        {selected && <Check className="w-3 h-3 shrink-0" />}
-                        <span className="truncate">
-                          {a.companyCode} · KV {a.code}
-                        </span>
+                        Bỏ chọn
                       </button>
-                    );
-                  })}
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {scopedAreasForActor.map((a) => {
+                      const selected = isAreaSelected(modalAreas, a);
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => toggleAreaItem(modalAreas, a, setModalAreas)}
+                          className={`px-2.5 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1 cursor-pointer ${
+                            selected
+                              ? 'bg-teal-600 text-white border-teal-600'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {selected && <Check className="w-3 h-3 shrink-0" />}
+                          <span className="truncate">
+                            {a.companyCode} · KV {a.code}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {(modalRole === 'AREA_LEADER' || modalRole === 'UNI_LEADER') && (
               <div className="space-y-1.5">

@@ -3302,6 +3302,9 @@ export default function App() {
       managedCompanyCodes?: string[];
       managedAreaCodes?: string[];
       managedUnitCodes?: string[];
+      companyCode?: string;
+      areaCode?: string;
+      unitCode?: string;
     }
   ) => {
     const targetUserObj = usersList.find((u) => u.id === targetUserId);
@@ -3320,6 +3323,13 @@ export default function App() {
     }
 
     const nowIso = new Date().toISOString();
+    const nextHomeCompany =
+      isAdminUser && scope?.companyCode !== undefined ? scope.companyCode.trim() : undefined;
+    const nextHomeArea =
+      isAdminUser && scope?.areaCode !== undefined ? cleanRawAreaCode(scope.areaCode) : undefined;
+    const nextHomeUnit =
+      isAdminUser && scope?.unitCode !== undefined ? scope.unitCode.trim() : undefined;
+
     const cleanPatch = JSON.parse(
       JSON.stringify({
         role: newRole,
@@ -3336,6 +3346,9 @@ export default function App() {
         ...(scope?.managedUnitCodes !== undefined
           ? { managedUnitCodes: scope.managedUnitCodes }
           : {}),
+        ...(nextHomeCompany !== undefined ? { companyCode: nextHomeCompany } : {}),
+        ...(nextHomeArea !== undefined ? { areaCode: nextHomeArea } : {}),
+        ...(nextHomeUnit !== undefined ? { unitCode: nextHomeUnit } : {}),
       })
     );
 
@@ -3349,6 +3362,26 @@ export default function App() {
 
     try {
       await updateDoc(doc(db, 'users', targetUserId), cleanPatch);
+
+      if (
+        isAdminUser &&
+        (nextHomeCompany !== undefined || nextHomeArea !== undefined || nextHomeUnit !== undefined)
+      ) {
+        const linkedMemberId = targetUserObj?.memberId || `m-${targetUserId}`;
+        const existingMember = members.find((m) => m.id === linkedMemberId);
+        if (existingMember) {
+          const memberPatch = JSON.parse(
+            JSON.stringify({
+              ...(nextHomeCompany !== undefined ? { companyCode: nextHomeCompany } : {}),
+              ...(nextHomeArea !== undefined ? { areaCode: nextHomeArea } : {}),
+              ...(nextHomeUnit !== undefined ? { unitCode: nextHomeUnit } : {}),
+            })
+          );
+          await updateDoc(doc(db, 'members', linkedMemberId), memberPatch).catch((e) =>
+            console.warn('[Firestore] Lỗi đồng bộ đơn vị cho members:', e)
+          );
+        }
+      }
 
       const cleanEmail = (targetUserObj?.email || '').trim().toLowerCase();
       const canSyncRoleClaim =
