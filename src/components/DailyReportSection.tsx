@@ -360,6 +360,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
 
   const [cheerPage, setCheerPage] = useState(0);
   const [isCheerPaused, setIsCheerPaused] = useState(false);
+  const [justCheeredId, setJustCheeredId] = useState<string | null>(null);
 
   const totalCheerPages = Math.max(1, Math.ceil(huongKhiList.length / cheerDisplayCount));
   const safeCheerPage = cheerPage % totalCheerPages;
@@ -408,147 +409,130 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
   };
 
   return (
-    <section id="entry-section" className="max-w-5xl mx-auto w-full space-y-3 sm:space-y-4">
-      {/* Compact Active Event Bar */}
+    <section id="entry-section" className="max-w-5xl mx-auto w-full space-y-2.5 sm:space-y-4">
+      {/* Compact Event Banner Pill (if active event exists) */}
       {activeEvent && (
         <div
-          className={`px-3.5 py-2.5 rounded-2xl border text-xs flex items-center justify-between gap-3 ${
+          className={`px-3 py-2 rounded-xl sm:rounded-2xl border text-xs flex items-center justify-between gap-2 ${
             isParticipantInActiveEvent
-              ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200/80 dark:border-amber-800/50 text-amber-950 dark:text-amber-200'
-              : 'bg-slate-50 dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 text-slate-600 dark:text-slate-300'
+              ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border-amber-200/80 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
+              : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
           }`}
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center shrink-0">
-              <Award className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
-                {activeEvent.title}
-              </span>
-              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                ·{' '}
-                <span
-                  className={
-                    isParticipantInActiveEvent
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-amber-700 dark:text-amber-400'
-                  }
-                >
-                  {isParticipantInActiveEvent ? 'Đang dự thi' : 'Ngoài danh sách sự kiện'}
-                </span>
-              </span>
-            </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="font-bold text-[11px] sm:text-xs truncate">{activeEvent.title}</span>
           </div>
-          <button
-            type="button"
-            onClick={() => onNavigateTab?.('EVENT_HUB')}
-            className="text-[11px] font-bold text-blue-700 dark:text-blue-300 hover:underline shrink-0 cursor-pointer"
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+              isParticipantInActiveEvent
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
+                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200'
+            }`}
           >
-            Chi tiết
-          </button>
+            {isParticipantInActiveEvent ? 'Đang dự thi' : 'Ngoài DS sự kiện'}
+          </span>
         </div>
       )}
 
-      {/* MAIN BENTO GRID: Daily Report Card + Modern Companion Stack */}
+      {/* MAIN GRID: Center/Left Báo cáo hằng ngày + Right/Below Companion Blocks */}
       <div
-        className={`grid grid-cols-1 gap-3.5 sm:gap-5 items-start ${
+        className={`grid grid-cols-1 gap-3 sm:gap-5 items-start ${
           hasAnyCompanionBlock ? 'lg:grid-cols-12' : 'max-w-2xl mx-auto'
         }`}
       >
-        {/* LEFT / PRIMARY COLUMN: DAILY REPORT CARD */}
+        {/* LEFT/PRIMARY COLUMN: CLASSIC VIBRANT DAILY REPORT CARD */}
         <div className={hasAnyCompanionBlock ? 'lg:col-span-7' : 'w-full'}>
           <form
             onSubmit={handleSave}
-            className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200/85 dark:border-slate-800 overflow-hidden"
+            className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-md border border-sky-200/90 dark:border-slate-800 overflow-hidden"
           >
-            {/* Modern Editorial Header */}
+            {/* Bright Visual Header Banner (Compact on mobile for single-screen entry) */}
             {homeCfg.showHeaderBanner ? (
-              <div className="relative px-4 sm:px-5 pt-4 pb-3.5 bg-gradient-to-br from-blue-50/90 via-white to-sky-50/70 dark:from-slate-900 dark:via-blue-950/50 dark:to-slate-900 border-b border-slate-200/80 dark:border-slate-800 overflow-hidden">
-                <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-sky-200/35 dark:bg-blue-500/10 blur-2xl pointer-events-none" />
-                <div className="absolute -bottom-10 -left-10 w-36 h-36 rounded-full bg-amber-200/25 dark:bg-amber-400/10 blur-2xl pointer-events-none" />
+              <div className="relative px-3 sm:px-4 pt-2.5 pb-2 sm:pt-3.5 sm:pb-3 bg-gradient-to-b from-sky-400 via-sky-200 to-sky-50 dark:from-slate-900 dark:via-blue-950 dark:to-slate-900 overflow-hidden border-b border-sky-200/80 dark:border-slate-800">
+                {/* Soft sunlit sky & green hill accents */}
+                <div className="absolute -top-10 -left-10 w-36 h-36 rounded-full bg-amber-200/50 dark:bg-amber-400/10 blur-2xl pointer-events-none" />
+                <div className="absolute -bottom-8 right-0 w-56 h-20 rounded-full bg-emerald-300/35 dark:bg-emerald-500/10 blur-xl pointer-events-none" />
 
-                <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-blue-700 dark:text-sky-400">
-                      Hành Thực Lục
-                    </div>
-                    <h1 className="text-lg sm:text-xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
-                      Báo cáo hằng ngày
-                    </h1>
-                    {currentUser ? (
-                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">
-                        <span className="font-bold text-slate-800 dark:text-slate-100">
-                          {currentUser.fullName}
-                        </span>
-                        <span className="mx-1.5 text-slate-400">·</span>
-                        <span>Sion {currentUser.companyCode}</span>
-                        <span className="mx-1.5 text-slate-400">·</span>
-                        <span>KV {currentUser.areaCode}</span>
-                        {currentUser.unitCode && (
-                          <>
-                            <span className="mx-1.5 text-slate-400">·</span>
-                            <span>{currentUser.unitCode}</span>
-                          </>
-                        )}
-                        <span className="mx-1.5 text-slate-400">·</span>
-                        <span className="font-semibold text-blue-700 dark:text-sky-300">
-                          {(ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).label}
-                        </span>
-                      </p>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={onOpenAuthModal}
-                        className="text-xs font-semibold text-blue-700 dark:text-amber-300 hover:underline underline-offset-2 cursor-pointer"
-                      >
-                        Đăng nhập để lưu &amp; đồng bộ kết quả →
-                      </button>
-                    )}
+                <div className="relative z-10 flex flex-col items-center text-center space-y-1 sm:space-y-1.5">
+                  <div className="hidden sm:inline-block px-3.5 py-0.5 rounded-full bg-blue-900 text-white text-[10px] font-extrabold tracking-wide shadow-xs">
+                    Hành Thực Lục
                   </div>
 
-                  {/* Period Segmented Switch */}
-                  <div className="inline-grid grid-cols-3 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shrink-0 self-start sm:self-center">
-                    {(
-                      [
-                        { id: 'DAY', label: 'Ngày' },
-                        { id: 'MONTH', label: 'Tháng' },
-                        { id: 'YEAR', label: 'Năm' },
-                      ] as { id: PeriodTab; label: string }[]
-                    ).map((tab) => {
-                      const isActive = activePeriod === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setActivePeriod(tab.id)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 cursor-pointer ${
-                            isActive
-                              ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-white shadow-xs'
-                              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  <div className="relative inline-flex flex-col items-center">
+                    <div className="px-4 sm:px-6 py-1 sm:py-1.5 rounded-full bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white text-base sm:text-xl font-black tracking-tight shadow-sm">
+                      Báo cáo hằng ngày
+                    </div>
+                    <div className="w-32 sm:w-40 h-1 rounded-full bg-gradient-to-r from-amber-300 via-amber-400 to-amber-300 -mt-0.5 shadow-2xs" />
+                  </div>
+
+                  {currentUser ? (
+                    <div className="flex flex-col items-center gap-1 max-w-full">
+                      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[11px] font-bold text-slate-800 dark:text-slate-100">
+                        <span className="truncate max-w-[160px] sm:max-w-none">{currentUser.fullName}</span>
+                        <span className="px-2 py-0.5 rounded-md bg-white/85 dark:bg-slate-800/90 border border-sky-200 dark:border-slate-700 text-blue-800 dark:text-sky-300 text-[10px] font-extrabold">
+                          Sion {currentUser.companyCode} · KV {currentUser.areaCode}
+                          {currentUser.unitCode ? ` · ${currentUser.unitCode}` : ''}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold ${
+                            (ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).badgeClass
                           }`}
                         >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                          {(ROLE_DISPLAY_META[currentUser.role] || ROLE_DISPLAY_META.MEMBER).label}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onOpenAuthModal}
+                      className="text-[11px] font-bold text-blue-800 dark:text-amber-300 underline underline-offset-2 cursor-pointer"
+                    >
+                      Đăng nhập để lưu &amp; đồng bộ kết quả
+                    </button>
+                  )}
+                </div>
+
+                {/* 3 Period Tabs: Ngày / Tháng / Năm */}
+                <div className="relative z-10 grid grid-cols-3 gap-1 bg-white/80 dark:bg-slate-950/60 p-1 rounded-xl sm:rounded-2xl border border-sky-200 dark:border-white/10 mt-2 max-w-xs sm:max-w-sm mx-auto backdrop-blur-xs">
+                  {(
+                    [
+                      { id: 'DAY', label: 'Ngày' },
+                      { id: 'MONTH', label: 'Tháng' },
+                      { id: 'YEAR', label: 'Năm' },
+                    ] as { id: PeriodTab; label: string }[]
+                  ).map((tab) => {
+                    const isActive = activePeriod === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActivePeriod(tab.id)}
+                        className={`py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                          isActive
+                            ? 'bg-blue-700 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-sky-100/70 dark:hover:bg-white/10'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
               /* Compact Header when Admin hides Header Banner */
-              <div className="px-4 py-3 bg-slate-900 dark:bg-slate-950 text-white flex flex-wrap items-center justify-between gap-2 border-b border-slate-800">
-                <div className="font-bold text-sm tracking-tight">Báo cáo hằng ngày</div>
-                <div className="inline-flex p-0.5 rounded-xl bg-white/10 gap-0.5">
+              <div className="px-4 py-3 bg-gradient-to-r from-blue-800 to-indigo-800 text-white flex flex-wrap items-center justify-between gap-2">
+                <div className="font-black text-sm">Báo cáo hằng ngày</div>
+                <div className="inline-flex p-0.5 rounded-xl bg-white/15 gap-1">
                   {(['DAY', 'MONTH', 'YEAR'] as PeriodTab[]).map((id) => (
                     <button
                       key={id}
                       type="button"
                       onClick={() => setActivePeriod(id)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                        activePeriod === id
-                          ? 'bg-white text-slate-900 shadow-xs'
-                          : 'text-white/80 hover:text-white'
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                        activePeriod === id ? 'bg-amber-400 text-slate-950' : 'text-white/85'
                       }`}
                     >
                       {id === 'DAY' ? 'Ngày' : id === 'MONTH' ? 'Tháng' : 'Năm'}
@@ -558,12 +542,15 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
               </div>
             )}
 
-            {/* Date / Period Navigator Strip */}
+            {/* Date Selector Strip */}
             {activePeriod === 'DAY' ? (
-              <div className="px-3.5 sm:px-4 py-2.5 bg-slate-50/70 dark:bg-slate-800/35 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+              <div className="px-2.5 sm:px-3.5 py-2 bg-sky-50/80 dark:bg-slate-800/40 border-b border-sky-200/70 dark:border-slate-800 flex flex-wrap items-center justify-between gap-1.5">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5">
+                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-sky-300 dark:border-slate-700 rounded-xl px-2 py-1 shadow-2xs">
                     <Calendar className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span className="hidden sm:inline text-xs font-extrabold text-blue-900 dark:text-slate-200">
+                      Ngày:
+                    </span>
                     <input
                       type="date"
                       value={selectedDate}
@@ -579,18 +566,18 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => setSelectedDate((d) => shiftDateStr(d, -1))}
-                      className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition"
+                      className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
                       aria-label="Ngày trước"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                     </button>
-                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 px-1.5 tabular-nums">
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 px-1 tabular-nums">
                       {getWeekdayVi(selectedDate)}
                     </span>
                     <button
                       type="button"
                       onClick={() => setSelectedDate((d) => shiftDateStr(d, 1))}
-                      className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition"
+                      className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
                       aria-label="Ngày sau"
                     >
                       <ChevronRight className="w-3.5 h-3.5" />
@@ -599,19 +586,19 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
 
                   {currentUser && (
                     <span
-                      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-1 ${
+                      className={`inline-flex items-center gap-0.5 text-[11px] font-bold ${
                         hasReportForSelectedDate
                           ? 'text-emerald-700 dark:text-emerald-400'
                           : 'text-amber-700 dark:text-amber-400'
                       }`}
                     >
-                      {hasReportForSelectedDate && <CheckCircle2 className="w-3.5 h-3.5" />}
+                      {hasReportForSelectedDate && <CheckCircle2 className="w-3 h-3" />}
                       <span>{hasReportForSelectedDate ? 'Đã nhập' : 'Chưa nhập'}</span>
                     </span>
                   )}
                 </div>
 
-                <div className="inline-flex items-center p-0.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 gap-0.5">
+                <div className="inline-flex items-center p-0.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 gap-0.5 shadow-2xs">
                   {[
                     { label: 'Hôm kia', value: dayBeforeYesterdayStr },
                     { label: 'Hôm qua', value: yesterdayStr },
@@ -623,10 +610,10 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                         key={preset.value}
                         type="button"
                         onClick={() => setSelectedDate(preset.value)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap ${
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap ${
                           isSelected
-                            ? 'bg-blue-700 text-white shadow-2xs'
-                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800'
                         }`}
                       >
                         {preset.label}
@@ -636,12 +623,12 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                 </div>
               </div>
             ) : (
-              /* Month / Year Navigator */
-              <div className="px-3.5 sm:px-4 py-2.5 bg-slate-50/70 dark:bg-slate-800/35 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 dark:text-slate-300">
+              /* Month / Year Navigator with CustomSelect Presets & Locked Result Notice */
+              <div className="px-2.5 sm:px-3.5 py-2 bg-blue-50/90 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/50 flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900 dark:text-blue-200">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <Lock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                   <span className="text-[11px] font-medium truncate">
-                    Kết quả tự cộng từ báo cáo ngày
+                    Tự cộng từ báo cáo ngày
                   </span>
                 </div>
 
@@ -652,7 +639,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                       if (activePeriod === 'MONTH') setSelectedMonth((m) => shiftMonthStr(m, -1));
                       else setSelectedYear((y) => String((parseInt(y, 10) || 2026) - 1));
                     }}
-                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition"
+                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 hover:bg-blue-100/60 cursor-pointer"
                     aria-label="Kỳ trước"
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
@@ -698,7 +685,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                       if (activePeriod === 'MONTH') setSelectedMonth((m) => shiftMonthStr(m, 1));
                       else setSelectedYear((y) => String((parseInt(y, 10) || 2026) + 1));
                     }}
-                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition"
+                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 hover:bg-blue-100/60 cursor-pointer"
                     aria-label="Kỳ sau"
                   >
                     <ChevronRight className="w-3.5 h-3.5" />
@@ -707,26 +694,28 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
               </div>
             )}
 
-            {/* Clean Modern 4-Column Metric Table */}
-            <div className="px-3 sm:px-4 pt-3 pb-1">
-              <div className="grid grid-cols-[minmax(82px,1fr)_minmax(62px,96px)_minmax(62px,96px)_minmax(50px,74px)] gap-2 px-2.5 py-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/70 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 items-center">
-                <div>Hạng mục</div>
+            {/* 4-Column Vibrant Table Header */}
+            <div className="px-2 sm:px-3 pt-2">
+              <div className="grid grid-cols-[minmax(76px,1fr)_minmax(58px,90px)_minmax(58px,90px)_minmax(52px,82px)] gap-1.5 px-2 sm:px-2.5 py-2 rounded-t-xl sm:rounded-t-2xl bg-gradient-to-r from-blue-700 via-blue-600 to-blue-700 text-white text-[11px] sm:text-xs font-extrabold items-center">
+                <div className="pl-1">Hạng mục</div>
                 <div className="text-center flex items-center justify-center gap-1">
-                  <Target className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden sm:inline" />
+                  <Target className="w-3.5 h-3.5 text-rose-300 shrink-0 hidden sm:inline" />
                   <span>Mục tiêu</span>
                 </div>
                 <div className="text-center flex items-center justify-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5 text-blue-500 shrink-0 hidden sm:inline" />
+                  <TrendingUp className="w-3.5 h-3.5 text-sky-200 shrink-0 hidden sm:inline" />
                   <span>Kết quả</span>
-                  {activePeriod !== 'DAY' && <Lock className="w-3 h-3 text-slate-400" />}
+                  {activePeriod !== 'DAY' && <Lock className="w-3 h-3 text-blue-200" />}
                 </div>
                 <div className="text-right flex items-center justify-end gap-1 pr-0.5">
-                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 hidden sm:inline" />
-                  <span>Tỉ lệ</span>
+                  <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0 hidden sm:inline" />
+                  <span className="sm:hidden">Tỉ lệ</span>
+                  <span className="hidden sm:inline">Tỉ lệ HT</span>
                 </div>
               </div>
 
-              <div className="divide-y divide-slate-100 dark:divide-slate-800/80 mt-1">
+              {/* 7 Metric Rows with Colorful Icons & Pill Inputs (h-9 touch targets) */}
+              <div className="border-x border-b border-sky-200/80 dark:border-slate-800 rounded-b-xl sm:rounded-b-2xl divide-y divide-sky-100 dark:divide-slate-800/80 bg-sky-50/35 dark:bg-slate-900/60">
                 {DAILY_METRIC_DEFINITIONS.map((metric) => {
                   const goalVal = goalsDraft[metric.key] ?? 0;
                   const resVal = displayedResults[metric.key] ?? 0;
@@ -736,31 +725,33 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   const iconMeta = METRIC_ICON_META[metric.key];
                   const RowIcon = iconMeta.icon;
 
-                  const pctTextCls =
+                  const pctColor =
                     pct >= 100
-                      ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/50'
+                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                       : pct >= 50
-                      ? 'text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/50'
+                      ? 'bg-sky-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border-sky-200 dark:border-blue-800'
                       : pct > 0
-                      ? 'text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/50'
-                      : 'text-slate-400 dark:text-slate-500 bg-transparent';
+                      ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                      : 'bg-white text-slate-500 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700';
 
                   return (
                     <div
                       key={metric.key}
-                      className="grid grid-cols-[minmax(82px,1fr)_minmax(62px,96px)_minmax(62px,96px)_minmax(50px,74px)] gap-2 items-center px-2 py-2 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 rounded-xl transition-colors"
+                      className="grid grid-cols-[minmax(76px,1fr)_minmax(58px,90px)_minmax(58px,90px)_minmax(52px,82px)] gap-1.5 items-center px-2 sm:px-2.5 py-1.5"
                     >
-                      <div className="flex items-center gap-2 min-w-0">
+                      {/* Metric Icon + Label (KN, Thăm, GM, ĐT, HH, KT, WS New) */}
+                      <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                         <div
-                          className={`w-7 h-7 rounded-xl ${iconMeta.bgCls} flex items-center justify-center shrink-0`}
+                          className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl ${iconMeta.bgCls} flex items-center justify-center shrink-0`}
                         >
                           <RowIcon className={`w-3.5 h-3.5 ${iconMeta.iconCls}`} />
                         </div>
-                        <span className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-100 truncate">
-                          {metric.label}
+                        <span className="font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 truncate">
+                          {metric.label}:
                         </span>
                       </div>
 
+                      {/* Goal Pill Input */}
                       <div>
                         <input
                           type="text"
@@ -771,10 +762,11 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                           onFocus={(e) => e.currentTarget.select()}
                           onChange={(e) => handleGoalChange(metric.key, e.target.value)}
                           aria-label={`Mục tiêu ${metric.label}`}
-                          className="w-full h-9 text-center text-xs sm:text-sm font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/70 text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 tabular-nums transition"
+                          className="w-full h-9 text-center text-xs sm:text-sm font-bold rounded-full border border-sky-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums shadow-2xs"
                         />
                       </div>
 
+                      {/* Result Pill Input */}
                       <div>
                         {activePeriod === 'DAY' ? (
                           <input
@@ -786,21 +778,22 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                             onFocus={(e) => e.currentTarget.select()}
                             onChange={(e) => handleResultChange(metric.key, e.target.value)}
                             aria-label={`Kết quả ${metric.label}`}
-                            className="w-full h-9 text-center text-xs sm:text-sm font-extrabold rounded-xl border border-emerald-200/90 dark:border-emerald-800/80 bg-emerald-50/40 dark:bg-emerald-950/25 text-emerald-900 dark:text-emerald-200 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 tabular-nums transition"
+                            className="w-full h-9 text-center text-xs sm:text-sm font-extrabold rounded-full border border-emerald-200 dark:border-emerald-800/80 bg-white dark:bg-slate-800 text-emerald-900 dark:text-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums shadow-2xs"
                           />
                         ) : (
                           <div
                             title="Kết quả tổng hợp tự động từ báo cáo Ngày"
-                            className="w-full h-9 flex items-center justify-center text-xs sm:text-sm font-extrabold rounded-xl border border-slate-200/70 dark:border-slate-700 bg-slate-100/70 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 tabular-nums select-none"
+                            className="w-full h-9 flex items-center justify-center text-xs sm:text-sm font-extrabold rounded-full border border-slate-200/80 dark:border-slate-700 bg-slate-100/90 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 tabular-nums select-none"
                           >
                             {resVal}
                           </div>
                         )}
                       </div>
 
+                      {/* Completion % Pill */}
                       <div className="flex justify-end">
                         <span
-                          className={`inline-flex items-center justify-center min-w-[48px] h-8 px-2 rounded-lg text-xs font-extrabold tabular-nums ${pctTextCls}`}
+                          className={`inline-flex items-center justify-center w-full max-w-[74px] h-9 px-2 rounded-full text-xs font-black border tabular-nums ${pctColor}`}
                         >
                           {pct}%
                         </span>
@@ -812,16 +805,16 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
             </div>
 
             {/* Summary & Save Footer */}
-            <div className="px-4 py-3 mt-1 bg-slate-50/80 dark:bg-slate-800/40 border-t border-slate-200/80 dark:border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between gap-3 text-xs">
+            <div className="px-3 py-2.5 mt-1.5 sm:mt-2 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200/80 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between gap-2.5 text-xs">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between text-[11px] font-bold mb-1.5">
-                    <span className="text-slate-600 dark:text-slate-300">Tiến độ hoàn thành</span>
+                  <div className="flex items-center justify-between text-[11px] font-bold mb-1">
+                    <span className="text-slate-600 dark:text-slate-300">Tiến độ chung</span>
                     <span className="text-blue-700 dark:text-blue-300 tabular-nums">
                       {overallProgress}%
                     </span>
                   </div>
-                  <div className="w-full h-2 rounded-full bg-slate-200/90 dark:bg-slate-700 overflow-hidden">
+                  <div className="w-full h-1.5 sm:h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-blue-600 via-sky-500 to-emerald-500 transition-all duration-300"
                       style={{ width: `${Math.min(100, overallProgress)}%` }}
@@ -829,11 +822,11 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   </div>
                 </div>
 
-                <div className="text-right shrink-0 pl-3 border-l border-slate-200 dark:border-slate-700">
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                <div className="text-right shrink-0 pl-2.5 border-l border-slate-200 dark:border-slate-700">
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase">
                     Điểm quy đổi
                   </div>
-                  <div className="text-sm font-black text-amber-600 dark:text-amber-400 tabular-nums flex items-center justify-end gap-1 mt-0.5">
+                  <div className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 tabular-nums flex items-center justify-end gap-1">
                     <Trophy className="w-3.5 h-3.5" />
                     <span>{formatNum(periodScore)}</span>
                   </div>
@@ -845,7 +838,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   <button
                     type="button"
                     onClick={() => setSelectedDate(todayStr)}
-                    className="h-10 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer shrink-0 flex items-center gap-1.5"
+                    className="h-9 sm:h-10 px-2.5 sm:px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer shrink-0 flex items-center gap-1"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Hôm nay</span>
@@ -855,7 +848,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="flex-1 h-10 px-4 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-bold shadow-xs transition duration-150 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  className="flex-1 h-9 sm:h-10 px-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white text-xs sm:text-sm font-extrabold shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                 >
                   <Save className="w-4 h-4" />
                   <span>
@@ -876,7 +869,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                 <button
                   type="button"
                   onClick={onOpenRules}
-                  className="hover:text-blue-700 dark:hover:text-blue-400 underline underline-offset-2 cursor-pointer"
+                  className="hover:text-blue-600 dark:hover:text-blue-400 underline underline-offset-2 cursor-pointer"
                 >
                   Xem thể lệ quy đổi điểm
                 </button>
@@ -982,36 +975,50 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
               );
             })()}
 
-            {/* 2. Modern Editorial Cheer Messages Card */}
+            {/* 2. Vibrant Colorful Cheer Messages Card */}
             {homeCfg.showCheerTicker && (
               <div
                 onMouseEnter={() => setIsCheerPaused(true)}
                 onMouseLeave={() => setIsCheerPaused(false)}
-                className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200/85 dark:border-slate-800 overflow-hidden"
+                className="relative bg-gradient-to-b from-sky-50/70 via-white to-emerald-50/50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 rounded-2xl sm:rounded-3xl shadow-md border border-sky-300/90 dark:border-sky-800/70 overflow-hidden"
               >
-                {/* Header */}
-                <div className="px-4 py-3 bg-gradient-to-r from-sky-50/80 via-white to-emerald-50/70 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-blue-600 to-sky-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                      <Sparkles className="w-3.5 h-3.5" />
+                {/* Smooth Auto-Rotate Countdown Bar */}
+                {totalCheerPages > 1 && visibleCheers.length > 0 && (
+                  <div className="h-[3px] w-full bg-blue-950/20 dark:bg-slate-800 overflow-hidden">
+                    <div
+                      key={`progress-${safeCheerPage}-${cheerRotateSeconds}-${huongKhiList.length}`}
+                      className="h-full w-full bg-gradient-to-r from-amber-300 via-yellow-300 to-emerald-300 animate-cheer-progress"
+                      style={{
+                        animationDuration: `${cheerRotateSeconds}s`,
+                        animationPlayState: isCheerPaused ? 'paused' : 'running',
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Vibrant Header */}
+                <div className="px-4 py-3 bg-gradient-to-r from-blue-700 via-sky-600 to-emerald-600 dark:from-blue-950 dark:via-sky-900 dark:to-emerald-950 text-white border-b border-sky-300/40 dark:border-sky-800/60 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 flex items-center justify-center shrink-0 shadow-sm">
+                      <Sparkles className="w-4 h-4 animate-cheer-sparkle" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <h2 className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                        <h2 className="text-xs sm:text-sm font-black text-white tracking-tight truncate">
                           Tin nhắn cổ vũ
                         </h2>
                         {huongKhiList.length > 0 && (
-                          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 tabular-nums shrink-0">
-                            · {cheerRangeLabel}
+                          <span className="px-1.5 py-0.5 rounded-md bg-white/20 text-white text-[10px] font-extrabold tabular-nums shrink-0">
+                            {cheerRangeLabel}
                           </span>
                         )}
                       </div>
                       {totalCheerPages > 1 && (
-                        <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1 tabular-nums">
+                        <div className="text-[10px] font-semibold text-sky-100 flex items-center gap-1 tabular-nums mt-0.5">
                           {isCheerPaused ? (
                             <>
-                              <Pause className="w-2.5 h-2.5 text-amber-500" />
-                              <span>Đang tạm dừng</span>
+                              <Pause className="w-2.5 h-2.5 text-amber-300" />
+                              <span className="text-amber-200">Đang tạm dừng</span>
                             </>
                           ) : (
                             <span>Tự đổi mỗi {cheerRotateSeconds}s</span>
@@ -1030,7 +1037,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                             setCheerPage((prev) => (prev - 1 + totalCheerPages) % totalCheerPages)
                           }
                           aria-label="Tin nhắn trước"
-                          className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 cursor-pointer transition"
+                          className="w-7 h-7 rounded-lg border border-white/25 bg-white/15 hover:bg-white/25 active:scale-95 flex items-center justify-center text-white cursor-pointer transition"
                         >
                           <ChevronLeft className="w-3.5 h-3.5" />
                         </button>
@@ -1038,7 +1045,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                           type="button"
                           onClick={() => setCheerPage((prev) => (prev + 1) % totalCheerPages)}
                           aria-label="Tin nhắn tiếp theo"
-                          className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 cursor-pointer transition"
+                          className="w-7 h-7 rounded-lg border border-white/25 bg-white/15 hover:bg-white/25 active:scale-95 flex items-center justify-center text-white cursor-pointer transition"
                         >
                           <ChevronRight className="w-3.5 h-3.5" />
                         </button>
@@ -1048,7 +1055,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => onNavigateTab?.('JOURNAL_CHEER')}
-                      className="text-[11px] font-bold text-blue-700 dark:text-sky-400 hover:underline flex items-center gap-0.5 cursor-pointer whitespace-nowrap"
+                      className="px-2.5 py-1 rounded-lg bg-amber-300 hover:bg-amber-200 text-slate-950 text-[11px] font-extrabold flex items-center gap-0.5 cursor-pointer whitespace-nowrap shadow-xs transition"
                     >
                       <span>Xem thêm</span>
                       <ChevronRight className="w-3.5 h-3.5" />
@@ -1056,10 +1063,13 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   </div>
                 </div>
 
-                {/* Editorial Feed Items */}
+                {/* Colorful Editorial Feed Cards with Staggered Entrance */}
                 {visibleCheers.length > 0 ? (
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                    {visibleCheers.map((cheer) => {
+                  <div
+                    key={`cheer-page-${safeCheerPage}`}
+                    className="p-2.5 sm:p-3 space-y-2"
+                  >
+                    {visibleCheers.map((cheer, idx) => {
                       const totalReactions =
                         (cheer.reactions?.like || 0) +
                         (cheer.reactions?.heart || 0) +
@@ -1069,6 +1079,7 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                         (cheer.reactions?.blessing || 0);
                       const itemLikes = totalReactions > 0 ? totalReactions : cheer.likesCount || 0;
                       const isLiked = Boolean(cheer.userReaction);
+                      const isJustCheered = justCheeredId === cheer.id;
                       const primaryText = cheer.title?.trim() || cheer.content?.trim() || '';
                       const secondaryContent =
                         cheer.title?.trim() &&
@@ -1077,18 +1088,54 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                           ? cheer.content.trim()
                           : '';
 
+                      const ACCENT_STYLES = [
+                        {
+                          card: 'border-sky-200 dark:border-sky-800/80 bg-sky-50/75 hover:bg-sky-100/75 dark:bg-sky-950/35 dark:hover:bg-sky-950/55',
+                          avatar: 'from-blue-600 to-sky-500 text-white shadow-sky-500/20',
+                          title: 'text-blue-950 dark:text-sky-100 group-hover:text-blue-700 dark:group-hover:text-sky-300',
+                          meta: 'text-blue-700 dark:text-sky-300',
+                          btnDefault: 'border-sky-300 dark:border-sky-700 text-blue-700 dark:text-sky-300 hover:bg-blue-600 hover:text-white hover:border-blue-600',
+                        },
+                        {
+                          card: 'border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/75 hover:bg-emerald-100/75 dark:bg-emerald-950/35 dark:hover:bg-emerald-950/55',
+                          avatar: 'from-emerald-600 to-teal-500 text-white shadow-emerald-500/20',
+                          title: 'text-emerald-950 dark:text-emerald-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-300',
+                          meta: 'text-emerald-700 dark:text-emerald-300',
+                          btnDefault: 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white hover:border-emerald-600',
+                        },
+                        {
+                          card: 'border-amber-200 dark:border-amber-800/80 bg-amber-50/75 hover:bg-amber-100/75 dark:bg-amber-950/30 dark:hover:bg-amber-950/50',
+                          avatar: 'from-amber-500 to-orange-500 text-white shadow-amber-500/20',
+                          title: 'text-amber-950 dark:text-amber-100 group-hover:text-amber-700 dark:group-hover:text-amber-300',
+                          meta: 'text-amber-800 dark:text-amber-300',
+                          btnDefault: 'border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-500 hover:text-white hover:border-amber-500',
+                        },
+                        {
+                          card: 'border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/75 hover:bg-indigo-100/75 dark:bg-indigo-950/35 dark:hover:bg-indigo-950/55',
+                          avatar: 'from-indigo-600 to-violet-500 text-white shadow-indigo-500/20',
+                          title: 'text-indigo-950 dark:text-indigo-100 group-hover:text-indigo-700 dark:group-hover:text-indigo-300',
+                          meta: 'text-indigo-700 dark:text-indigo-300',
+                          btnDefault: 'border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-600 hover:text-white hover:border-indigo-600',
+                        },
+                        {
+                          card: 'border-rose-200 dark:border-rose-800/80 bg-rose-50/75 hover:bg-rose-100/75 dark:bg-rose-950/30 dark:hover:bg-rose-950/50',
+                          avatar: 'from-rose-500 to-pink-500 text-white shadow-rose-500/20',
+                          title: 'text-rose-950 dark:text-rose-100 group-hover:text-rose-700 dark:group-hover:text-rose-300',
+                          meta: 'text-rose-700 dark:text-rose-300',
+                          btnDefault: 'border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-300 hover:bg-rose-500 hover:text-white hover:border-rose-500',
+                        },
+                      ];
+                      const accent = ACCENT_STYLES[idx % ACCENT_STYLES.length];
+
                       return (
                         <div
                           key={cheer.id}
-                          className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/80 dark:hover:bg-slate-800/35 transition-colors"
+                          style={{ animationDelay: `${Math.min(idx, 6) * 55}ms` }}
+                          className={`animate-cheer-item group flex items-start gap-2.5 px-3 py-2.5 rounded-xl sm:rounded-2xl border shadow-2xs transition-all duration-200 ${accent.card}`}
                         >
-                          {/* Avatar Monogram or Anonymous Shield */}
+                          {/* Colorful Avatar Monogram or Anonymous Shield */}
                           <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-extrabold shrink-0 mt-0.5 ${
-                              cheerHideAuthor
-                                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50'
-                                : 'bg-gradient-to-br from-sky-100 to-blue-100 dark:from-sky-900/60 dark:to-blue-900/60 text-blue-800 dark:text-sky-200 border border-sky-200/70 dark:border-sky-800/60'
-                            }`}
+                            className={`w-8 h-8 rounded-full bg-gradient-to-br ${accent.avatar} flex items-center justify-center text-[11px] font-black shrink-0 mt-0.5 shadow-xs transition-transform duration-200 group-hover:scale-105`}
                           >
                             {cheerHideAuthor ? (
                               <Shield className="w-3.5 h-3.5" />
@@ -1101,30 +1148,32 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                             onClick={() => onNavigateTab?.('JOURNAL_CHEER')}
                             className="min-w-0 flex-1 cursor-pointer space-y-1"
                           >
-                            <p className="text-[13px] font-bold text-slate-900 dark:text-slate-100 leading-snug line-clamp-1">
+                            <p className={`text-[13px] font-extrabold transition-colors leading-snug line-clamp-1 ${accent.title}`}>
                               {primaryText}
                             </p>
                             {secondaryContent && (
-                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2">
+                              <p className="text-xs font-medium text-slate-800 dark:text-slate-100 leading-relaxed line-clamp-2">
                                 {secondaryContent}
                               </p>
                             )}
-                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate flex items-center gap-1.5">
+                            <div className="text-[11px] truncate flex items-center gap-1.5">
                               {cheerHideAuthor ? (
                                 <>
-                                  <span className="font-medium text-slate-600 dark:text-slate-300">
+                                  <span className={`font-bold ${accent.meta}`}>
                                     Thành viên ẩn danh
                                   </span>
                                   {cheer.date && (
                                     <>
-                                      <span aria-hidden="true">·</span>
-                                      <span className="tabular-nums">{cheer.date}</span>
+                                      <span aria-hidden="true" className="text-slate-400">·</span>
+                                      <span className="font-semibold text-slate-700 dark:text-slate-300 tabular-nums">
+                                        {cheer.date}
+                                      </span>
                                     </>
                                   )}
                                 </>
                               ) : (
-                                <span>
-                                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                <span className="text-slate-700 dark:text-slate-200 font-semibold">
+                                  <span className={`font-bold ${accent.meta}`}>
                                     {cheer.authorName}
                                   </span>
                                   {' · '}
@@ -1137,19 +1186,25 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => onReactHuongKhi?.(cheer.id, 'like')}
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border cursor-pointer shrink-0 transition tabular-nums ${
+                            onClick={() => {
+                              setJustCheeredId(cheer.id);
+                              window.setTimeout(() => {
+                                setJustCheeredId((prev) => (prev === cheer.id ? null : prev));
+                              }, 360);
+                              onReactHuongKhi?.(cheer.id, 'like');
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-extrabold border cursor-pointer shrink-0 transition duration-150 active:scale-95 tabular-nums shadow-2xs ${
+                              isJustCheered ? 'animate-cheer-pop ' : ''
+                            }${
                               isLiked
-                                ? 'bg-blue-50 dark:bg-blue-950/70 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
-                                : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 hover:border-blue-200 hover:bg-blue-50/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 border-blue-600 text-white shadow-xs'
+                                : `bg-white/95 dark:bg-slate-800/90 ${accent.btnDefault}`
                             }`}
                             title="Gửi lượt cổ vũ"
                           >
                             <ThumbsUp
-                              className={`w-3.5 h-3.5 ${
-                                isLiked
-                                  ? 'text-blue-600 dark:text-blue-400'
-                                  : 'text-slate-500 dark:text-slate-400'
+                              className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                                isLiked ? 'scale-110 text-white' : ''
                               }`}
                             />
                             <span>{itemLikes}</span>
@@ -1162,27 +1217,27 @@ export const DailyReportSection: React.FC<DailyReportSectionProps> = ({
                   <button
                     type="button"
                     onClick={() => onNavigateTab?.('JOURNAL_CHEER')}
-                    className="w-full text-left px-4 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between gap-2 transition cursor-pointer"
+                    className="w-full text-left px-4 py-4 hover:bg-sky-50/70 dark:hover:bg-slate-800/40 text-xs font-medium text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 transition cursor-pointer"
                   >
                     <span>Chưa có Nhật ký cảm tạ nào trong 24h qua.</span>
-                    <span className="text-blue-700 dark:text-blue-400 font-bold shrink-0">
+                    <span className="text-blue-700 dark:text-sky-400 font-extrabold shrink-0">
                       Viết ngay →
                     </span>
                   </button>
                 )}
 
                 {totalCheerPages > 1 && (
-                  <div className="px-4 py-2 bg-slate-50/70 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center gap-1.5">
+                  <div className="px-4 py-2 bg-sky-50/80 dark:bg-slate-800/50 border-t border-sky-200/70 dark:border-slate-800 flex items-center justify-center gap-1.5">
                     {Array.from({ length: totalCheerPages }, (_, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => setCheerPage(idx)}
                         aria-label={`Trang tin nhắn ${idx + 1}`}
-                        className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                        className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                           idx === safeCheerPage
-                            ? 'w-5 bg-blue-600 dark:bg-sky-400'
-                            : 'w-1.5 bg-slate-300 dark:bg-slate-600 hover:bg-slate-400'
+                            ? 'w-6 bg-gradient-to-r from-blue-600 to-emerald-500 dark:from-sky-400 dark:to-emerald-400'
+                            : 'w-1.5 bg-sky-300 dark:bg-slate-600 hover:bg-sky-400'
                         }`}
                       />
                     ))}
