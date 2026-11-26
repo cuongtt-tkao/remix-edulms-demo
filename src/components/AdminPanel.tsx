@@ -35,7 +35,6 @@ import {
   CalendarDays,
   BookOpenCheck,
   Layers,
-  RefreshCw,
   MapPinned,
 } from 'lucide-react';
 import {
@@ -160,7 +159,6 @@ interface AdminPanelProps {
   onBatchUpdateAreas?: (areas: Area[], mode?: 'MERGE' | 'REPLACE') => void;
   onBatchUpdateDepartments?: (departments: Department[], mode?: 'MERGE' | 'REPLACE') => void;
   onBatchUpdateMembers?: (members: Member[], mode?: 'MERGE' | 'REPLACE') => void;
-  onSyncOrgFromData?: () => Promise<{ addedCompanies: number; addedAreas: number }>;
   onResetData: () => void;
   onShowNotification: (msg: string) => void;
   currentUser?: UserAccount | null;
@@ -262,7 +260,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBatchUpdateAreas,
   onBatchUpdateDepartments,
   onBatchUpdateMembers,
-  onSyncOrgFromData,
   onResetData,
   onShowNotification,
   currentUser,
@@ -301,17 +298,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const isAdmin = isAdminRole(currentUser?.role);
   const canDownloadExcel = canExportExcel(currentUser?.role);
   const actorRoleLevel = getRoleLevel(currentUser?.role);
-  const [isSyncingOrg, setIsSyncingOrg] = useState(false);
-
-  const handleManualOrgSync = async () => {
-    if (!onSyncOrgFromData || isSyncingOrg) return;
-    setIsSyncingOrg(true);
-    try {
-      await onSyncOrgFromData();
-    } finally {
-      setIsSyncingOrg(false);
-    }
-  };
   const supervisorAllowedTabs: AdminSectionId[] = React.useMemo(
     () =>
       canDownloadExcel
@@ -1717,18 +1703,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h3 className="font-bold text-sm text-slate-800">Danh sách các Sion / Công ty</h3>
               <div className="flex flex-wrap items-center gap-2">
-                {isAdmin && onSyncOrgFromData && (
-                  <button
-                    type="button"
-                    disabled={isSyncingOrg}
-                    onClick={handleManualOrgSync}
-                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Tự động tạo các Sion từ 5 Cụm và đồng bộ Khu vực từ tài khoản/thành viên hiện có"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ Sion & KV'}</span>
-                  </button>
-                )}
                 {canCreateCompany && (
                   <button
                     onClick={() => setIsAddCompanyOpen(true)}
@@ -1988,18 +1962,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     ]}
                   />
                 </div>
-                {isAdmin && onSyncOrgFromData && (
-                  <button
-                    type="button"
-                    disabled={isSyncingOrg}
-                    onClick={handleManualOrgSync}
-                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Tự động đồng bộ các Khu vực & Sion từ danh sách thành viên/tài khoản và 5 Cụm"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrg ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingOrg ? 'Đang đồng bộ...' : 'Đồng bộ KV'}</span>
-                  </button>
-                )}
                 {canCreateArea && (
                   <button
                     onClick={() => {

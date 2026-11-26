@@ -94,7 +94,6 @@ import {
   cleanRawAreaCode,
   slugifyOrgCode,
   getDefaultCompanyDisplayName,
-  getClusterSeedCompanyCodes,
   makeDeterministicCompanyId,
   makeDeterministicAreaId,
   normalizeDeletedAreaKey,
@@ -348,7 +347,6 @@ export default function App() {
   );
   const [clustersConfig, setClustersConfig] = useState<SystemClustersConfig | null>(null);
   const [orgSyncConfig, setOrgSyncConfig] = useState<SystemOrgSyncConfig | null>(null);
-  const [orgSyncLoaded, setOrgSyncLoaded] = useState<boolean>(false);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   const deletedCompanySet = useMemo(() => {
@@ -487,13 +485,9 @@ export default function App() {
         } else {
           setOrgSyncConfig(null);
         }
-        if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites) {
-          setOrgSyncLoaded(true);
-        }
       },
       (err) => {
         console.warn('[Firestore] Lỗi đọc system_config/org_sync:', err);
-        setOrgSyncLoaded(true);
       }
     );
     const expiryTimer = setInterval(() => setNowMs(Date.now()), 60_000);
@@ -2975,244 +2969,6 @@ export default function App() {
     const syncedCount = await syncManagerClusters(nextConfig.clusters, effectiveCompanies);
     return { syncedCount };
   };
-
-  // Đồng bộ tự động các Sion (từ 5 Cụm + users + members) và Khu vực còn thiếu lên Firestore (default)
-  // Chỉ bổ sung những Sion/KV chưa có, tuyệt đối không xóa hay ghi đè dữ liệu hiện có.
-  const orgSyncInFlightRef = useRef<boolean>(false);
-  const lastOrgSyncSigRef = useRef<string>('');
-
-  const computeMissingOrgPayload = useCallback(() => {
-    const existingCompByNorm = new Map<string, Company>();
-    companies.forEach((c) => {
-      const norm = normalizeOrgCode(c.code);
-      if (norm && !existingCompByNorm.has(norm)) {
-        existingCompByNorm.set(norm, c);
-      }
-    });
-
-    const missingCompanies: Company[] = [];
-    const compOrderBase = Date.now();
-    const ensureCompany = (rawCode?: string | null) => {
-      const clean = (rawCode || '').trim();
-      const norm = normalizeOrgCode(clean);
-      if (!norm || existingCompByNorm.has(norm) || deletedCompanySet.has(norm)) return;
-      const newComp: Company = {
-        id: makeDeterministicCompanyId(clean),
-        code: clean,
-        name: getDefaultCompanyDisplayName(clean),
-        active: true,
-      };
-      existingCompByNorm.set(norm, newComp);
-      missingCompanies.push(newComp);
-    };
-
-    // 1. Các Sion đang có trong cấu hình Cụm hiện tại (không dùng fallback cứng khi đã khởi tạo)
-    getClusterSeedCompanyCodes(clustersConfig?.clusters).forEach((code) => ensureCompany(code));
-
-    // 2. Quét Sion từ tài khoản đã duyệt & danh sách thành viên trong DB
-    const approvedUsers = usersList.filter(
-      (u) => resolveUserApprovalStatus(u) === 'APPROVED'
-    );
-    approvedUsers.forEach((u) => ensureCompany(u.companyCode));
-    members
-      .filter((m) => m.active !== false)
-      .forEach((m) => ensureCompany(m.companyCode));
-
-    // 3. Quét các cặp (Sion, Khu vực) còn thiếu từ users đã duyệt & members
-    const existingAreaKeys = new Set<string>();
-    areas.forEach((a) => {
-      const key = normalizeDeletedAreaKey(a.companyCode, a.code);
-      if (key) existingAreaKeys.add(key);
-    });
-
-    const missingAreas: Area[] = [];
-    const ensureArea = (rawComp?: string | null, rawArea?: string | null) => {
-      const cNorm = normalizeOrgCode(rawComp);
-      const cleanArea = cleanRawAreaCode(rawArea);
-      const aNorm = normalizeOrgCode(cleanArea);
-      if (!cNorm || !aNorm) return;
-      if (deletedCompanySet.has(cNorm)) return;
-      const key = `${cNorm}::${aNorm}`;
-      if (deletedAreaKeySet.has(key) || existingAreaKeys.has(key)) return;
-      existingAreaKeys.add(key);
-
-      const canonicalComp = existingCompByNorm.get(cNorm)?.code || (rawComp || '').trim();
-      missingAreas.push({
-        id: makeDeterministicAreaId(canonicalComp, cleanArea),
-        code: cleanArea,
-        name: cleanArea,
-        companyCode: canonicalComp,
-        active: true,
-      });
-    };
-
-    approvedUsers.forEach((u) => ensureArea(u.companyCode, u.areaCode));
-    members
-      .filter((m) => m.active !== false)
-      .forEach((m) => ensureArea(m.companyCode, m.areaCode));
-
-    const signature = [
-      ...missingCompanies.map((c) => `C:${normalizeOrgCode(c.code)}`),
-      ...missingAreas.map(
-        (a) => `A:${normalizeOrgCode(a.companyCode)}::${normalizeOrgCode(a.code)}`
-      ),
-    ]
-      .sort()
-      .join('|');
-
-    return { missingCompanies, missingAreas, compOrderBase, signature };
-  }, [
-    companies,
-    areas,
-    usersList,
-    members,
-    clustersConfig?.clusters,
-    deletedCompanySet,
-    deletedAreaKeySet,
-  ]);
-
-  const syncMissingOrgData = useCallback(
-    async (options?: {
-      silent?: boolean;
-    }): Promise<{ addedCompanies: number; addedAreas: number }> => {
-      if (!isAdminUser || orgSyncInFlightRef.current) {
-        return { addedCompanies: 0, addedAreas: 0 };
-      }
-      const { missingCompanies, missingAreas, compOrderBase, signature } =
-        computeMissingOrgPayload();
-
-      if (missingCompanies.length === 0 && missingAreas.length === 0) {
-        if (orgSyncLoaded && orgSyncConfig?.orgInitialized !== true && companies.length > 0) {
-          orgSyncInFlightRef.current = true;
-          try {
-            await setDoc(
-              doc(db, 'system_config', 'org_sync'),
-              {
-                orgInitialized: true,
-                deletedCompanyCodes: orgSyncConfig?.deletedCompanyCodes || [],
-                deletedAreaKeys: orgSyncConfig?.deletedAreaKeys || [],
-                updatedAt: new Date().toISOString(),
-                updatedBy: effectiveCurrentUser?.fullName || 'Admin',
-              },
-              { merge: true }
-            );
-          } finally {
-            orgSyncInFlightRef.current = false;
-          }
-        }
-        if (!options?.silent) {
-          showNotification('Tất cả Sion và Khu vực hiện có đã đồng bộ đầy đủ.');
-        }
-        return { addedCompanies: 0, addedAreas: 0 };
-      }
-
-      orgSyncInFlightRef.current = true;
-      lastOrgSyncSigRef.current = signature;
-      try {
-        const ops: Array<{ col: 'companies' | 'areas'; id: string; data: Record<string, unknown> }> = [];
-        missingCompanies.forEach((c, idx) => {
-          const { id, ...rest } = c;
-          ops.push({
-            col: 'companies',
-            id,
-            data: { ...JSON.parse(JSON.stringify(rest)), _order: compOrderBase + idx },
-          });
-        });
-        missingAreas.forEach((a, idx) => {
-          const { id, ...rest } = a;
-          ops.push({
-            col: 'areas',
-            id,
-            data: { ...JSON.parse(JSON.stringify(rest)), _order: compOrderBase + idx },
-          });
-        });
-
-        for (let i = 0; i < ops.length; i += 400) {
-          const batch = writeBatch(db);
-          ops.slice(i, i + 400).forEach((op) => {
-            batch.set(doc(db, op.col, op.id), op.data, { merge: true });
-          });
-          if (i === 0 && orgSyncConfig?.orgInitialized !== true) {
-            batch.set(
-              doc(db, 'system_config', 'org_sync'),
-              {
-                orgInitialized: true,
-                deletedCompanyCodes: orgSyncConfig?.deletedCompanyCodes || [],
-                deletedAreaKeys: orgSyncConfig?.deletedAreaKeys || [],
-                updatedAt: new Date().toISOString(),
-                updatedBy: effectiveCurrentUser?.fullName || 'Admin',
-              },
-              { merge: true }
-            );
-          }
-          await batch.commit();
-        }
-
-        if (missingCompanies.length > 0) {
-          const activeClusters = clustersConfig?.clusters || [];
-          if (activeClusters.some((cl) => cl.isCatchAll && cl.active !== false)) {
-            syncManagerClusters(activeClusters, [...companies, ...missingCompanies]).catch((err) =>
-              console.warn('[Clusters] Lỗi đồng bộ QL Cụm sau khi thêm Sion:', err)
-            );
-          }
-        }
-
-        const msg = `Đã đồng bộ thêm ${missingCompanies.length} Sion và ${missingAreas.length} Khu vực còn thiếu!`;
-        if (!options?.silent || missingCompanies.length > 0 || missingAreas.length > 0) {
-          showNotification(msg);
-        }
-        return {
-          addedCompanies: missingCompanies.length,
-          addedAreas: missingAreas.length,
-        };
-      } finally {
-        orgSyncInFlightRef.current = false;
-      }
-    },
-    [
-      isAdminUser,
-      computeMissingOrgPayload,
-      clustersConfig?.clusters,
-      companies,
-      orgSyncLoaded,
-      orgSyncConfig,
-      effectiveCurrentUser?.fullName,
-      syncManagerClusters,
-      showNotification,
-    ]
-  );
-
-  // Tự động chạy đồng bộ nền khi Admin mở ứng dụng & toàn bộ dữ liệu server (kể cả org_sync) đã tải xong
-  useEffect(() => {
-    if (
-      !isAdminUser ||
-      !dataUnlocked ||
-      !companiesLoaded ||
-      !areasLoaded ||
-      !usersLoaded ||
-      !membersLoaded ||
-      !orgSyncLoaded
-    ) {
-      return;
-    }
-    const { missingCompanies, missingAreas, signature } = computeMissingOrgPayload();
-    if (missingCompanies.length === 0 && missingAreas.length === 0) return;
-    if (lastOrgSyncSigRef.current === signature) return;
-
-    void syncMissingOrgData({ silent: true }).catch((err) => {
-      console.warn('[OrgSync] Lỗi tự động đồng bộ Sion/Khu vực:', err);
-    });
-  }, [
-    isAdminUser,
-    dataUnlocked,
-    companiesLoaded,
-    areasLoaded,
-    usersLoaded,
-    membersLoaded,
-    orgSyncLoaded,
-    computeMissingOrgPayload,
-    syncMissingOrgData,
-  ]);
 
   const handleApproveUser = async (
     targetUser: UserAccount,
@@ -6599,9 +6355,6 @@ export default function App() {
                   onBatchUpdateAreas={handleBatchUpdateAreas}
                   onBatchUpdateDepartments={handleBatchUpdateDepartments}
                   onBatchUpdateMembers={handleBatchUpdateMembers}
-                  onSyncOrgFromData={
-                    isAdminUser ? () => syncMissingOrgData({ silent: false }) : undefined
-                  }
                   onResetData={handleResetData}
                   onShowNotification={showNotification}
                   currentUser={effectiveCurrentUser}
