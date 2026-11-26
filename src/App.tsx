@@ -296,7 +296,7 @@ export default function App() {
     onError: reportError,
   });
   const [regions, setRegions] = useCloudCollection<Region>('regions', {
-    enabled: true,
+    enabled: dataUnlocked,
     ordered: true,
     onError: reportError,
   });
@@ -306,11 +306,11 @@ export default function App() {
     onError: reportError,
   });
   const effectiveCompanies = useMemo(
-    () => (companiesLoaded ? companies : []),
+    () => (companiesLoaded || companies.length > 0 ? companies : []),
     [companies, companiesLoaded]
   );
   const effectiveAreas = useMemo(
-    () => (areasLoaded ? areas : []),
+    () => (areasLoaded || areas.length > 0 ? areas : []),
     [areas, areasLoaded]
   );
   const effectiveDepartments = useMemo(
@@ -470,6 +470,7 @@ export default function App() {
     );
     const unsubOrgSync = onSnapshot(
       doc(db, 'system_config', 'org_sync'),
+      { includeMetadataChanges: true },
       (snap) => {
         if (snap.exists()) {
           const raw = snap.data() as SystemOrgSyncConfig;
@@ -486,7 +487,7 @@ export default function App() {
         } else {
           setOrgSyncConfig(null);
         }
-        if (!snap.metadata.fromCache) {
+        if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites) {
           setOrgSyncLoaded(true);
         }
       },
@@ -709,13 +710,15 @@ export default function App() {
 
     const unsubscribe = onSnapshot(
       collection(db, 'users'),
+      { includeMetadataChanges: true },
       (snap) => {
         const list: UserAccount[] = snap.docs.map((d) => ({
           ...(d.data() as Omit<UserAccount, 'id'>),
           id: d.id,
         }));
         setUsersList(list);
-        if (!snap.metadata.fromCache) setUsersLoaded(true);
+        const serverSynced = !snap.metadata.fromCache && !snap.metadata.hasPendingWrites;
+        if (serverSynced) setUsersLoaded(true);
 
         const currentPending = list
           .filter((u) => resolveUserApprovalStatus(u) === 'PENDING')
@@ -724,7 +727,7 @@ export default function App() {
 
         if (seenPendingUidsRef.current === null) {
           // Chờ snapshot xác thực từ máy chủ (hoặc nếu cache đã có dữ liệu) mới chốt mốc ban đầu
-          if (!snap.metadata.fromCache) {
+          if (serverSynced) {
             seenPendingUidsRef.current = currentPendingSet;
             if (currentPending.length > 0) {
               const first = currentPending[0];
@@ -1194,6 +1197,7 @@ export default function App() {
 
     const unsubscribe = onSnapshot(
       userRef,
+      { includeMetadataChanges: true },
       (snap) => {
         if (cancelled) return;
         if (snap.exists()) {
@@ -5625,6 +5629,9 @@ export default function App() {
     const slug = (v: string) =>
       (v || '')
         .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/gi, 'd')
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');

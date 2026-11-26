@@ -107,12 +107,15 @@ export function useCloudCollection<T extends { id: string }>(
     }
     const unsubscribe = onSnapshot(
       collection(db, name),
+      { includeMetadataChanges: true },
       (snap) => {
         const next = arrange(snap.docs.map((d) => ({ ...(d.data() as object), id: d.id }) as T));
         itemsRef.current = next;
         setItemsState(next);
-        // Chỉ coi là "đã tải xong" khi dữ liệu đến từ máy chủ (tránh nhầm bộ nhớ đệm còn trống)
-        if (!snap.metadata.fromCache) setLoaded(true);
+        // Chỉ coi là "đã tải xong" khi máy chủ xác nhận (kể cả khi cache trùng hệt dữ liệu máy chủ)
+        if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites) {
+          setLoaded(true);
+        }
       },
       (err) => {
         console.error(`[Firestore] Không đọc được "${name}":`, err);
