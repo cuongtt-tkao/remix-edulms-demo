@@ -842,6 +842,9 @@ export interface HomeWidgetVisibilityConfig {
   showCheerTicker: boolean;
   showProgressShowcase: boolean;
   showFeatureCards: boolean;
+  cheerDisplayCount?: number;
+  cheerRotateSeconds?: number;
+  cheerHideAuthor?: boolean;
 }
 
 export const DEFAULT_HOME_WIDGET_VISIBILITY: HomeWidgetVisibilityConfig = {
@@ -850,6 +853,9 @@ export const DEFAULT_HOME_WIDGET_VISIBILITY: HomeWidgetVisibilityConfig = {
   showCheerTicker: true,
   showProgressShowcase: true,
   showFeatureCards: true,
+  cheerDisplayCount: 5,
+  cheerRotateSeconds: 10,
+  cheerHideAuthor: false,
 };
 
 export interface LlvWidgetVisibilityConfig {
