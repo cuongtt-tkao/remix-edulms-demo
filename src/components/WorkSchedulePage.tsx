@@ -727,7 +727,7 @@ export const WorkSchedulePage: React.FC<WorkSchedulePageProps> = ({
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
           {showWsSection
-            ? 'Đăng nhập tài khoản để nhập Lịch làm việc tuần (3 buổi & WS) của bạn.'
+            ? 'Đăng nhập tài khoản để nhập Lịch làm việc của bạn.'
             : 'Đăng nhập tài khoản để nhập Lịch làm việc tuần (3 buổi) của bạn.'}
         </p>
         <button

@@ -651,7 +651,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         {
           id: 'WORK_SCHEDULE',
           label: 'Lịch làm việc',
-          subLabel: 'Hoạt động buổi & WS',
+          subLabel: 'LLV 3 buổi',
           icon: CalendarCheck2,
           accent: 'text-emerald-400',
           visible: true,
