@@ -7,6 +7,7 @@ import {
   KpiSummary,
   Member,
   OrgCluster,
+  Region,
   ROLE_DISPLAY_META,
   UserAccount,
   UserRole,
@@ -279,6 +280,154 @@ export function resolveCompanyCodesFromClusterIds(
   });
 
   return result;
+}
+
+export function getEffectiveOrgClusters(
+  clusters: OrgCluster[] | null | undefined,
+  companies: Company[]
+): OrgCluster[] {
+  const source =
+    clusters && clusters.length > 0 ? clusters : createDefaultClustersForCompanies(companies);
+  return source.filter((cl) => cl.active !== false);
+}
+
+export function resolveClusterForCompany(
+  companyCode: string | null | undefined,
+  clusters: OrgCluster[],
+  companies: Company[]
+): OrgCluster | null {
+  const normComp = normalizeOrgCode(companyCode);
+  if (!normComp) return null;
+  const activeClusters = getEffectiveOrgClusters(clusters, companies);
+
+  // Ưu tiên cụm gán tường minh trước, sau đó mới xét cụm catch-all (isCatchAll)
+  const explicit = activeClusters.find(
+    (cl) =>
+      !cl.isCatchAll &&
+      resolveClusterCompanyCodes(cl, activeClusters, companies).some(
+        (c) => normalizeOrgCode(c) === normComp
+      )
+  );
+  if (explicit) return explicit;
+
+  const catchAll = activeClusters.find((cl) => cl.isCatchAll);
+  if (catchAll) {
+    const catchAllCodes = resolveClusterCompanyCodes(catchAll, activeClusters, companies);
+    // Bao gồm cả trường hợp Sion nằm trên member/report nhưng chưa có trong danh sách companies
+    if (
+      catchAllCodes.length === 0 ||
+      catchAllCodes.some((c) => normalizeOrgCode(c) === normComp) ||
+      !companies.some((c) => normalizeOrgCode(c.code) === normComp)
+    ) {
+      return catchAll;
+    }
+  }
+  return null;
+}
+
+export function resolveRegionForArea(
+  companyCode: string | null | undefined,
+  areaCode: string | null | undefined,
+  regions: Region[]
+): Region | null {
+  const normComp = normalizeOrgCode(companyCode);
+  const normArea = normalizeOrgCode(cleanRawAreaCode(areaCode));
+  if (!normComp || !normArea) return null;
+  return (
+    regions.find(
+      (r) =>
+        r.active !== false &&
+        normalizeOrgCode(r.companyCode) === normComp &&
+        (r.areaCodes || []).some((ac) => normalizeOrgCode(cleanRawAreaCode(ac)) === normArea)
+    ) || null
+  );
+}
+
+export interface ScopedClusterOption {
+  cluster: OrgCluster;
+  companyCodes: string[];
+}
+
+export function getScopedClusterOptions(
+  viewer: UserAccount | null,
+  clusters: OrgCluster[] | null | undefined,
+  companies: Company[],
+  scopedMembers: Member[] = []
+): ScopedClusterOption[] {
+  if (!viewer || getRoleLevel(viewer.role) < 5) return [];
+  const activeClusters = getEffectiveOrgClusters(clusters, companies);
+
+  // Cấp 6-7 (ADMIN / SUPER_ADMIN): thấy toàn bộ các Cụm
+  if (isAdminRole(viewer.role)) {
+    return activeClusters.map((cluster) => ({
+      cluster,
+      companyCodes: resolveClusterCompanyCodes(cluster, activeClusters, companies),
+    }));
+  }
+
+  // Cấp 5 (MANAGER / QL Cụm): chỉ thấy các Cụm thuộc phạm vi quản lý của mình
+  const assignedIds = new Set(
+    (viewer.managedClusterIds || []).map((id) => normalizeOrgCode(id)).filter(Boolean)
+  );
+  const rawAssignedIds = new Set((viewer.managedClusterIds || []).filter(Boolean));
+
+  const allowedComps = resolveViewerCompanyScope(viewer);
+  (viewer.managedAreaCodes || []).forEach((entry) => {
+    const parsed = parseAreaScopeEntry(entry);
+    if (parsed.companyCode) allowedComps.add(parsed.companyCode);
+  });
+  scopedMembers.forEach((m) => {
+    if (canAccessMemberReportOverview(viewer, m) && m.companyCode) {
+      allowedComps.add(normalizeOrgCode(m.companyCode));
+    }
+  });
+
+  return activeClusters
+    .map((cluster) => {
+      const resolvedCodes = resolveClusterCompanyCodes(cluster, activeClusters, companies);
+      const idMatch =
+        rawAssignedIds.has(cluster.id) || assignedIds.has(normalizeOrgCode(cluster.code));
+      const compMatch = resolvedCodes.some((c) => allowedComps.has(normalizeOrgCode(c)));
+      const matches = rawAssignedIds.size > 0 ? idMatch || compMatch : compMatch;
+      if (!matches) return null;
+      // Lọc danh sách companyCodes trong cụm theo quyền của QL Cụm
+      const visibleCodes =
+        rawAssignedIds.size > 0 && idMatch
+          ? resolvedCodes
+          : resolvedCodes.filter((c) => allowedComps.has(normalizeOrgCode(c)));
+      return {
+        cluster,
+        companyCodes: visibleCodes.length > 0 ? visibleCodes : resolvedCodes,
+      };
+    })
+    .filter((item): item is ScopedClusterOption => item !== null);
+}
+
+export function getScopedRegionOptions(
+  viewer: UserAccount | null,
+  regions: Region[],
+  selectedCompanyCode: string,
+  allowedCompanyCodes?: Set<string> | null
+): Region[] {
+  if (!viewer || getRoleLevel(viewer.role) < 4) return [];
+  const normSelectedComp = normalizeOrgCode(selectedCompanyCode);
+  const hasCompFilter = Boolean(selectedCompanyCode && selectedCompanyCode !== 'ALL');
+  const viewerComps = isAdminRole(viewer.role) ? null : resolveViewerCompanyScope(viewer);
+
+  return regions
+    .filter((r) => {
+      if (r.active === false) return false;
+      const rComp = normalizeOrgCode(r.companyCode);
+      if (hasCompFilter && rComp !== normSelectedComp) return false;
+      if (allowedCompanyCodes && !allowedCompanyCodes.has(rComp)) return false;
+      if (viewerComps && viewerComps.size > 0 && !viewerComps.has(rComp)) return false;
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        (a.companyCode || '').localeCompare(b.companyCode || '', 'vi') ||
+        (a.name || a.code).localeCompare(b.name || b.code, 'vi')
+    );
 }
 
 export function getMemberUnitCode(record?: {

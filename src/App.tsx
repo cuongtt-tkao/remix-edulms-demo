@@ -5103,6 +5103,8 @@ export default function App() {
                 members={allMembersRanked}
                 companies={effectiveCompanies}
                 areas={effectiveAreas}
+                clusters={clustersConfig?.clusters}
+                regions={regions}
                 dailyReports={dailyReports}
                 activeEvent={activeEvent}
                 defaultWeights={effectiveDefaultWeights}

@@ -1,20 +1,30 @@
 import * as XLSX from 'xlsx';
 import {
   Member,
+  Company,
+  OrgCluster,
+  Region,
   CompanyRankItem,
   AreaRankItem,
   UserAccount,
   DailyReportRecord,
   DailyReportMetrics,
   DAILY_METRIC_DEFINITIONS,
+  EMPTY_DAILY_METRICS,
   ROLE_DISPLAY_META,
   canExportExcel,
+  getRoleLevel,
 } from '../types/edulms';
 import { computeDailyMetricsScore, sumDailyReportMetrics } from './scoringEngine';
 import {
   canAccessMemberReportOverview,
+  cleanRawAreaCode,
+  getEffectiveOrgClusters,
+  getScopedClusterOptions,
   isAdminRole,
   normalizeOrgCode,
+  resolveClusterForCompany,
+  resolveRegionForArea,
 } from './rbac';
 
 export type DailyReportExportPeriod = 'DAY' | 'MONTH' | 'YEAR' | 'ALL';
@@ -23,12 +33,17 @@ export interface DailyReportExportOptions {
   viewer: UserAccount;
   dailyReports: DailyReportRecord[];
   members: Member[];
+  companies?: Company[];
+  clusters?: OrgCluster[];
+  regions?: Region[];
   weights: DailyReportMetrics;
   period: DailyReportExportPeriod;
   periodDate?: string; // YYYY-MM-DD
   periodMonth?: string; // YYYY-MM
   periodYear?: string; // YYYY
+  filterClusterId?: string;
   filterCompanyCode?: string;
+  filterRegionId?: string;
   filterAreaCode?: string;
   filterMemberId?: string;
 }
@@ -52,23 +67,96 @@ function matchesPeriod(rep: DailyReportRecord, opts: DailyReportExportOptions): 
   return true;
 }
 
+function sumReportGoals(reports: DailyReportRecord[]): DailyReportMetrics {
+  const sum: DailyReportMetrics = { ...EMPTY_DAILY_METRICS };
+  reports.forEach((rep) => {
+    const g = rep.goals;
+    if (!g) return;
+    sum.kn += Number(g.kn) || 0;
+    sum.tham += Number(g.tham) || 0;
+    sum.gm += Number(g.gm) || 0;
+    sum.dt += Number(g.dt) || 0;
+    sum.hh += Number(g.hh) || 0;
+    sum.kt += Number(g.kt) || 0;
+    sum.wsNew += Number(g.wsNew) || 0;
+  });
+  return sum;
+}
+
+function sumAllMetrics(m: DailyReportMetrics): number {
+  return (
+    (m.kn || 0) +
+    (m.tham || 0) +
+    (m.gm || 0) +
+    (m.dt || 0) +
+    (m.hh || 0) +
+    (m.kt || 0) +
+    (m.wsNew || 0)
+  );
+}
+
+function buildResultGoalColumns(
+  results: DailyReportMetrics,
+  goals: DailyReportMetrics
+): Record<string, number> {
+  const cols: Record<string, number> = {};
+  DAILY_METRIC_DEFINITIONS.forEach((m) => {
+    cols[`KQ ${m.label}`] = results[m.key] || 0;
+    cols[`MT ${m.label}`] = goals[m.key] || 0;
+  });
+  return cols;
+}
+
 /**
- * Xuất Excel Báo cáo hằng ngày với đầy đủ 7 chỉ số chi tiết (KN, Thăm, GM, ĐT, HH, KT, WS New),
- * tuân thủ chặt chẽ phân quyền 7 cấp:
- * - Cấp 6-7 (ADMIN / SUPER_ADMIN): Toàn hệ thống (tùy chọn lọc Sion/KV/Cá nhân)
- * - Cấp 5 (MANAGER / QL Cụm): Toàn bộ thành viên, Sion & Khu vực thuộc cụm phụ trách + 7 chỉ số chi tiết
- * - Cấp 4 (SION_LEADER / TS, NQ): Thành viên & khu vực thuộc Sion phụ trách
- * - Cấp 3 (AREA_LEADER / Gru): Các Uni & thành viên thuộc Khu vực quản lý
- * - Cấp 2 (UNI_LEADER / Uni): Thành viên thuộc đội Uni của mình
- * - Cấp 1 (MEMBER / TĐ): Chỉ báo cáo cá nhân & 7 chỉ số chi tiết của chính mình
+ * Xuất Excel Báo cáo hằng ngày với đầy đủ 7 chỉ số (Kết quả & Mục tiêu),
+ * phân cấp Cụm Sion - Sion - Địa vực - Khu vực tuân thủ chặt chẽ phân quyền 7 cấp.
+ * Chỉ cấp TS, NQ (Cấp 4) trở lên được phép xuất Excel.
  */
 export function exportDailyReportsByRbacExcel(
   opts: DailyReportExportOptions
 ): DailyReportExportSummary {
-  const { viewer, dailyReports, members, weights } = opts;
+  const {
+    viewer,
+    dailyReports,
+    members,
+    companies = [],
+    clusters = [],
+    regions = [],
+    weights,
+  } = opts;
   if (!viewer || !canExportExcel(viewer.role)) {
     throw new Error('Chỉ tài khoản từ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
   }
+
+  const viewerLevel = getRoleLevel(viewer.role);
+  const canViewClusterLevel = viewerLevel >= 5;
+  const canViewSionAndRegionLevel = viewerLevel >= 4;
+
+  const effectiveClusters = getEffectiveOrgClusters(clusters, companies);
+  const scopedClusterOpts = getScopedClusterOptions(viewer, effectiveClusters, companies, members);
+
+  const selectedClusterOpt =
+    canViewClusterLevel && opts.filterClusterId && opts.filterClusterId !== 'ALL'
+      ? scopedClusterOpts.find(
+          (c) =>
+            c.cluster.id === opts.filterClusterId ||
+            normalizeOrgCode(c.cluster.code) === normalizeOrgCode(opts.filterClusterId)
+        ) || null
+      : null;
+
+  const allowedClusterCompanySet = selectedClusterOpt
+    ? new Set(selectedClusterOpt.companyCodes.map((c) => normalizeOrgCode(c)))
+    : null;
+
+  const selectedRegion =
+    canViewSionAndRegionLevel && opts.filterRegionId && opts.filterRegionId !== 'ALL'
+      ? regions.find((r) => r.id === opts.filterRegionId) || null
+      : null;
+
+  const selectedRegionAreaSet = selectedRegion
+    ? new Set((selectedRegion.areaCodes || []).map((a) => normalizeOrgCode(cleanRawAreaCode(a))))
+    : null;
+
   const wb = XLSX.utils.book_new();
   const memberById = new Map<string, Member>();
   members.forEach((m) => memberById.set(m.id, m));
@@ -88,11 +176,29 @@ export function exportDailyReportsByRbacExcel(
   const roleMeta = ROLE_DISPLAY_META[viewer.role] || ROLE_DISPLAY_META.MEMBER;
 
   const isMatchedOrgFilter = (companyCode?: string, areaCode?: string): boolean => {
-    if (opts.filterCompanyCode && opts.filterCompanyCode !== 'ALL') {
-      if (normalizeOrgCode(companyCode) !== normalizeOrgCode(opts.filterCompanyCode)) return false;
+    const normComp = normalizeOrgCode(companyCode);
+    const normArea = normalizeOrgCode(cleanRawAreaCode(areaCode));
+
+    if (allowedClusterCompanySet) {
+      if (selectedClusterOpt?.cluster.isCatchAll) {
+        const resolved = resolveClusterForCompany(companyCode, effectiveClusters, companies);
+        if (resolved?.id !== selectedClusterOpt.cluster.id) return false;
+      } else if (!allowedClusterCompanySet.has(normComp)) {
+        return false;
+      }
     }
+
+    if (opts.filterCompanyCode && opts.filterCompanyCode !== 'ALL') {
+      if (normComp !== normalizeOrgCode(opts.filterCompanyCode)) return false;
+    }
+
+    if (selectedRegion) {
+      if (normComp !== normalizeOrgCode(selectedRegion.companyCode)) return false;
+      if (!selectedRegionAreaSet?.has(normArea)) return false;
+    }
+
     if (opts.filterAreaCode && opts.filterAreaCode !== 'ALL') {
-      if (normalizeOrgCode(areaCode) !== normalizeOrgCode(opts.filterAreaCode)) return false;
+      if (normArea !== normalizeOrgCode(cleanRawAreaCode(opts.filterAreaCode))) return false;
     }
     return true;
   };
@@ -110,7 +216,19 @@ export function exportDailyReportsByRbacExcel(
     );
   };
 
-  // Lọc chính xác thành viên theo phân quyền 7 cấp + 3 tầng Sion -> Khu vực -> Cá nhân
+  const getClusterLabel = (companyCode?: string): string => {
+    if (!canViewClusterLevel) return '—';
+    const cl = resolveClusterForCompany(companyCode, effectiveClusters, companies);
+    return cl ? cl.name || cl.code : 'Khác';
+  };
+
+  const getRegionLabel = (companyCode?: string, areaCode?: string): string => {
+    if (!canViewSionAndRegionLevel) return '—';
+    const reg = resolveRegionForArea(companyCode, areaCode, regions);
+    return reg ? reg.name || reg.code : 'Chưa gắn ĐV';
+  };
+
+  // Lọc chính xác thành viên theo phân quyền + bộ lọc Cụm -> Sion -> Địa vực -> Khu vực -> Cá nhân
   const allowedMembers = members.filter(
     (m) =>
       canAccessMemberReportOverview(viewer, m) &&
@@ -119,16 +237,16 @@ export function exportDailyReportsByRbacExcel(
   );
   const allowedMemberIds = new Set(allowedMembers.map((m) => m.id));
 
-  // Đảm bảo bản thân luôn nằm trong phạm vi nếu chưa có bản ghi Member đồng bộ
   const scopedReports = periodReports.filter((r) => {
     const mId = r.memberId || `m-${r.uid}`;
     if (!matchesMemberFilter(mId, r.uid)) return false;
     if (r.uid === viewer.id || mId === ownMemberId) {
-      return isMatchedOrgFilter(viewer.companyCode, viewer.areaCode);
+      const mem = memberById.get(mId);
+      return isMatchedOrgFilter(mem?.companyCode || viewer.companyCode, mem?.areaCode || viewer.areaCode);
     }
     if (isAdminRole(viewer.role) && allowedMemberIds.size === 0 && !targetMemberKey) {
       const mem = memberById.get(mId);
-      return isMatchedOrgFilter(mem?.companyCode, mem?.areaCode);
+      return isMatchedOrgFilter(mem?.companyCode || r.companyCode, mem?.areaCode || r.areaCode);
     }
     return allowedMemberIds.has(mId);
   });
@@ -142,7 +260,6 @@ export function exportDailyReportsByRbacExcel(
     reportsByMem.set(mId, list);
   });
 
-  // Sheet 1: Tổng hợp theo Thành viên (đầy đủ 7 chỉ số chi tiết)
   const memberSummarySource =
     allowedMembers.length > 0
       ? allowedMembers
@@ -160,29 +277,42 @@ export function exportDailyReportsByRbacExcel(
         ]
       : [];
 
+  // Sheet 1: Tổng hợp theo Thành viên (KQ & MT 7 chỉ số)
   const memberSummaryRows = memberSummarySource
     .map((m) => {
       const mReps = reportsByMem.get(m.id) || [];
-      const sums = sumDailyReportMetrics(mReps);
-      const totalScore = computeDailyMetricsScore(sums, weights);
+      const results = sumDailyReportMetrics(mReps);
+      const goals = sumReportGoals(mReps);
+      const totalScore = computeDailyMetricsScore(results, weights);
       return {
         member: m,
         daysCount: mReps.length,
-        sums,
+        results,
+        goals,
         totalScore,
       };
     })
     .sort((a, b) => b.totalScore - a.totalScore || b.daysCount - a.daysCount)
-    .map((entry, idx) => ({
-      STT: idx + 1,
-      'Họ và Tên': entry.member.fullName,
-      Sion: entry.member.companyCode,
-      'Khu vực': entry.member.areaCode,
-      'Đội / Uni': entry.member.unitCode || entry.member.departmentCode || '',
-      'Số ngày nhập': entry.daysCount,
-      ...Object.fromEntries(DAILY_METRIC_DEFINITIONS.map((m) => [m.label, entry.sums[m.key]])),
-      'Tổng điểm quy đổi': entry.totalScore,
-    }));
+    .map((entry, idx) => {
+      const totalRes = sumAllMetrics(entry.results);
+      const totalGoal = sumAllMetrics(entry.goals);
+      const pct = totalGoal > 0 ? Math.round((totalRes / totalGoal) * 100) : totalRes > 0 ? 100 : 0;
+      return {
+        STT: idx + 1,
+        'Họ và Tên': entry.member.fullName,
+        ...(canViewClusterLevel ? { 'Cụm Sion': getClusterLabel(entry.member.companyCode) } : {}),
+        Sion: entry.member.companyCode,
+        'Địa vực': getRegionLabel(entry.member.companyCode, entry.member.areaCode),
+        'Khu vực': entry.member.areaCode,
+        'Đội / Uni': entry.member.unitCode || entry.member.departmentCode || '',
+        'Số ngày nhập': entry.daysCount,
+        ...buildResultGoalColumns(entry.results, entry.goals),
+        'Tổng Kết quả': totalRes,
+        'Tổng Mục tiêu': totalGoal,
+        'Hoàn thành (%)': pct,
+        'Tổng điểm quy đổi': entry.totalScore,
+      };
+    });
 
   XLSX.utils.book_append_sheet(
     wb,
@@ -191,78 +321,284 @@ export function exportDailyReportsByRbacExcel(
         ? memberSummaryRows
         : [{ 'Thông báo': 'Chưa có dữ liệu báo cáo trong phạm vi đã chọn' }]
     ),
-    viewer.role === 'MEMBER' ? 'Tổng hợp cá nhân' : 'Tổng hợp Thành viên'
+    'Tổng hợp Thành viên'
   );
 
-  // Sheet 2 (cho cấp quản lý): Tổng hợp theo Đơn vị (Sion / KV)
-  if (viewer.role !== 'MEMBER') {
-    const unitMap = new Map<
+  // Sheet 2 (Cấp 5 QL Cụm trở lên): Tổng hợp theo Cụm Sion
+  if (canViewClusterLevel) {
+    const clusterBuckets = new Map<
       string,
       {
-        companyCode: string;
-        areaCode: string;
-        memberSet: Set<string>;
+        clusterName: string;
+        companies: Set<string>;
+        totalMembers: number;
+        activeReporters: number;
         reports: DailyReportRecord[];
       }
     >();
-    scopedReports.forEach((r) => {
-      const mId = r.memberId || `m-${r.uid}`;
-      const mem = memberById.get(mId);
-      const comp = mem?.companyCode || viewer.companyCode || '';
-      const area = mem?.areaCode || viewer.areaCode || '';
-      const key = `${comp}__${area}`;
-      const bucket = unitMap.get(key) || {
-        companyCode: comp,
-        areaCode: area,
-        memberSet: new Set<string>(),
+
+    memberSummarySource.forEach((m) => {
+      const cl = resolveClusterForCompany(m.companyCode, effectiveClusters, companies);
+      const key = cl?.id || '__unclustered__';
+      const clName = cl ? cl.name || cl.code : 'Khác';
+      const bucket = clusterBuckets.get(key) || {
+        clusterName: clName,
+        companies: new Set<string>(),
+        totalMembers: 0,
+        activeReporters: 0,
         reports: [],
       };
-      bucket.memberSet.add(mId);
-      bucket.reports.push(r);
-      unitMap.set(key, bucket);
+      if (m.companyCode) bucket.companies.add(m.companyCode);
+      bucket.totalMembers += 1;
+      const mReps = reportsByMem.get(m.id) || [];
+      if (mReps.length > 0) bucket.activeReporters += 1;
+      bucket.reports.push(...mReps);
+      clusterBuckets.set(key, bucket);
     });
 
-    const orgRows = Array.from(unitMap.values())
-      .sort((a, b) => `${a.companyCode}-${a.areaCode}`.localeCompare(`${b.companyCode}-${b.areaCode}`))
-      .map((g, idx) => {
-        const sums = sumDailyReportMetrics(g.reports);
+    const clusterRows = Array.from(clusterBuckets.values())
+      .map((g) => {
+        const results = sumDailyReportMetrics(g.reports);
+        const goals = sumReportGoals(g.reports);
+        const score = computeDailyMetricsScore(results, weights);
+        return { g, results, goals, score };
+      })
+      .sort((a, b) => b.score - a.score || b.g.reports.length - a.g.reports.length)
+      .map((item, idx) => {
+        const totalRes = sumAllMetrics(item.results);
+        const totalGoal = sumAllMetrics(item.goals);
+        const pct = totalGoal > 0 ? Math.round((totalRes / totalGoal) * 100) : totalRes > 0 ? 100 : 0;
         return {
           STT: idx + 1,
-          Sion: g.companyCode,
-          'Khu vực': g.areaCode,
-          'Số thành viên': g.memberSet.size,
-          'Số ngày báo cáo': g.reports.length,
-          ...Object.fromEntries(DAILY_METRIC_DEFINITIONS.map((m) => [m.label, sums[m.key]])),
-          'Tổng điểm': computeDailyMetricsScore(sums, weights),
+          'Cụm Sion': item.g.clusterName,
+          'Các Sion': Array.from(item.g.companies).sort().join(', '),
+          'Đã nhập / Tổng NS': `${item.g.activeReporters} / ${item.g.totalMembers}`,
+          'Lượt BC': item.g.reports.length,
+          ...buildResultGoalColumns(item.results, item.goals),
+          'Tổng Kết quả': totalRes,
+          'Tổng Mục tiêu': totalGoal,
+          'Hoàn thành (%)': pct,
+          'Tổng điểm': item.score,
         };
       });
 
-    if (orgRows.length > 0) {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(orgRows), 'Tổng hợp Khu vực');
+    if (clusterRows.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clusterRows), 'Tổng hợp Cụm Sion');
     }
   }
 
-  // Sheet 3: Chi tiết theo từng Ngày
+  // Sheet 3 (Cấp 4 TS, NQ trở lên): Tổng hợp theo Sion
+  if (canViewSionAndRegionLevel) {
+    const sionMap = new Map<
+      string,
+      {
+        companyCode: string;
+        totalMembers: number;
+        activeReporters: number;
+        reports: DailyReportRecord[];
+      }
+    >();
+    memberSummarySource.forEach((m) => {
+      const comp = m.companyCode || '—';
+      const key = normalizeOrgCode(comp) || comp;
+      const bucket = sionMap.get(key) || {
+        companyCode: comp,
+        totalMembers: 0,
+        activeReporters: 0,
+        reports: [],
+      };
+      bucket.totalMembers += 1;
+      const mReps = reportsByMem.get(m.id) || [];
+      if (mReps.length > 0) bucket.activeReporters += 1;
+      bucket.reports.push(...mReps);
+      sionMap.set(key, bucket);
+    });
+
+    const sionRows = Array.from(sionMap.values())
+      .map((g) => {
+        const results = sumDailyReportMetrics(g.reports);
+        const goals = sumReportGoals(g.reports);
+        const score = computeDailyMetricsScore(results, weights);
+        return { g, results, goals, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map((item, idx) => {
+        const totalRes = sumAllMetrics(item.results);
+        const totalGoal = sumAllMetrics(item.goals);
+        const pct = totalGoal > 0 ? Math.round((totalRes / totalGoal) * 100) : totalRes > 0 ? 100 : 0;
+        return {
+          STT: idx + 1,
+          ...(canViewClusterLevel ? { 'Cụm Sion': getClusterLabel(item.g.companyCode) } : {}),
+          Sion: item.g.companyCode,
+          'Đã nhập / Tổng NS': `${item.g.activeReporters} / ${item.g.totalMembers}`,
+          'Lượt BC': item.g.reports.length,
+          ...buildResultGoalColumns(item.results, item.goals),
+          'Tổng Kết quả': totalRes,
+          'Tổng Mục tiêu': totalGoal,
+          'Hoàn thành (%)': pct,
+          'Tổng điểm': item.score,
+        };
+      });
+
+    if (sionRows.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sionRows), 'Tổng hợp Sion');
+    }
+
+    // Sheet 4: Tổng hợp theo Địa vực (nếu có dữ liệu Địa vực)
+    if (regions.length > 0) {
+      const regMap = new Map<
+        string,
+        {
+          companyCode: string;
+          regionName: string;
+          areas: Set<string>;
+          totalMembers: number;
+          activeReporters: number;
+          reports: DailyReportRecord[];
+        }
+      >();
+      memberSummarySource.forEach((m) => {
+        const reg = resolveRegionForArea(m.companyCode, m.areaCode, regions);
+        const comp = m.companyCode || '—';
+        const regName = reg ? reg.name || reg.code : 'Chưa gắn Địa vực';
+        const key = reg ? reg.id : `unassigned__${normalizeOrgCode(comp)}`;
+        const bucket = regMap.get(key) || {
+          companyCode: comp,
+          regionName: regName,
+          areas: new Set<string>(),
+          totalMembers: 0,
+          activeReporters: 0,
+          reports: [],
+        };
+        if (m.areaCode) bucket.areas.add(m.areaCode);
+        bucket.totalMembers += 1;
+        const mReps = reportsByMem.get(m.id) || [];
+        if (mReps.length > 0) bucket.activeReporters += 1;
+        bucket.reports.push(...mReps);
+        regMap.set(key, bucket);
+      });
+
+      const regionRows = Array.from(regMap.values())
+        .map((g) => {
+          const results = sumDailyReportMetrics(g.reports);
+          const goals = sumReportGoals(g.reports);
+          const score = computeDailyMetricsScore(results, weights);
+          return { g, results, goals, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .map((item, idx) => {
+          const totalRes = sumAllMetrics(item.results);
+          const totalGoal = sumAllMetrics(item.goals);
+          const pct =
+            totalGoal > 0 ? Math.round((totalRes / totalGoal) * 100) : totalRes > 0 ? 100 : 0;
+          return {
+            STT: idx + 1,
+            ...(canViewClusterLevel ? { 'Cụm Sion': getClusterLabel(item.g.companyCode) } : {}),
+            Sion: item.g.companyCode,
+            'Địa vực': item.g.regionName,
+            'Các Khu vực': Array.from(item.g.areas).sort().join(', '),
+            'Đã nhập / Tổng NS': `${item.g.activeReporters} / ${item.g.totalMembers}`,
+            'Lượt BC': item.g.reports.length,
+            ...buildResultGoalColumns(item.results, item.goals),
+            'Tổng Kết quả': totalRes,
+            'Tổng Mục tiêu': totalGoal,
+            'Hoàn thành (%)': pct,
+            'Tổng điểm': item.score,
+          };
+        });
+
+      if (regionRows.length > 0) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(regionRows), 'Tổng hợp Địa vực');
+      }
+    }
+  }
+
+  // Sheet 5: Tổng hợp theo Khu vực (có Cụm, Địa vực, Kết quả & Mục tiêu)
+  const areaMap = new Map<
+    string,
+    {
+      companyCode: string;
+      areaCode: string;
+      totalMembers: number;
+      activeReporters: number;
+      reports: DailyReportRecord[];
+    }
+  >();
+  memberSummarySource.forEach((m) => {
+    const comp = m.companyCode || '—';
+    const area = m.areaCode || '—';
+    const key = `${normalizeOrgCode(comp)}__${normalizeOrgCode(area)}`;
+    const bucket = areaMap.get(key) || {
+      companyCode: comp,
+      areaCode: area,
+      totalMembers: 0,
+      activeReporters: 0,
+      reports: [],
+    };
+    bucket.totalMembers += 1;
+    const mReps = reportsByMem.get(m.id) || [];
+    if (mReps.length > 0) bucket.activeReporters += 1;
+    bucket.reports.push(...mReps);
+    areaMap.set(key, bucket);
+  });
+
+  const areaRows = Array.from(areaMap.values())
+    .map((g) => {
+      const results = sumDailyReportMetrics(g.reports);
+      const goals = sumReportGoals(g.reports);
+      const score = computeDailyMetricsScore(results, weights);
+      return { g, results, goals, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((item, idx) => {
+      const totalRes = sumAllMetrics(item.results);
+      const totalGoal = sumAllMetrics(item.goals);
+      const pct = totalGoal > 0 ? Math.round((totalRes / totalGoal) * 100) : totalRes > 0 ? 100 : 0;
+      return {
+        STT: idx + 1,
+        ...(canViewClusterLevel ? { 'Cụm Sion': getClusterLabel(item.g.companyCode) } : {}),
+        Sion: item.g.companyCode,
+        'Địa vực': getRegionLabel(item.g.companyCode, item.g.areaCode),
+        'Khu vực': item.g.areaCode,
+        'Đã nhập / Tổng NS': `${item.g.activeReporters} / ${item.g.totalMembers}`,
+        'Lượt BC': item.g.reports.length,
+        ...buildResultGoalColumns(item.results, item.goals),
+        'Tổng Kết quả': totalRes,
+        'Tổng Mục tiêu': totalGoal,
+        'Hoàn thành (%)': pct,
+        'Tổng điểm': item.score,
+      };
+    });
+
+  if (areaRows.length > 0) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(areaRows), 'Tổng hợp Khu vực');
+  }
+
+  // Sheet 6: Chi tiết theo từng Ngày
   const detailRows = [...scopedReports]
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((r) => {
       const mId = r.memberId || `m-${r.uid}`;
       const mem = memberById.get(mId);
+      const comp = mem?.companyCode || r.companyCode || (r.uid === viewer.id ? viewer.companyCode : '');
+      const area = mem?.areaCode || r.areaCode || (r.uid === viewer.id ? viewer.areaCode : '');
+      const totalRes = sumAllMetrics(r.results);
+      const totalGoal = sumAllMetrics(r.goals);
       return {
         Ngày: r.date,
         'Họ và Tên': mem?.fullName || (r.uid === viewer.id ? viewer.fullName : mId),
-        Sion: mem?.companyCode || (r.uid === viewer.id ? viewer.companyCode : ''),
-        'Khu vực': mem?.areaCode || (r.uid === viewer.id ? viewer.areaCode : ''),
+        ...(canViewClusterLevel ? { 'Cụm Sion': getClusterLabel(comp) } : {}),
+        Sion: comp,
+        'Địa vực': getRegionLabel(comp, area),
+        'Khu vực': area,
         'Đội / Uni':
           mem?.unitCode ||
           mem?.departmentCode ||
+          r.unitCode ||
           (r.uid === viewer.id ? viewer.unitCode || viewer.departmentCode : ''),
-        ...Object.fromEntries(
-          DAILY_METRIC_DEFINITIONS.map((m) => [`KQ ${m.label}`, r.results?.[m.key] || 0])
-        ),
-        ...Object.fromEntries(
-          DAILY_METRIC_DEFINITIONS.map((m) => [`MT ${m.label}`, r.goals?.[m.key] || 0])
-        ),
+        ...buildResultGoalColumns(r.results, r.goals),
+        'Tổng Kết quả': totalRes,
+        'Tổng Mục tiêu': totalGoal,
         'Điểm ngày': computeDailyMetricsScore(r.results, weights),
       };
     });
