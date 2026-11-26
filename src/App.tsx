@@ -4060,6 +4060,17 @@ export default function App() {
     }
 
     const canEditOrg = isAdminUser;
+    const requestedOrgChange =
+      updated.companyCode !== currentUser.companyCode ||
+      updated.areaCode !== currentUser.areaCode ||
+      updated.departmentCode !== currentUser.departmentCode ||
+      (updated.unitCode !== undefined && updated.unitCode.trim() !== (currentUser.unitCode || ''));
+
+    if (!canEditOrg && requestedOrgChange) {
+      showNotification('Liên hệ Cấp cao hơn để thay đổi nơi trực thuộc.');
+      return false;
+    }
+
     const effectiveCompanyCode = canEditOrg ? updated.companyCode : currentUser.companyCode;
     const effectiveAreaCode = canEditOrg ? updated.areaCode : currentUser.areaCode;
     const effectiveDepartmentCode = canEditOrg
@@ -4084,7 +4095,11 @@ export default function App() {
           companyCode: effectiveCompanyCode,
           areaCode: effectiveAreaCode,
           departmentCode: effectiveDepartmentCode,
-          ...(nextUnitCode ? { unitCode: nextUnitCode } : {}),
+          ...(updated.unitCode !== undefined
+            ? nextUnitCode
+              ? { unitCode: nextUnitCode }
+              : { unitCode: deleteField() }
+            : {}),
         }
       : {};
 

@@ -549,6 +549,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   };
 
+  const canEditOrgAffiliation = isAdminRole(currentUser.role);
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setEditError('');
@@ -563,10 +565,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       avatarUrl: editAvatarUrl.trim(),
       coverUrl: editCoverUrl.trim(),
       bio: editBio.trim(),
-      companyCode: editCompany,
-      areaCode: editArea,
-      departmentCode: editDepartment,
-      unitCode: editUnitCode.trim(),
+      companyCode: canEditOrgAffiliation ? editCompany : currentUser.companyCode,
+      areaCode: canEditOrgAffiliation ? editArea : currentUser.areaCode,
+      departmentCode: canEditOrgAffiliation ? editDepartment : currentUser.departmentCode,
+      unitCode: canEditOrgAffiliation ? editUnitCode.trim() : currentUser.unitCode || '',
     });
     if (saved === false) return;
 
@@ -2454,86 +2456,121 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
 
               {/* Units: Sion/Công ty, Khu vực, Ban ngành, Đội/Uni */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Sion / Công ty
-                  </label>
-                  <CustomSelect
-                    size="sm"
-                    value={editCompany}
-                    onChange={(nextComp) => {
-                      setEditCompany(nextComp);
-                      const validAreas = areas.filter((a) => a.companyCode === nextComp);
-                      if (
-                        validAreas.length > 0 &&
-                        !validAreas.some((a) => a.code === editArea)
-                      ) {
-                        setEditArea(validAreas[0].code);
-                      }
-                    }}
-                    options={companies.map((c) => ({
-                      value: c.code,
-                      label: c.name,
-                      badge: c.code,
-                    }))}
-                    ariaLabel="Chọn Sion / Công ty"
-                  />
-                </div>
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                {!canEditOrgAffiliation && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50/90 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200 text-xs">
+                    <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                    <div>
+                      <p className="font-bold">Liên hệ Cấp cao hơn để thay đổi nơi trực thuộc.</p>
+                      <p className="text-[11px] text-amber-800/85 dark:text-amber-300/80 mt-0.5 leading-relaxed">
+                        Thông tin Sion, Khu vực, Ban ngành và Đội / Uni chỉ do cấp quản trị có thẩm quyền điều chuyển.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Khu vực
-                  </label>
-                  {areasForEditCompany.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      <span>Sion / Công ty</span>
+                      {!canEditOrgAffiliation && <Lock className="w-3 h-3 text-amber-500" />}
+                    </label>
                     <CustomSelect
                       size="sm"
-                      value={editArea}
-                      onChange={setEditArea}
-                      options={areasForEditCompany.map((a) => ({
-                        value: a.code,
-                        label: a.name,
-                        badge: a.code,
+                      disabled={!canEditOrgAffiliation}
+                      title={!canEditOrgAffiliation ? 'Liên hệ Cấp cao hơn để thay đổi nơi trực thuộc' : undefined}
+                      value={editCompany}
+                      onChange={(nextComp) => {
+                        if (!canEditOrgAffiliation) return;
+                        setEditCompany(nextComp);
+                        const validAreas = areas.filter((a) => a.companyCode === nextComp);
+                        if (
+                          validAreas.length > 0 &&
+                          !validAreas.some((a) => a.code === editArea)
+                        ) {
+                          setEditArea(validAreas[0].code);
+                        }
+                      }}
+                      options={companies.map((c) => ({
+                        value: c.code,
+                        label: c.name,
+                        badge: c.code,
                       }))}
-                      ariaLabel="Chọn Khu vực"
+                      ariaLabel="Chọn Sion / Công ty"
                     />
-                  ) : (
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      <span>Khu vực</span>
+                      {!canEditOrgAffiliation && <Lock className="w-3 h-3 text-amber-500" />}
+                    </label>
+                    {areasForEditCompany.length > 0 ? (
+                      <CustomSelect
+                        size="sm"
+                        disabled={!canEditOrgAffiliation}
+                        title={!canEditOrgAffiliation ? 'Liên hệ Cấp cao hơn để thay đổi nơi trực thuộc' : undefined}
+                        value={editArea}
+                        onChange={(val) => {
+                          if (!canEditOrgAffiliation) return;
+                          setEditArea(val);
+                        }}
+                        options={areasForEditCompany.map((a) => ({
+                          value: a.code,
+                          label: a.name,
+                          badge: a.code,
+                        }))}
+                        ariaLabel="Chọn Khu vực"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        disabled={!canEditOrgAffiliation}
+                        title={!canEditOrgAffiliation ? 'Liên hệ Cấp cao hơn để thay đổi nơi trực thuộc' : undefined}
+                        value={editArea}
+                        onChange={(e) => setEditArea(e.target.value)}
+                        className="w-full min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 disabled:bg-slate-100 disabled:dark:bg-slate-800/60 disabled:text-slate-400 disabled:cursor-not-allowed disabled:opacity-75"
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      <span>Ban ngành</span>
+                      {!canEditOrgAffiliation && <Lock className="w-3 h-3 text-amber-500" />}
+                    </label>
+                    <CustomSelect
+                      size="sm"
+                      disabled={!canEditOrgAffiliation}
+                      title={!canEditOrgAffiliation ? 'Liên hệ Cấp cao hơn để thay đổi nơi trực thuộc' : undefined}
+                      value={editDepartment}
+                      onChange={(val) => {
+                        if (!canEditOrgAffiliation) return;
+                        setEditDepartment(val);
+                      }}
+                      options={departments.map((d) => ({
+                        value: d.code,
+                        label: d.name,
+                      }))}
+                      ariaLabel="Chọn Ban ngành"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      <span>Đội / Uni (tùy chọn)</span>
+                      {!canEditOrgAffiliation && <Lock className="w-3 h-3 text-amber-500" />}
+                    </label>
                     <input
                       type="text"
-                      value={editArea}
-                      onChange={(e) => setEditArea(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100"
+                      disabled={!canEditOrgAffiliation}
+                      title={!canEditOrgAffiliation ? 'Liên hệ Cấp cao hơn để thay đổi nơi trực thuộc' : undefined}
+                      value={editUnitCode}
+                      onChange={(e) => setEditUnitCode(e.target.value)}
+                      placeholder={canEditOrgAffiliation ? 'VD: Uni 1, Đội A...' : 'Chưa phân đội'}
+                      className="w-full min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/20 disabled:bg-slate-100 disabled:dark:bg-slate-800/60 disabled:text-slate-400 disabled:cursor-not-allowed disabled:opacity-75"
                     />
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Ban ngành
-                  </label>
-                  <CustomSelect
-                    size="sm"
-                    value={editDepartment}
-                    onChange={setEditDepartment}
-                    options={departments.map((d) => ({
-                      value: d.code,
-                      label: d.name,
-                    }))}
-                    ariaLabel="Chọn Ban ngành"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Đội / Uni (tùy chọn)
-                  </label>
-                  <input
-                    type="text"
-                    value={editUnitCode}
-                    onChange={(e) => setEditUnitCode(e.target.value)}
-                    placeholder="VD: Uni 1, Đội A..."
-                    className="w-full min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
-                  />
+                  </div>
                 </div>
               </div>
 
