@@ -150,7 +150,11 @@ import {
   isBootstrapSuperAdminEmail,
   FIRESTORE_DATABASE_ID,
 } from './firebase';
-import { diagnoseWriteDenied } from './utils/rulesDiagnostics';
+import {
+  diagnoseWriteDenied,
+  logUserContext,
+  setActiveDebugUserContext,
+} from './utils/rulesDiagnostics';
 import {
   playRegistrationChime,
   showBrowserRegistrationNotification,
@@ -548,7 +552,15 @@ export default function App() {
         }));
         setPeriodGoals(list);
       },
-      (err) => console.warn('[Firestore] Lỗi đọc periodGoals:', err)
+      (err) => {
+        console.warn('[Firestore] Lỗi đọc periodGoals:', err);
+        void logUserContext({
+          queryPoint: 'periodGoals (own)',
+          operation: 'LIST',
+          error: err,
+          uiUser: currentUser,
+        });
+      }
     );
     return unsubscribe;
   }, [dataUnlocked, firebaseUser?.uid]);
@@ -569,7 +581,15 @@ export default function App() {
           .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''));
         setTurboJournals(list);
       },
-      (err) => console.warn('[Firestore] Lỗi đọc turbo_journals:', err)
+      (err) => {
+        console.warn('[Firestore] Lỗi đọc turbo_journals:', err);
+        void logUserContext({
+          queryPoint: 'turbo_journals (own)',
+          operation: 'LIST',
+          error: err,
+          uiUser: currentUser,
+        });
+      }
     );
     return unsubscribe;
   }, [dataUnlocked, firebaseUser?.uid]);
@@ -592,20 +612,12 @@ export default function App() {
       },
       (err) => {
         console.warn('[Firestore] Lỗi đọc personal_planners:', err);
-        // Chẩn đoán: hiển thị database đang dùng và claim trong token để đối chiếu với Rules
-        auth.currentUser
-          ?.getIdTokenResult(true)
-          .then((t) =>
-            console.warn('[Chẩn đoán personal_planners]', {
-              database: FIRESTORE_DATABASE_ID,
-              uid: auth.currentUser?.uid,
-              email: t.claims.email,
-              email_verified: t.claims.email_verified,
-              approvalStatus: currentUser?.approvalStatus ?? '(không có trường)',
-              role: currentUser?.role,
-            })
-          )
-          .catch(() => undefined);
+        void logUserContext({
+          queryPoint: 'personal_planners (own)',
+          operation: 'LIST',
+          error: err,
+          uiUser: currentUser,
+        });
       }
     );
     return unsubscribe;
@@ -632,7 +644,15 @@ export default function App() {
           setOwnRoleClaim(null);
         }
       },
-      (err) => console.warn('[Firestore] Lỗi đọc role_claims cá nhân:', err)
+      (err) => {
+        console.warn('[Firestore] Lỗi đọc role_claims cá nhân:', err);
+        void logUserContext({
+          queryPoint: `role_claims/${emailLower}`,
+          operation: 'GET',
+          error: err,
+          uiUser: currentUser,
+        });
+      }
     );
     return unsubscribe;
   }, [signedIn, firebaseUser?.email, firebaseUser?.emailVerified]);
@@ -659,7 +679,15 @@ export default function App() {
           }
         }
       },
-      (err) => console.warn('[Firestore] Lỗi đọc system_config/roles:', err)
+      (err) => {
+        console.warn('[Firestore] Lỗi đọc system_config/roles:', err);
+        void logUserContext({
+          queryPoint: 'system_config/roles',
+          operation: 'GET',
+          error: err,
+          uiUser: currentUser,
+        });
+      }
     );
     return unsubscribe;
   }, [canReadAdminRolesConfig]);
@@ -739,6 +767,12 @@ export default function App() {
       },
       (err) => {
         console.warn('[Firestore] Lỗi đọc danh sách users:', err);
+        void logUserContext({
+          queryPoint: 'users (all)',
+          operation: 'LIST',
+          error: err,
+          uiUser: currentUser,
+        });
         showNotification(
           `Không tải được danh sách đăng ký chờ duyệt: ${err?.message || 'Kiểm tra Firestore Rules'}`,
           6000
@@ -790,6 +824,12 @@ export default function App() {
         },
         (err: any) => {
           console.warn(`[Firestore] Lỗi đọc users (${bucketKey}):`, err);
+          void logUserContext({
+            queryPoint: `users (${bucketKey})`,
+            operation: 'LIST',
+            error: err,
+            uiUser: currentUser,
+          });
         }
       );
       unsubs.push(unsub);
@@ -1102,6 +1142,12 @@ export default function App() {
       settled = true;
       const msg = formatFirestoreProfileError(err);
       console.error('[Firestore] Không đọc được hồ sơ:', err);
+      void logUserContext({
+        queryPoint: `users/${firebaseUser.uid}`,
+        operation: 'GET',
+        error: err,
+        uiUser: currentUser,
+      });
       setProfileError(msg);
       setProfileState('ERROR');
       showNotification(msg.split('\n')[0]);
@@ -1419,6 +1465,11 @@ export default function App() {
     };
   }, [currentUser, isSuperAdminUser, isAdminUser]);
 
+  // Đồng bộ ngữ cảnh người dùng hiện tại cho tiện ích chẩn đoán logUserContext
+  useEffect(() => {
+    setActiveDebugUserContext(effectiveCurrentUser);
+  }, [effectiveCurrentUser]);
+
   // Cập nhật tiêu đề tab trình duyệt khi có đăng ký chờ duyệt để Admin dễ nhận biết
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1548,6 +1599,12 @@ export default function App() {
           } catch (probeErr: any) {
             const probeMsg = `${probeErr?.code || ''} ${probeErr?.message || ''}`.toLowerCase();
             if (probeMsg.includes('permission-denied') || probeMsg.includes('insufficient permissions')) {
+              void logUserContext({
+                queryPoint: 'events/_probe_',
+                operation: 'GET',
+                error: probeErr,
+                uiUser: effectiveCurrentUser,
+              });
               console.error(
                 `[Chẩn đoán Firestore Rules] Hồ sơ users/${firebaseUser.uid} đã được duyệt (APPROVED) nhưng Firestore (${FIRESTORE_DATABASE_ID}) vẫn từ chối đọc dữ liệu. Hãy mở Firebase Console → Firestore Database → chọn đúng database "${FIRESTORE_DATABASE_ID}" → tab Rules → dán toàn bộ file firestore.rules mới nhất và bấm Publish.`,
                 info
@@ -1685,6 +1742,12 @@ export default function App() {
         (err: any) => {
           setDisciplesLoading(false);
           console.error(`[Firestore] Lỗi đọc disciples (${bucketKey}):`, err);
+          void logUserContext({
+            queryPoint: `disciples (${bucketKey})`,
+            operation: 'LIST',
+            error: err,
+            uiUser: effectiveCurrentUser,
+          });
           showNotification(`Không đọc được danh sách MĐ (${bucketKey}): ${err.message}`);
         }
       );
@@ -1851,6 +1914,12 @@ export default function App() {
           const msg = err?.message || String(err || 'Permission error');
           setWorkSchedulesError(`[${bucketKey}] ${msg}`);
           console.error(`[Firestore] Lỗi đọc work_schedules (${bucketKey}):`, err);
+          void logUserContext({
+            queryPoint: `work_schedules (${bucketKey})`,
+            operation: 'LIST',
+            error: err,
+            uiUser: effectiveCurrentUser,
+          });
           showNotification(`Không đọc được lịch làm việc (${bucketKey}): ${msg}`);
         }
       );
@@ -2004,6 +2073,12 @@ export default function App() {
         },
         (err: any) => {
           console.warn(`[Firestore] Lỗi đọc dailyReports (${bucketKey}):`, err);
+          void logUserContext({
+            queryPoint: `dailyReports (${bucketKey})`,
+            operation: 'LIST',
+            error: err,
+            uiUser: effectiveCurrentUser,
+          });
         }
       );
       unsubs.push(unsub);
@@ -2147,6 +2222,12 @@ export default function App() {
       (err) => {
         setEduLoading(false);
         console.warn('[Firestore] Lỗi đọc edu_topics:', err);
+        void logUserContext({
+          queryPoint: 'edu_topics',
+          operation: 'LIST',
+          error: err,
+          uiUser: effectiveCurrentUser,
+        });
       }
     );
     unsubs.push(unsubTopics);
@@ -2169,7 +2250,15 @@ export default function App() {
           assignBuckets.set(bucketKey, map);
           syncAssignments();
         },
-        (err: any) => console.warn(`[Firestore] Lỗi đọc edu_assignments (${bucketKey}):`, err)
+        (err: any) => {
+          console.warn(`[Firestore] Lỗi đọc edu_assignments (${bucketKey}):`, err);
+          void logUserContext({
+            queryPoint: `edu_assignments (${bucketKey})`,
+            operation: 'LIST',
+            error: err,
+            uiUser: effectiveCurrentUser,
+          });
+        }
       );
       unsubs.push(u);
     };
@@ -2192,7 +2281,15 @@ export default function App() {
           cmsBuckets.set(bucketKey, map);
           syncCms();
         },
-        (err: any) => console.warn(`[Firestore] Lỗi đọc edu_cms_profiles (${bucketKey}):`, err)
+        (err: any) => {
+          console.warn(`[Firestore] Lỗi đọc edu_cms_profiles (${bucketKey}):`, err);
+          void logUserContext({
+            queryPoint: `edu_cms_profiles (${bucketKey})`,
+            operation: 'LIST',
+            error: err,
+            uiUser: effectiveCurrentUser,
+          });
+        }
       );
       unsubs.push(u);
     };
@@ -3601,6 +3698,12 @@ export default function App() {
         );
       }
       console.error('[Firestore] Lỗi phân quyền:', err);
+      void logUserContext({
+        queryPoint: `users/${targetUserId} (roleUpdate: ${currentTargetRole} -> ${newRole})`,
+        operation: 'UPDATE',
+        error: err,
+        uiUser: effectiveCurrentUser,
+      });
       showNotification(`Lỗi phân quyền: ${err?.message || 'Không thể cập nhật quyền'}`);
       throw err;
     }

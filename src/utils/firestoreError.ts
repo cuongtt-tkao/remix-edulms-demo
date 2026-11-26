@@ -1,5 +1,6 @@
 import { doc, getDocFromServer } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { isPermissionDeniedError, logUserContext } from './rulesDiagnostics';
 
 export enum OperationType {
   CREATE = 'create',
@@ -50,6 +51,13 @@ export function handleFirestoreError(
     path,
   };
   console.error('Firestore Error:', JSON.stringify(errInfo));
+  if (isPermissionDeniedError(error)) {
+    void logUserContext({
+      queryPoint: path || 'unknown',
+      operation: operationType.toUpperCase(),
+      error,
+    });
+  }
   throw new Error(JSON.stringify(errInfo));
 }
 

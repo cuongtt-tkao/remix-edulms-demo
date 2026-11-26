@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { collection, doc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
+import { logUserContext } from '../utils/rulesDiagnostics';
 import {
   INITIAL_COMPANIES,
   INITIAL_AREAS,
@@ -115,6 +116,11 @@ export function useCloudCollection<T extends { id: string }>(
       },
       (err) => {
         console.error(`[Firestore] Không đọc được "${name}":`, err);
+        void logUserContext({
+          queryPoint: name,
+          operation: 'LIST',
+          error: err,
+        });
         onErrorRef.current?.(`Không đọc được dữ liệu "${name}": ${err.message}`);
       }
     );
@@ -139,6 +145,11 @@ export function useCloudCollection<T extends { id: string }>(
 
       persistDiff(name, prev, next).catch((err) => {
         console.error(`[Firestore] Không ghi được "${name}":`, err);
+        void logUserContext({
+          queryPoint: name,
+          operation: 'WRITE',
+          error: err,
+        });
         if (itemsRef.current === arranged) {
           itemsRef.current = prev;
           setItemsState(prev);
