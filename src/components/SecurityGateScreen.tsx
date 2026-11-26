@@ -27,7 +27,9 @@ import {
   Department,
   UserAccount,
   ROLE_DISPLAY_META,
+  AppLogoConfig,
 } from '../types/edulms';
+import { AppLogoMark } from './AppLogoMark';
 import { CustomSelect } from './CustomSelect';
 import { signInWithGoogle, describeAuthError, FirebaseUser } from '../firebase';
 import {
@@ -76,6 +78,7 @@ interface SecurityGateScreenProps {
   onResendVerificationEmail?: () => Promise<void>;
   onCheckEmailVerified?: () => Promise<boolean>;
   onLogout: () => void;
+  logoConfig?: AppLogoConfig | null;
 }
 
 const MAX_PIN_ATTEMPTS = 5;
@@ -138,6 +141,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
   onResendVerificationEmail,
   onCheckEmailVerified,
   onLogout,
+  logoConfig,
 }) => {
   // ---------- Auth Gate (Google quick sign-in) ----------
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -545,28 +549,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
       <div className="relative z-10 w-full max-w-md">
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center mb-4">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-700 p-0.5 shadow-lg ring-1 ring-amber-300/60 mb-2.5">
-            <div className="w-full h-full rounded-[14px] bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 flex items-center justify-center">
-              <svg className="w-6 h-6 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path
-                  d="M12 2L13.5 5.5L17 6L14.5 8.5L15 12L12 10.2L9 12L9.5 8.5L7 6L10.5 5.5L12 2Z"
-                  fill="currentColor"
-                  fillOpacity="0.9"
-                  strokeWidth="0.5"
-                  stroke="#fef08a"
-                />
-                <path
-                  d="M4 19.5C5.5 18 8 18 12 19C16 18 18.5 18 20 19.5V8.5C18.5 7 16 7 12 8C8 7 5.5 7 4 8.5V19.5Z"
-                  fill="#fef3c7"
-                  fillOpacity="0.22"
-                  stroke="#fde047"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
-                <line x1="12" y1="8" x2="12" y2="19" stroke="#fde047" strokeWidth="1.2" />
-              </svg>
-            </div>
-          </div>
+          <AppLogoMark logoConfig={logoConfig} size="lg" className="mb-2.5 shadow-lg" />
           <h1 className="font-cinzel font-black text-xl sm:text-2xl text-white tracking-tight">
             Hành Thực Lục
           </h1>

@@ -22,6 +22,10 @@ import {
   TrendingUp,
   Star,
   CalendarDays,
+  BookOpen,
+  Upload,
+  Link2,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   DailyMetricKey,
@@ -37,12 +41,15 @@ import {
   DEFAULT_HONORS_WIDGET_ORDER,
   DEFAULT_HOME_WIDGET_VISIBILITY,
   DEFAULT_LLV_WIDGET_VISIBILITY,
+  DEFAULT_APP_LOGO_CONFIG,
   DEFAULT_APPEARANCE_CONFIG,
   HomeWidgetVisibilityConfig,
   LlvWidgetVisibilityConfig,
+  AppLogoConfig,
   HonorsWidgetId,
   FestivalEvent,
 } from '../types/edulms';
+import { AppLogoMark, APP_LOGO_PRESETS, isSafeLogoImageUrl } from './AppLogoMark';
 
 export type AdminAppearanceSection =
   | 'SCORING'
@@ -225,6 +232,11 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
     ...DEFAULT_LLV_WIDGET_VISIBILITY,
     ...(appearanceConfig?.llvWidgets || {}),
   });
+  const [logoConfig, setLogoConfig] = useState<AppLogoConfig>({
+    ...DEFAULT_APP_LOGO_CONFIG,
+    ...(appearanceConfig?.logo || {}),
+  });
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   const [draggedWidget, setDraggedWidget] = useState<HonorsWidgetId | null>(null);
   const [dragOverWidget, setDragOverWidget] = useState<HonorsWidgetId | null>(null);
@@ -251,6 +263,10 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
     setLlvWidgets({
       ...DEFAULT_LLV_WIDGET_VISIBILITY,
       ...(appearanceConfig.llvWidgets || {}),
+    });
+    setLogoConfig({
+      ...DEFAULT_APP_LOGO_CONFIG,
+      ...(appearanceConfig.logo || {}),
     });
   }, [appearanceConfig]);
 
@@ -308,12 +324,60 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
     setHiddenWidgets([]);
     setHomeWidgets({ ...DEFAULT_HOME_WIDGET_VISIBILITY });
     setLlvWidgets({ ...DEFAULT_LLV_WIDGET_VISIBILITY });
+    setLogoConfig({ ...DEFAULT_APP_LOGO_CONFIG });
     onShowNotification(
-      'Đã đưa cấu hình font & bố cục về mặc định (bấm Lưu để áp dụng toàn trang).'
+      'Đã đưa cấu hình font, logo & bố cục về mặc định (bấm Lưu để áp dụng toàn trang).'
     );
   };
 
+  const handleUploadCustomLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onShowNotification('Vui lòng chọn tệp ảnh hợp lệ (PNG, JPG, WebP, SVG).');
+      return;
+    }
+    setIsUploadingLogo(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Không đọc được tệp ảnh.'));
+        reader.readAsDataURL(file);
+      });
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Không tải được ảnh logo.'));
+        image.src = dataUrl;
+      });
+      const size = 192;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Không khởi tạo được canvas nén ảnh.');
+      ctx.clearRect(0, 0, size, size);
+      const scale = Math.min(size / img.width, size / img.height);
+      const drawW = img.width * scale;
+      const drawH = img.height * scale;
+      ctx.drawImage(img, (size - drawW) / 2, (size - drawH) / 2, drawW, drawH);
+      const compressed = canvas.toDataURL('image/png');
+      setLogoConfig({ preset: 'CUSTOM', customUrl: compressed });
+      onShowNotification('Đã tải ảnh logo lên (bấm Lưu Cấu hình Toàn Web để áp dụng).');
+    } catch (err: any) {
+      onShowNotification(`Không xử lý được ảnh logo: ${err?.message || 'Thử lại'}`);
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
   const handleSaveAppearance = async () => {
+    if (logoConfig.preset === 'CUSTOM' && !isSafeLogoImageUrl(logoConfig.customUrl)) {
+      onShowNotification('Vui lòng tải ảnh logo hoặc nhập URL http/https hợp lệ trước khi lưu.');
+      return;
+    }
     setIsSavingAppearance(true);
     try {
       await onSaveAppearanceConfig({
@@ -323,8 +387,12 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
         hiddenWidgets,
         homeWidgets,
         llvWidgets,
+        logo: {
+          preset: logoConfig.preset,
+          customUrl: logoConfig.customUrl?.trim() || '',
+        },
       });
-      onShowNotification('Đã cập nhật cấu hình Giao diện & Bố cục cho toàn bộ người dùng!');
+      onShowNotification('Đã cập nhật cấu hình Giao diện, Logo & Bố cục cho toàn bộ người dùng!');
     } catch (err: any) {
       onShowNotification(`Lỗi lưu giao diện: ${err?.message || 'Thử lại sau'}`);
     } finally {
@@ -382,7 +450,7 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
               },
               {
                 id: 'TYPOGRAPHY' as const,
-                label: '2. Font & Cỡ chữ',
+                label: '2. Font, Cỡ chữ & Logo',
                 sub: selectedFontMeta.label,
                 icon: Type,
               },
@@ -658,6 +726,162 @@ export const AdminScoringAppearanceTab: React.FC<AdminScoringAppearanceTabProps>
                 <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                   Tiếng Việt có dấu rõ nét: KN, Thăm, GM, ĐT, HH, KT, WS New · 12.450 điểm.
                 </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Cấu hình Logo Ứng Dụng (2 mẫu cuốn sách + Tùy chỉnh) */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-blue-700 dark:text-sky-400 mb-0.5">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Biểu tượng Thương hiệu (App Logo)</span>
+                </div>
+                <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                  Chọn Logo ứng dụng (2 mẫu cuốn sách hoặc tùy chỉnh)
+                </h4>
+              </div>
+
+              {/* Preview thanh Header trực tiếp */}
+              <div className="inline-flex items-center gap-2.5 px-3 py-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs self-start">
+                <AppLogoMark logoConfig={logoConfig} size="md" />
+                <div className="text-left">
+                  <div className="font-cinzel font-extrabold text-sm text-slate-900 dark:text-white leading-tight">
+                    Hành Thực Lục
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Xem trước trên Header
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {APP_LOGO_PRESETS.map((opt) => {
+                const selected = logoConfig.preset === opt.preset;
+                return (
+                  <button
+                    key={opt.preset}
+                    type="button"
+                    onClick={() =>
+                      setLogoConfig((prev) => ({ ...prev, preset: opt.preset }))
+                    }
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-start gap-3 ${
+                      selected
+                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border-indigo-500 ring-1 ring-indigo-500/40'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
+                  >
+                    <AppLogoMark presetOverride={opt.preset} size="lg" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
+                          {opt.title}
+                        </span>
+                        {selected && (
+                          <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        )}
+                      </div>
+                      <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 mt-0.5">
+                        {opt.subtitle}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                        {opt.description}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* Tùy chọn 3: Logo Tùy Chỉnh (Upload / URL) */}
+              <div
+                onClick={() =>
+                  setLogoConfig((prev) => ({ ...prev, preset: 'CUSTOM' }))
+                }
+                className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between gap-2.5 ${
+                  logoConfig.preset === 'CUSTOM'
+                    ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border-indigo-500 ring-1 ring-indigo-500/40'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {isSafeLogoImageUrl(logoConfig.customUrl) ? (
+                    <AppLogoMark
+                      logoConfig={{ preset: 'CUSTOM', customUrl: logoConfig.customUrl }}
+                      size="lg"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0 text-slate-400">
+                      <ImageIcon className="w-5 h-5" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
+                        Tùy chỉnh Logo riêng
+                      </span>
+                      {logoConfig.preset === 'CUSTOM' && (
+                        <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      )}
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                      Tải ảnh từ máy hoặc dán URL
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-1.5">
+                    <label className="flex-1 h-8 px-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition border border-slate-200 dark:border-slate-700">
+                      <Upload className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>{isUploadingLogo ? 'Đang xử lý...' : 'Tải ảnh logo'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleUploadCustomLogo}
+                        disabled={isUploadingLogo}
+                        className="sr-only"
+                      />
+                    </label>
+                    {logoConfig.customUrl && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLogoConfig({ preset: 'BOOK_CLASSIC', customUrl: '' })
+                        }
+                        className="h-8 px-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-bold cursor-pointer hover:bg-rose-100"
+                        title="Quay về mẫu mặc định"
+                      >
+                        Xóa
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative flex items-center">
+                    <Link2 className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+                    <input
+                      type="url"
+                      value={
+                        logoConfig.customUrl?.startsWith('data:image/')
+                          ? ''
+                          : logoConfig.customUrl || ''
+                      }
+                      onChange={(e) =>
+                        setLogoConfig({
+                          preset: 'CUSTOM',
+                          customUrl: e.target.value,
+                        })
+                      }
+                      placeholder={
+                        logoConfig.customUrl?.startsWith('data:image/')
+                          ? 'Đã tải ảnh từ máy'
+                          : 'Hoặc dán URL ảnh https://...'
+                      }
+                      aria-label="Đường dẫn URL logo tùy chỉnh"
+                      className="w-full h-8 pl-7 pr-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -1133,7 +1133,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     groupIcon: LayoutGrid,
                     items: [
                       { id: 'BANNER' as AdminSectionId, label: 'Banner Trang chủ', icon: ImageIcon },
-                      { id: 'APPEARANCE_FONT' as AdminSectionId, label: 'Font & Cỡ chữ', icon: Type },
+                      { id: 'APPEARANCE_FONT' as AdminSectionId, label: 'Font, Cỡ chữ & Logo', icon: Type },
                       { id: 'APPEARANCE_HOME' as AdminSectionId, label: 'Bố cục Trang chủ', icon: Home },
                       { id: 'APPEARANCE_LLV' as AdminSectionId, label: 'Bố cục trang LLV', icon: CalendarDays },
                       { id: 'APPEARANCE_HONORS' as AdminSectionId, label: 'Bảng Vinh danh', icon: LayoutGrid },

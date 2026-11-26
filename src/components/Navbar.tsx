@@ -27,7 +27,8 @@ import {
   Sparkles,
   BellRing,
 } from 'lucide-react';
-import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel } from '../types/edulms';
+import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel, AppLogoConfig } from '../types/edulms';
+import { AppLogoMark } from './AppLogoMark';
 import {
   getBrowserNotificationPermission,
   requestBrowserNotificationPermission,
@@ -63,6 +64,7 @@ interface TopHeaderProps {
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
   onNavigateHome: () => void;
+  logoConfig?: AppLogoConfig | null;
 }
 
 /**
@@ -85,6 +87,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   isDarkMode,
   onToggleDarkMode,
   onNavigateHome,
+  logoConfig,
 }) => {
   const [isSpinning, setIsSpinning] = React.useState(false);
   const [isBellOpen, setIsBellOpen] = React.useState(false);
@@ -167,28 +170,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           onClick={onNavigateHome}
           className="flex items-center gap-2.5 text-left group cursor-pointer min-w-0"
         >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-700 p-0.5 shadow-sm ring-1 ring-amber-300/60 shrink-0 group-hover:scale-105 transition-transform">
-            <div className="w-full h-full rounded-[10px] bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path
-                  d="M12 2L13.5 5.5L17 6L14.5 8.5L15 12L12 10.2L9 12L9.5 8.5L7 6L10.5 5.5L12 2Z"
-                  fill="currentColor"
-                  fillOpacity="0.9"
-                  strokeWidth="0.5"
-                  stroke="#fef08a"
-                />
-                <path
-                  d="M4 19.5C5.5 18 8 18 12 19C16 18 18.5 18 20 19.5V8.5C18.5 7 16 7 12 8C8 7 5.5 7 4 8.5V19.5Z"
-                  fill="#fef3c7"
-                  fillOpacity="0.22"
-                  stroke="#fde047"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
-                <line x1="12" y1="8" x2="12" y2="19" stroke="#fde047" strokeWidth="1.2" />
-              </svg>
-            </div>
-          </div>
+          <AppLogoMark
+            logoConfig={logoConfig}
+            size="md"
+            className="group-hover:scale-105 transition-transform"
+          />
 
           <div className="min-w-0">
             <span className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white font-cinzel truncate block whitespace-nowrap">
@@ -524,6 +510,7 @@ interface SideNavigationProps {
   pendingApprovalCount?: number;
   onOpenAuthModal: () => void;
   onLogout: () => void;
+  logoConfig?: AppLogoConfig | null;
 }
 
 interface NavGroupItem {
@@ -585,6 +572,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
   pendingApprovalCount = 0,
   onOpenAuthModal,
   onLogout,
+  logoConfig,
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
   const canAccessAdmin = canAccessAdminPanel(currentUser?.role);
@@ -728,9 +716,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
       {/* Mobile Drawer Top Header */}
       <div className="lg:hidden flex items-center justify-between px-4 h-16 border-b border-white/10">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black text-sm">
-            H
-          </div>
+          <AppLogoMark logoConfig={logoConfig} size="sm" />
           <div>
             <div className="font-cinzel font-black text-sm text-white">Hành Thực Lục</div>
             <div className="text-[10px] text-amber-300/80">Menu điều hướng</div>

@@ -993,12 +993,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
 
         {/* Profile Info Section */}
-        <div className="px-3 sm:px-6 pb-0 pt-0 relative">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-2.5 sm:gap-4 -mt-10 sm:-mt-16 md:-mt-20 pb-3 sm:pb-4 border-b border-slate-100 dark:border-slate-800">
-            {/* Avatar & User Details */}
-            <div className="flex flex-col sm:flex-row items-center sm:items-end gap-2.5 sm:gap-5 text-center sm:text-left">
-              <div className="relative group shrink-0 z-10">
-                <div className="w-20 h-20 sm:w-32 sm:h-32 md:w-36 md:h-36 rounded-full bg-white dark:bg-slate-900 p-1 shadow-xl ring-3 sm:ring-4 ring-amber-400/70 dark:ring-amber-500/50 relative overflow-hidden">
+        <div className="px-3 sm:px-6 pb-0 pt-0 relative bg-white dark:bg-slate-900">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 sm:gap-4 pt-2.5 sm:pt-3.5 pb-3.5 sm:pb-4 border-b border-slate-100 dark:border-slate-800">
+            {/* Avatar (overlaps cover) & User Details (cleanly below cover) */}
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2.5 sm:gap-5 text-center sm:text-left min-w-0">
+              <div className="relative group shrink-0 z-10 -mt-12 sm:-mt-20 md:-mt-22">
+                <div className="w-20 h-20 sm:w-32 sm:h-32 md:w-36 md:h-36 rounded-full bg-white dark:bg-slate-900 p-1 shadow-xl ring-3 sm:ring-4 ring-white dark:ring-slate-900 relative overflow-hidden">
                   {currentUser.avatarUrl ? (
                     <img
                       src={currentUser.avatarUrl}
@@ -1031,7 +1031,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
 
               {/* User Identity Stack */}
-              <div className="pt-0.5 sm:pb-1 space-y-1">
+              <div className="pt-0.5 space-y-1.5 min-w-0">
                 <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
                   <h1 className="text-lg sm:text-2xl font-black leading-tight tracking-tight text-slate-900 dark:text-amber-300">
                     {currentUser.fullName}

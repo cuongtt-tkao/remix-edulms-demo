@@ -50,6 +50,7 @@ import {
   DEFAULT_APPEARANCE_CONFIG,
   DEFAULT_HOME_WIDGET_VISIBILITY,
   DEFAULT_LLV_WIDGET_VISIBILITY,
+  DEFAULT_APP_LOGO_CONFIG,
   APP_FONT_OPTIONS,
   DEFAULT_HONORS_WIDGET_ORDER,
   HonorsWidgetId,
@@ -2807,6 +2808,7 @@ export default function App() {
         hiddenWidgets: config.hiddenWidgets,
         homeWidgets: config.homeWidgets || DEFAULT_HOME_WIDGET_VISIBILITY,
         llvWidgets: config.llvWidgets || DEFAULT_LLV_WIDGET_VISIBILITY,
+        logo: config.logo || DEFAULT_APP_LOGO_CONFIG,
         updatedBy: effectiveCurrentUser?.fullName || 'Admin',
         updatedAt: new Date().toISOString(),
       })
@@ -5674,6 +5676,7 @@ export default function App() {
             return res.emailVerified;
           }}
           onLogout={handleLogout}
+          logoConfig={appearanceConfig?.logo}
         />
 
         <AuthModal
@@ -5729,6 +5732,7 @@ export default function App() {
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
         onNavigateHome={() => setActiveTab('ENTRY')}
+        logoConfig={appearanceConfig?.logo}
       />
 
       {/* Shell: Vertical Left Sidebar (3 Mục Chính) + Main Workspace */}
@@ -5749,6 +5753,7 @@ export default function App() {
           pendingApprovalCount={isAdminUser ? pendingApprovalUsers.length : 0}
           onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
           onLogout={handleLogout}
+          logoConfig={appearanceConfig?.logo}
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
