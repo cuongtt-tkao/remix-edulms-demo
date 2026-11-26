@@ -29,6 +29,7 @@
         "approvedBy": { "type": "string", "maxLength": 100 },
         "approvedAt": { "type": "string", "maxLength": 50 },
         "rejectionReason": { "type": "string", "maxLength": 300 },
+        "roleUpdatedAt": { "type": "string", "maxLength": 50 },
         "createdAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["fullName", "email", "role"]

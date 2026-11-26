@@ -145,7 +145,7 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
 
   // ---------- Onboarding state ----------
   const [obFullName, setObFullName] = useState('');
-  const [obCompany, setObCompany] = useState(companies[0]?.code || 'Th1');
+  const [obCompany, setObCompany] = useState(companies[0]?.code || '');
   const [obArea, setObArea] = useState('');
   const [isCreatingNewArea, setIsCreatingNewArea] = useState(false);
   const [obNewAreaCode, setObNewAreaCode] = useState('');
@@ -1006,8 +1006,13 @@ export const SecurityGateScreen: React.FC<SecurityGateScreenProps> = ({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500 dark:text-slate-400">Đơn vị đăng ký:</span>
                   <span className="font-bold text-blue-700 dark:text-blue-300 truncate">
-                    Sion {currentUser.companyCode} · KV {currentUser.areaCode}
-                    {currentUser.unitCode ? ` · ${currentUser.unitCode}` : ''}
+                    {currentUser.companyCode && currentUser.areaCode
+                      ? `Sion ${currentUser.companyCode} · KV ${currentUser.areaCode}${
+                          currentUser.unitCode ? ` · ${currentUser.unitCode}` : ''
+                        }`
+                      : currentUser.companyCode
+                      ? `Sion ${currentUser.companyCode} · Chờ phân bổ KV mới`
+                      : 'Đang chờ Admin phân bổ đơn vị mới'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">

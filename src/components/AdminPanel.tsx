@@ -61,6 +61,7 @@ import {
   EduCmsProfile,
   WorkScheduleRecord,
   SystemSecurityConfig,
+  OrgDeleteAttachedMode,
   resolveUserApprovalStatus,
   DEFAULT_EVENT_WEIGHTS,
   getRoleLevel,
@@ -145,10 +146,10 @@ interface AdminPanelProps {
   members: Member[];
   onAddCompany: (company: Omit<Company, 'id'>) => Promise<boolean> | void;
   onUpdateCompany: (company: Company) => Promise<boolean> | void;
-  onDeleteCompany: (id: string) => Promise<boolean> | void;
+  onDeleteCompany: (id: string, attachedMode?: OrgDeleteAttachedMode) => Promise<boolean> | void;
   onAddArea: (area: Omit<Area, 'id'>) => Promise<boolean> | void;
   onUpdateArea: (area: Area) => Promise<boolean> | void;
-  onDeleteArea: (id: string) => Promise<boolean> | void;
+  onDeleteArea: (id: string, attachedMode?: OrgDeleteAttachedMode) => Promise<boolean> | void;
   onAddDepartment: (department: Omit<Department, 'id'>) => void;
   onUpdateDepartment: (department: Department) => void;
   onDeleteDepartment: (id: string) => Promise<boolean> | void;
@@ -556,9 +557,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     isAdmin || canManageOrgRecord(currentUser || null, mem);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [deleteAttachedMode, setDeleteAttachedMode] =
+    useState<OrgDeleteAttachedMode>('PENDING_REASSIGN');
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{
     title: string;
-    onConfirm: () => Promise<void> | void;
+    hasAttachedOptions?: boolean;
+    attachedSummary?: string;
+    onConfirm: (mode: OrgDeleteAttachedMode) => Promise<void> | void;
   } | null>(null);
   const [isDeletingConfirm, setIsDeletingConfirm] = useState<boolean>(false);
 
@@ -635,7 +640,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newAreaCode, setNewAreaCode] = useState('');
   const [newAreaName, setNewAreaName] = useState('');
   const [newAreaCompany, setNewAreaCompany] = useState(
-    scopedCompanies[0]?.code || companies[0]?.code || 'Th1'
+    scopedCompanies[0]?.code || companies[0]?.code || ''
   );
 
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
@@ -647,10 +652,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberCompany, setNewMemberCompany] = useState(
-    scopedCompanies[0]?.code || companies[0]?.code || 'Th1'
+    scopedCompanies[0]?.code || companies[0]?.code || ''
   );
   const [newMemberArea, setNewMemberArea] = useState(
-    scopedAreas[0]?.code || currentUser?.areaCode || '1.1'
+    scopedAreas[0]?.code || currentUser?.areaCode || ''
   );
   const [newMemberDept, setNewMemberDept] = useState(departments[0]?.code || 'Thanh Niên Nam');
   const [newMemberUnit, setNewMemberUnit] = useState(
@@ -663,29 +668,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   );
 
   React.useEffect(() => {
-    if (!isAdmin) {
-      if (scopedCompanies.length > 0 && !scopedCompanies.some((c) => c.code === newAreaCompany)) {
-        setNewAreaCompany(scopedCompanies[0].code);
+    const compPool = isAdmin ? companies : scopedCompanies;
+    if (compPool.length === 0) {
+      if (newAreaCompany) setNewAreaCompany('');
+      if (newMemberCompany) setNewMemberCompany('');
+    } else {
+      if (!compPool.some((c) => c.code === newAreaCompany)) {
+        setNewAreaCompany(compPool[0].code);
       }
-      if (scopedCompanies.length > 0 && !scopedCompanies.some((c) => c.code === newMemberCompany)) {
-        setNewMemberCompany(scopedCompanies[0].code);
+      if (!compPool.some((c) => c.code === newMemberCompany)) {
+        setNewMemberCompany(compPool[0].code);
       }
-      if (scopedAreas.length > 0 && !scopedAreas.some((a) => a.code === newMemberArea)) {
-        setNewMemberArea(scopedAreas[0].code);
+    }
+
+    const memberAreasForComp = (isAdmin ? areas : scopedAreas).filter(
+      (a) => !newMemberCompany || normalizeOrgCode(a.companyCode) === normalizeOrgCode(newMemberCompany)
+    );
+    if (memberAreasForComp.length === 0) {
+      if (newMemberArea && !isAdmin) setNewMemberArea('');
+      else if (newMemberArea && !(isAdmin ? areas : scopedAreas).some((a) => a.code === newMemberArea)) {
+        setNewMemberArea('');
       }
-      if (currentUser?.role === 'UNI_LEADER') {
-        const ownU =
-          currentUser.managedUnitCodes?.[0] ||
-          currentUser.unitCode ||
-          currentUser.departmentCode ||
-          '';
-        if (ownU && !viewerUnitScope.has(normalizeOrgCode(newMemberUnit))) {
-          setNewMemberUnit(ownU);
-        }
+    } else if (!memberAreasForComp.some((a) => a.code === newMemberArea)) {
+      setNewMemberArea(memberAreasForComp[0].code);
+    }
+
+    if (!isAdmin && currentUser?.role === 'UNI_LEADER') {
+      const ownU =
+        currentUser.managedUnitCodes?.[0] ||
+        currentUser.unitCode ||
+        currentUser.departmentCode ||
+        '';
+      if (ownU && !viewerUnitScope.has(normalizeOrgCode(newMemberUnit))) {
+        setNewMemberUnit(ownU);
       }
     }
   }, [
     isAdmin,
+    companies,
+    areas,
     scopedCompanies,
     scopedAreas,
     newAreaCompany,
@@ -695,6 +716,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     currentUser?.role,
     currentUser?.unitCode,
     currentUser?.managedUnitCodes,
+    currentUser?.departmentCode,
     viewerUnitScope,
   ]);
 
@@ -1818,6 +1840,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 const attachedUsersCount = (usersList || []).filter(
                                   (u) =>
                                     resolveUserApprovalStatus(u) !== 'REJECTED' &&
+                                    u.id !== currentUser?.id &&
+                                    u.role !== 'SUPER_ADMIN' &&
+                                    u.role !== 'ADMIN' &&
                                     normalizeOrgCode(u.companyCode) === compNorm
                                 ).length;
                                 const attachedMembersCount = members.filter(
@@ -1833,14 +1858,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   cascadeParts.length > 0
                                     ? ` Sẽ xóa kèm ${cascadeParts.join(' và ')} trực thuộc.`
                                     : '';
-                                const attachedNote =
-                                  attachedUsersCount > 0 || attachedMembersCount > 0
-                                    ? ` Hiện có ${attachedUsersCount} tài khoản và ${attachedMembersCount} thành viên mang mã Sion này (sẽ gỡ phạm vi quản lý liên quan và chặn tự đồng bộ lại).`
-                                    : '';
+                                const hasAttached =
+                                  attachedUsersCount > 0 || attachedMembersCount > 0;
+                                setDeleteAttachedMode('PENDING_REASSIGN');
                                 setConfirmDeleteTarget({
-                                  title: `Xóa hẳn Sion ${comp.name} (${comp.code})?${cascadeNote}${attachedNote}`,
-                                  onConfirm: async () => {
-                                    await onDeleteCompany(comp.id);
+                                  title: `Xóa vĩnh viễn Sion ${comp.name} (${comp.code})?${cascadeNote}`,
+                                  hasAttachedOptions: hasAttached,
+                                  attachedSummary: hasAttached
+                                    ? `Hiện có ${attachedUsersCount} tài khoản và ${attachedMembersCount} thành viên thuộc Sion này.`
+                                    : undefined,
+                                  onConfirm: async (mode) => {
+                                    await onDeleteCompany(comp.id, mode);
                                   },
                                 });
                               }}
@@ -2149,6 +2177,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   const attachedUsersCount = (usersList || []).filter(
                                     (u) =>
                                       resolveUserApprovalStatus(u) !== 'REJECTED' &&
+                                      u.id !== currentUser?.id &&
+                                      u.role !== 'SUPER_ADMIN' &&
+                                      u.role !== 'ADMIN' &&
                                       normalizeOrgCode(u.companyCode) === aCompNorm &&
                                       normalizeOrgCode(cleanRawAreaCode(u.areaCode)) === aCodeNorm
                                   ).length;
@@ -2157,14 +2188,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       normalizeOrgCode(m.companyCode) === aCompNorm &&
                                       normalizeOrgCode(cleanRawAreaCode(m.areaCode)) === aCodeNorm
                                   ).length;
-                                  const attachedNote =
-                                    attachedUsersCount > 0 || attachedMembersCount > 0
-                                      ? ` Hiện có ${attachedUsersCount} tài khoản và ${attachedMembersCount} thành viên mang mã khu vực này (sẽ gỡ phạm vi quản lý liên quan và chặn tự đồng bộ lại).`
-                                      : '';
+                                  const hasAttached =
+                                    attachedUsersCount > 0 || attachedMembersCount > 0;
+                                  setDeleteAttachedMode('PENDING_REASSIGN');
                                   setConfirmDeleteTarget({
-                                    title: `Xóa hẳn khu vực ${area.name} (${area.companyCode})?${attachedNote}`,
-                                    onConfirm: async () => {
-                                      await onDeleteArea(area.id);
+                                    title: `Xóa vĩnh viễn khu vực ${area.name} (${area.companyCode})?`,
+                                    hasAttachedOptions: hasAttached,
+                                    attachedSummary: hasAttached
+                                      ? `Hiện có ${attachedUsersCount} tài khoản và ${attachedMembersCount} thành viên thuộc khu vực này.`
+                                      : undefined,
+                                    onConfirm: async (mode) => {
+                                      await onDeleteArea(area.id, mode);
                                     },
                                   });
                                 }}
@@ -4198,14 +4232,68 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+              className="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
             >
               <div className="font-extrabold text-sm text-slate-900 dark:text-white">
                 Xác nhận thao tác xóa
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-300">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                 {confirmDeleteTarget.title}
               </p>
+
+              {confirmDeleteTarget.hasAttachedOptions && (
+                <div className="space-y-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-3">
+                  {confirmDeleteTarget.attachedSummary && (
+                    <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                      {confirmDeleteTarget.attachedSummary}
+                    </div>
+                  )}
+                  <div className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                    Cách xử lý tài khoản &amp; thành viên đang trực thuộc:
+                  </div>
+                  <label className="flex items-start gap-2 text-xs cursor-pointer p-2 rounded-lg border border-transparent hover:bg-white dark:hover:bg-slate-800">
+                    <input
+                      type="radio"
+                      name="orgDeleteAttachedMode"
+                      checked={deleteAttachedMode === 'PENDING_REASSIGN'}
+                      onChange={() => setDeleteAttachedMode('PENDING_REASSIGN')}
+                      className="mt-0.5 accent-blue-600"
+                    />
+                    <div>
+                      <div className="font-bold text-slate-800 dark:text-slate-100">
+                        Chuyển sang chờ phân bổ đơn vị
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {isAdmin
+                          ? 'Chuyển tài khoản thường về trạng thái Chờ duyệt/phân bổ lại đơn vị mới và tạm ngừng hồ sơ thành viên.'
+                          : 'Tạm ngừng hồ sơ thành viên trực thuộc để Admin phân bổ lại đơn vị mới.'}
+                      </div>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-2 text-xs cursor-pointer p-2 rounded-lg border border-transparent hover:bg-white dark:hover:bg-slate-800">
+                    <input
+                      type="radio"
+                      name="orgDeleteAttachedMode"
+                      checked={deleteAttachedMode === 'DELETE_RECORDS'}
+                      onChange={() => setDeleteAttachedMode('DELETE_RECORDS')}
+                      className="mt-0.5 accent-rose-600"
+                    />
+                    <div>
+                      <div className="font-bold text-rose-700 dark:text-rose-300">
+                        Xóa luôn hồ sơ liên quan
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {currentUser?.role === 'SUPER_ADMIN'
+                          ? 'Xóa vĩnh viễn thành viên và tài khoản thường trực thuộc (giữ an toàn cho Admin/Tổng Quản trị).'
+                          : isAdmin
+                          ? 'Xóa vĩnh viễn hồ sơ thành viên trực thuộc; tài khoản thường chuyển về Chờ phân bổ đơn vị.'
+                          : 'Xóa vĩnh viễn hồ sơ thành viên trực thuộc khỏi danh sách thi đua.'}
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
@@ -4222,7 +4310,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     if (isDeletingConfirm) return;
                     setIsDeletingConfirm(true);
                     try {
-                      await confirmDeleteTarget.onConfirm();
+                      await confirmDeleteTarget.onConfirm(deleteAttachedMode);
                     } finally {
                       setIsDeletingConfirm(false);
                       setConfirmDeleteTarget(null);
@@ -4230,7 +4318,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }}
                   className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer disabled:opacity-60"
                 >
-                  {isDeletingConfirm ? 'Đang xóa...' : 'Xóa ngay'}
+                  {isDeletingConfirm ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
                 </button>
               </div>
             </div>

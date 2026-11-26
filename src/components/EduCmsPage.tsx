@@ -82,10 +82,10 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [pFullName, setPFullName] = useState('');
   const [pCompanyCode, setPCompanyCode] = useState(
-    currentUser?.companyCode || companies[0]?.code || 'Th1'
+    currentUser?.companyCode || companies[0]?.code || ''
   );
   const [pAreaCode, setPAreaCode] = useState(
-    currentUser?.areaCode || areas[0]?.code || '1.1'
+    currentUser?.areaCode || areas[0]?.code || ''
   );
   const [pStage, setPStage] = useState<EduCmsStage>('TD_MOI');
   const [pNgvName, setPNgvName] = useState('');
@@ -207,14 +207,14 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
       scopedCompanyOptions[0]?.code ||
       currentUser?.companyCode ||
       companies[0]?.code ||
-      'Th1';
+      '';
     const defAreas = getScopedAreaOptions(currentUser, areas, defComp);
     const defArea =
       defAreas.find((a) => a.code === currentUser?.areaCode)?.code ||
       defAreas[0]?.code ||
       currentUser?.areaCode ||
       areas[0]?.code ||
-      '1.1';
+      '';
     setPCompanyCode(defComp);
     setPAreaCode(defArea);
     setPStage(defaultStage);

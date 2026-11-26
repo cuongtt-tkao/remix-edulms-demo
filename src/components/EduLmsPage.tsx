@@ -127,10 +127,10 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   const [assignTargetTopic, setAssignTargetTopic] = useState<EduWeeklyTopic | null>(null);
   const [editingAssignId, setEditingAssignId] = useState<string | null>(null);
   const [aCompanyCode, setACompanyCode] = useState<string>(
-    currentUser?.companyCode || companies[0]?.code || 'Th1'
+    currentUser?.companyCode || companies[0]?.code || ''
   );
   const [aAreaCode, setAAreaCode] = useState<string>(
-    currentUser?.areaCode || areas[0]?.code || '1.1'
+    currentUser?.areaCode || areas[0]?.code || ''
   );
   const [aMemberId, setAMemberId] = useState<string>('');
   const [aStudentName, setAStudentName] = useState<string>('');
@@ -290,7 +290,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         ? currentUser.companyCode
         : topic.companyCode !== 'ALL'
         ? topic.companyCode
-        : currentUser?.companyCode || companies[0]?.code || 'Th1';
+        : currentUser?.companyCode || companies[0]?.code || '';
       const defArea = isMemberOnly
         ? currentUser.areaCode
         : topic.areaCode !== 'ALL'
@@ -298,7 +298,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         : currentUser?.areaCode ||
           areas.find((a) => a.companyCode === defComp)?.code ||
           areas[0]?.code ||
-          '1.1';
+          '';
       setACompanyCode(defComp);
       setAAreaCode(defArea);
       setAMemberId(isMemberOnly ? currentUser.memberId || `m-${currentUser.id}` : '');

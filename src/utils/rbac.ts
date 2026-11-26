@@ -128,6 +128,16 @@ export function formatAreaDisplayName(code?: string | null, name?: string | null
   return cleanCode ? `KV ${cleanCode} · ${cleanName}` : cleanName;
 }
 
+export function normalizeDeletedAreaKey(
+  companyCode?: string | null,
+  areaCode?: string | null
+): string {
+  const cNorm = normalizeOrgCode(companyCode);
+  const aNorm = normalizeOrgCode(cleanRawAreaCode(areaCode));
+  if (!cNorm || !aNorm) return '';
+  return `${cNorm}::${aNorm}`;
+}
+
 export function getClusterSeedCompanyCodes(clusters?: OrgCluster[] | null): string[] {
   const byNorm = new Map<string, string>();
   (clusters || []).forEach((cl) => {
@@ -140,9 +150,6 @@ export function getClusterSeedCompanyCodes(clusters?: OrgCluster[] | null): stri
       }
     });
   });
-  if (byNorm.size === 0) {
-    return ['Th1'];
-  }
   return Array.from(byNorm.values());
 }
 

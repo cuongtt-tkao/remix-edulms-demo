@@ -62,6 +62,8 @@ export interface SystemOrgSyncConfig {
   updatedBy?: string;
 }
 
+export type OrgDeleteAttachedMode = 'PENDING_REASSIGN' | 'DELETE_RECORDS';
+
 export interface Department {
   id: string;
   code: string;
@@ -289,6 +291,7 @@ export interface RoleAssignment {
   managedCompanyCodes?: string[];
   managedAreaCodes?: string[];
   managedUnitCodes?: string[];
+  updatedAt?: string;
 }
 
 export interface SystemRolesConfig {
@@ -344,6 +347,7 @@ export interface UserAccount {
   approvedBy?: string;
   approvedAt?: string;
   rejectionReason?: string;
+  roleUpdatedAt?: string;
   createdAt: string;
 }
 

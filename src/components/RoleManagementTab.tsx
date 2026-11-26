@@ -182,12 +182,8 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     if (!currentUser) return false;
     if (currentUser.role === 'SUPER_ADMIN') return true;
     const cleanEmail = (currentUser.email || '').toLowerCase().trim();
-    if (BOOTSTRAP_SUPER_ADMIN_EMAILS.some((e) => e.toLowerCase() === cleanEmail)) return true;
-    if (preAssignedRoles.some((p) => p.email.toLowerCase() === cleanEmail && p.role === 'SUPER_ADMIN')) {
-      return true;
-    }
-    return false;
-  }, [currentUser, preAssignedRoles]);
+    return BOOTSTRAP_SUPER_ADMIN_EMAILS.some((e) => e.toLowerCase() === cleanEmail);
+  }, [currentUser]);
 
   const isAdminOrSuperAdmin = isSuperAdmin || currentUser?.role === 'ADMIN';
   const maxAssignableLevel = getMaxAssignableRoleLevel(currentUser?.role);
@@ -209,12 +205,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   const viewerAreaScope = useMemo(() => {
     const set = new Set<string>();
     (currentUser?.managedAreaCodes || []).forEach((a) => {
-      const n = normalizeOrgCode(a);
-      if (n) set.add(n);
+      const p = parseAreaScopeEntry(a);
+      if (p.areaCode) set.add(p.areaCode);
     });
     if (set.size === 0 && currentUser?.areaCode) {
-      const n = normalizeOrgCode(currentUser.areaCode);
-      if (n) set.add(n);
+      const p = parseAreaScopeEntry(currentUser.areaCode);
+      if (p.areaCode) set.add(p.areaCode);
     }
     return set;
   }, [currentUser?.managedAreaCodes, currentUser?.areaCode]);
@@ -252,18 +248,11 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     const uEmail = (u.email || '').toLowerCase().trim();
     if (
       u.role === 'SUPER_ADMIN' ||
-      BOOTSTRAP_SUPER_ADMIN_EMAILS.some((e) => e.toLowerCase() === uEmail) ||
-      preAssignedRoles.some((p) => p.email.toLowerCase() === uEmail && p.role === 'SUPER_ADMIN')
+      BOOTSTRAP_SUPER_ADMIN_EMAILS.some((e) => e.toLowerCase() === uEmail)
     ) {
       return 'SUPER_ADMIN';
     }
-    const pre = preAssignedRoles.find((p) => p.email.toLowerCase() === uEmail);
-    if (u.role === 'ADMIN' || pre?.role === 'ADMIN') return 'ADMIN';
-    if (u.role === 'MANAGER' || pre?.role === 'MANAGER') return 'MANAGER';
-    if (u.role === 'SION_LEADER' || pre?.role === 'SION_LEADER') return 'SION_LEADER';
-    if (u.role === 'AREA_LEADER' || pre?.role === 'AREA_LEADER') return 'AREA_LEADER';
-    if (u.role === 'UNI_LEADER' || pre?.role === 'UNI_LEADER') return 'UNI_LEADER';
-    return 'MEMBER';
+    return u.role || 'MEMBER';
   };
 
   const visibleUsersForActor = useMemo(() => {
@@ -336,6 +325,57 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       .split(/[,;]+/)
       .map((s) => s.trim())
       .filter(Boolean);
+
+  // Chuẩn hóa giá trị phạm vi khớp chính xác chữ hoa/thường với hồ sơ actor để Firestore Rules hasOnly() luôn khớp
+  const canonicalizeActorCompany = (rawComp?: string): string => {
+    const norm = normalizeOrgCode(rawComp);
+    if (!norm) return '';
+    const fromManaged = (currentUser?.managedCompanyCodes || []).find(
+      (c) => normalizeOrgCode(c) === norm
+    );
+    if (fromManaged) return fromManaged;
+    if (currentUser?.companyCode && normalizeOrgCode(currentUser.companyCode) === norm) {
+      return currentUser.companyCode;
+    }
+    const fromCompanies = companies.find((c) => normalizeOrgCode(c.code) === norm);
+    return fromCompanies?.code || (rawComp || '').trim();
+  };
+
+  const canonicalizeActorAreaEntry = (rawComp?: string, rawArea?: string): string => {
+    const cNorm = normalizeOrgCode(rawComp);
+    const aNorm = normalizeOrgCode(rawArea);
+    if (!aNorm) return '';
+    const fromManaged = (currentUser?.managedAreaCodes || []).find((entry) => {
+      const p = parseAreaScopeEntry(entry);
+      return p.hasCompanyPrefix ? p.companyCode === cNorm && p.areaCode === aNorm : p.areaCode === aNorm;
+    });
+    if (fromManaged) return fromManaged;
+    if (
+      currentUser?.areaCode &&
+      normalizeOrgCode(currentUser.areaCode) === aNorm &&
+      (!cNorm || !currentUser.companyCode || normalizeOrgCode(currentUser.companyCode) === cNorm)
+    ) {
+      return currentUser.companyCode
+        ? `${currentUser.companyCode}::${currentUser.areaCode}`
+        : currentUser.areaCode;
+    }
+    return makeAreaScopeKey(rawComp, rawArea);
+  };
+
+  const canonicalizeActorUnits = (rawUnits: string[]): string[] => {
+    const actorUnits = [
+      ...(currentUser?.managedUnitCodes || []),
+      ...(currentUser?.unitCode ? [currentUser.unitCode] : []),
+      ...(currentUser?.departmentCode ? [currentUser.departmentCode] : []),
+    ].filter(Boolean);
+    return rawUnits
+      .map((u) => {
+        const uNorm = normalizeOrgCode(u);
+        const match = actorUnits.find((au) => normalizeOrgCode(au) === uNorm);
+        return match || u.trim();
+      })
+      .filter(Boolean);
+  };
 
   const openScopeModal = (user: UserAccount, targetRole?: UserRole) => {
     const roleToEdit = targetRole || resolveEffectiveRole(user);
@@ -415,20 +455,49 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
 
+    const canonicalComp = canonicalizeActorCompany(targetUser.companyCode);
+    const canGrantCompany =
+      Boolean(canonicalComp) &&
+      (isAdminOrSuperAdmin || viewerCompanyScope.has(normalizeOrgCode(canonicalComp)));
     const targetAreaKey = targetUser.areaCode
-      ? makeAreaScopeKey(targetUser.companyCode, targetUser.areaCode)
+      ? isAdminOrSuperAdmin
+        ? makeAreaScopeKey(targetUser.companyCode, targetUser.areaCode)
+        : canonicalizeActorAreaEntry(targetUser.companyCode, targetUser.areaCode)
       : '';
+    const rawDefaultUnits = targetUser.managedUnitCodes?.length
+      ? targetUser.managedUnitCodes
+      : targetUser.unitCode
+      ? [targetUser.unitCode]
+      : targetUser.departmentCode
+      ? [targetUser.departmentCode]
+      : [];
+    const safeUniUnits =
+      isAdminOrSuperAdmin || currentUser?.role !== 'UNI_LEADER'
+        ? rawDefaultUnits
+        : canonicalizeActorUnits(rawDefaultUnits).filter((u) => {
+            const uNorm = normalizeOrgCode(u);
+            const actorSet = new Set(
+              [
+                ...(currentUser?.managedUnitCodes || []),
+                ...(currentUser?.unitCode ? [currentUser.unitCode] : []),
+                ...(currentUser?.departmentCode ? [currentUser.departmentCode] : []),
+              ]
+                .map((x) => normalizeOrgCode(x))
+                .filter(Boolean)
+            );
+            return actorSet.has(uNorm);
+          });
 
     const defaultScope: ScopeSelection =
       targetRole === 'SION_LEADER'
         ? {
-            managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
+            managedCompanyCodes: canGrantCompany ? [canonicalComp] : [],
             managedAreaCodes: [],
             managedUnitCodes: [],
           }
         : targetRole === 'AREA_LEADER'
         ? {
-            managedCompanyCodes: targetUser.companyCode ? [targetUser.companyCode] : [],
+            managedCompanyCodes: canGrantCompany ? [canonicalComp] : [],
             managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
             managedUnitCodes: targetUser.managedUnitCodes || [],
           }
@@ -436,13 +505,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
         ? {
             managedCompanyCodes: [],
             managedAreaCodes: targetAreaKey ? [targetAreaKey] : [],
-            managedUnitCodes: targetUser.managedUnitCodes?.length
-              ? targetUser.managedUnitCodes
-              : targetUser.unitCode
-              ? [targetUser.unitCode]
-              : targetUser.departmentCode
-              ? [targetUser.departmentCode]
-              : [],
+            managedUnitCodes: safeUniUnits,
           }
         : {
             managedCompanyCodes: [],
@@ -453,7 +516,6 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     setIsUpdating(targetUser.id);
     try {
       await onUpdateUserRole(targetUser.id, targetRole, targetUser.fullName, defaultScope);
-      onShowNotification(`Đã cập nhật "${targetUser.fullName}" thành ${ROLE_LABELS[targetRole]}!`);
     } catch (err: any) {
       onShowNotification(`Lỗi phân quyền: ${err?.message || 'Thao tác thất bại'}`);
     } finally {
@@ -471,7 +533,7 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
       return;
     }
     const parsedUnits = parseUnitList(modalUnitsText);
-    const effectiveModalCompanies =
+    const rawModalCompanies =
       modalRole === 'MANAGER' && modalClusters.length > 0 && clusters.length > 0
         ? Array.from(
             new Set([
@@ -481,11 +543,28 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
           )
         : modalCompanies;
 
+    const effectiveModalCompanies = isAdminOrSuperAdmin
+      ? rawModalCompanies
+      : rawModalCompanies
+          .map((c) => canonicalizeActorCompany(c))
+          .filter((c) => c && viewerCompanyScope.has(normalizeOrgCode(c)));
+
+    const effectiveModalAreas = isAdminOrSuperAdmin
+      ? modalAreas
+      : modalAreas.map((entry) => {
+          const p = parseAreaScopeEntry(entry);
+          return canonicalizeActorAreaEntry(p.rawCompanyCode || scopeModalUser.companyCode, p.rawAreaCode);
+        });
+
+    const effectiveModalUnits = isAdminOrSuperAdmin
+      ? parsedUnits
+      : canonicalizeActorUnits(parsedUnits);
+
     if (
       modalRole === 'MANAGER' &&
       modalClusters.length === 0 &&
       effectiveModalCompanies.length === 0 &&
-      modalAreas.length === 0
+      effectiveModalAreas.length === 0
     ) {
       onShowNotification('Vui lòng chọn ít nhất 1 Cụm Sion, Sion hoặc Khu vực phụ trách cho QL Cụm.');
       return;
@@ -493,10 +572,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     setIsUpdating(scopeModalUser.id);
     try {
       await onUpdateUserRole(scopeModalUser.id, modalRole, scopeModalUser.fullName, {
-        managedClusterIds: modalRole === 'MANAGER' ? modalClusters : [],
+        ...(isAdminOrSuperAdmin
+          ? { managedClusterIds: modalRole === 'MANAGER' ? modalClusters : [] }
+          : {}),
         managedCompanyCodes: effectiveModalCompanies,
-        managedAreaCodes: modalAreas,
-        managedUnitCodes: parsedUnits,
+        managedAreaCodes: effectiveModalAreas,
+        managedUnitCodes: effectiveModalUnits,
       });
       setScopeModalUser(null);
     } catch (err: any) {
@@ -614,12 +695,26 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     }
   };
 
-  const getPendingDraft = (u: UserAccount) =>
-    pendingDrafts[u.id] || {
+  const getPendingDraft = (u: UserAccount) => {
+    if (pendingDrafts[u.id]) return pendingDrafts[u.id];
+    const hasValidCompany =
+      Boolean(u.companyCode) &&
+      companies.some((c) => normalizeOrgCode(c.code) === normalizeOrgCode(u.companyCode));
+    const draftComp = hasValidCompany ? u.companyCode : companies[0]?.code || '';
+    const matchingAreas = areas.filter(
+      (a) =>
+        normalizeOrgCode(a.companyCode) === normalizeOrgCode(draftComp) && a.active !== false
+    );
+    const hasValidArea =
+      Boolean(u.areaCode) &&
+      matchingAreas.some((a) => normalizeOrgCode(a.code) === normalizeOrgCode(u.areaCode));
+    const draftArea = hasValidArea ? u.areaCode : matchingAreas[0]?.code || '';
+    return {
       role: resolveEffectiveRole(u),
-      companyCode: u.companyCode,
-      areaCode: u.areaCode,
+      companyCode: draftComp,
+      areaCode: draftArea,
     };
+  };
 
   const updatePendingDraft = (
     u: UserAccount,
@@ -630,10 +725,13 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
     let nextArea = patch.areaCode ?? current.areaCode;
     if (patch.companyCode && patch.companyCode !== current.companyCode) {
       const matchingAreas = areas.filter(
-        (a) => a.companyCode === nextCompany && a.active !== false
+        (a) =>
+          normalizeOrgCode(a.companyCode) === normalizeOrgCode(nextCompany) && a.active !== false
       );
       if (matchingAreas.length > 0 && !matchingAreas.some((a) => a.code === nextArea)) {
         nextArea = matchingAreas[0].code;
+      } else if (matchingAreas.length === 0) {
+        nextArea = '';
       }
     }
     setPendingDrafts((prev) => ({
@@ -649,6 +747,10 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
   const handleApproveClick = async (u: UserAccount) => {
     if (!isAdminOrSuperAdmin || !onApproveUser) return;
     const draft = getPendingDraft(u);
+    if (!draft.companyCode.trim() || !draft.areaCode.trim()) {
+      onShowNotification('Vui lòng chọn Sion và Khu vực trước khi phê duyệt tài khoản này.');
+      return;
+    }
     const roleToGrant: UserRole =
       !isSuperAdmin && draft.role === 'SUPER_ADMIN' ? 'MEMBER' : draft.role;
     setIsUpdating(u.id);
@@ -982,8 +1084,20 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                         {u.email}
                       </div>
                       <div className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 mt-0.5">
-                        Khai báo: Sion {u.companyCode} · KV {u.areaCode} · {u.departmentCode}
-                        {u.unitCode ? ` · ${u.unitCode}` : ''}
+                        {u.companyCode && u.areaCode ? (
+                          <>
+                            Khai báo: Sion {u.companyCode} · KV {u.areaCode} · {u.departmentCode}
+                            {u.unitCode ? ` · ${u.unitCode}` : ''}
+                          </>
+                        ) : u.companyCode ? (
+                          <span className="text-amber-700 dark:text-amber-300">
+                            Sion {u.companyCode} · Chờ phân bổ KV mới · {u.departmentCode}
+                          </span>
+                        ) : (
+                          <span className="text-amber-700 dark:text-amber-300">
+                            Chờ phân bổ đơn vị mới · {u.departmentCode}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -995,11 +1109,15 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                         searchable={false}
                         value={draft.companyCode}
                         onChange={(val) => updatePendingDraft(u, { companyCode: val })}
-                        options={companies.map((c) => ({
-                          value: c.code,
-                          label: formatCompanyDisplayName(c.name, c.code),
-                          badge: c.code,
-                        }))}
+                        options={
+                          companies.length > 0
+                            ? companies.map((c) => ({
+                                value: c.code,
+                                label: formatCompanyDisplayName(c.name, c.code),
+                                badge: c.code,
+                              }))
+                            : [{ value: '', label: 'Chưa có Sion' }]
+                        }
                         ariaLabel="Sion"
                       />
                     </div>
@@ -1016,7 +1134,12 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
                                 label: a.name || `KV ${a.code}`,
                                 badge: a.code,
                               }))
-                            : [{ value: draft.areaCode, label: `KV ${draft.areaCode}` }]
+                            : [
+                                {
+                                  value: draft.areaCode || '',
+                                  label: draft.areaCode ? `KV ${draft.areaCode}` : 'Chưa có KV',
+                                },
+                              ]
                         }
                         ariaLabel="Khu vực"
                       />
@@ -1459,8 +1582,20 @@ export const RoleManagementTab: React.FC<RoleManagementTabProps> = ({
 
                       <td className="py-3 px-3">
                         <div className="text-slate-800 dark:text-slate-200 font-semibold">
-                          {companyObj?.code || user.companyCode} · KV {user.areaCode}
-                          {user.unitCode ? ` · ${user.unitCode}` : ''}
+                          {user.companyCode && user.areaCode ? (
+                            <>
+                              {companyObj?.code || user.companyCode} · KV {user.areaCode}
+                              {user.unitCode ? ` · ${user.unitCode}` : ''}
+                            </>
+                          ) : user.companyCode ? (
+                            <span className="text-amber-700 dark:text-amber-300">
+                              {companyObj?.code || user.companyCode} · Chờ phân bổ KV
+                            </span>
+                          ) : (
+                            <span className="text-amber-700 dark:text-amber-300">
+                              Chờ phân bổ đơn vị
+                            </span>
+                          )}
                         </div>
                         {scopeParts.length > 0 && (
                           <div className="text-[11px] text-teal-700 dark:text-teal-300 font-semibold mt-0.5">
