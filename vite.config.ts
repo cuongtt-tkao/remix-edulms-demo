@@ -31,19 +31,19 @@ export default defineConfig(() => {
           scope: '/',
           icons: [
             {
-              src: '/pwa-192x192.png?v=3',
+              src: '/pwa-192x192.png?v=4',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png?v=3',
+              src: '/pwa-512x512.png?v=4',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-maskable-512x512.png?v=3',
+              src: '/pwa-maskable-512x512.png?v=4',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
