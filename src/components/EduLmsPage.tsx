@@ -5,6 +5,7 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  CheckSquare,
   ChevronDown,
   ChevronUp,
   Download,
@@ -57,6 +58,7 @@ import {
   getISOWeekInfo,
   isAssignmentCompleted,
   isAssignmentParticipated,
+  normalizeEduText,
   parseWeekLabelToIdSuffix,
 } from '../utils/eduAnalytics';
 import { exportEduLmsTwoSheetsExcel } from '../utils/excelManager';
@@ -77,6 +79,7 @@ interface EduLmsPageProps {
     existingId?: string
   ) => Promise<void>;
   onDeleteAssignment: (assignmentId: string) => Promise<void>;
+  onSaveCmsProfile?: (profile: Omit<EduCmsProfile, 'id'>, existingId?: string) => Promise<void>;
   onNavigateToCmsCurriculum: (topicId: string) => void;
   onOpenAuthModal: () => void;
   onShowNotification: (msg: string) => void;
@@ -160,6 +163,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   onDeleteTopic,
   onSaveAssignment,
   onDeleteAssignment,
+  onSaveCmsProfile,
   onNavigateToCmsCurriculum,
   onOpenAuthModal,
   onShowNotification,
@@ -218,6 +222,20 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   const [aCompleted, setACompleted] = useState<boolean>(false);
   const [aNote, setANote] = useState<string>('');
   const [isSavingAssign, setIsSavingAssign] = useState(false);
+
+  // Phương án A + B: Multi-select Thành viên KV & Đồng bộ sang CMS
+  const [modalEntryMode, setModalEntryMode] = useState<'MULTI' | 'SINGLE'>('MULTI');
+  const [memberSearchQuery, setMemberSearchQuery] = useState<string>('');
+  const [selectedMembersMap, setSelectedMembersMap] = useState<Record<string, EduTrack>>({});
+  const [syncToCmsOnAdd, setSyncToCmsOnAdd] = useState<boolean>(true);
+
+  // Phương án C: Tick nhanh theo KV đang lọc (có hộp xác nhận an toàn)
+  const [bulkTickConfirm, setBulkTickConfirm] = useState<{
+    field: 'participated' | 'completed';
+    areaLabel: string;
+    targetRows: LmsManagementRow[];
+  } | null>(null);
+  const [isBulkTicking, setIsBulkTicking] = useState(false);
 
   // In-app delete confirm modal
   const [confirmDelete, setConfirmDelete] = useState<{
@@ -668,12 +686,196 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       setACompleted(false);
       setANote('');
     }
+    setMemberSearchQuery('');
+    setSelectedMembersMap({});
+    setSyncToCmsOnAdd(true);
+    setModalEntryMode(
+      existing || row || currentUser?.role === 'MEMBER' ? 'SINGLE' : 'MULTI'
+    );
     setIsManualModalOpen(true);
+  };
+
+  const upsertSingleAssignment = async (params: {
+    companyCode: string;
+    areaCode: string;
+    studentName: string;
+    level: EduTrack;
+    participated: boolean;
+    completed: boolean;
+    note: string;
+    memberId?: string;
+    cmsProfileId?: string;
+    existing?: EduTopicAssignment | null;
+    topicOverride?: EduWeeklyTopic | null;
+  }) => {
+    if (!currentUser) return;
+    const {
+      companyCode,
+      areaCode,
+      studentName,
+      level,
+      participated: pRaw,
+      completed: cRaw,
+      note,
+      memberId,
+      cmsProfileId,
+      existing,
+      topicOverride,
+    } = params;
+    const nowIso = new Date().toISOString();
+    const { participated, completed, status } = deriveAssignmentStatus(pRaw, cRaw);
+
+    const targetWeekLabel =
+      topicOverride?.weekLabel ||
+      existing?.weekLabel ||
+      (sheetWeekFilter !== 'ALL' ? sheetWeekFilter : defaultWeek.weekLabel);
+
+    const topicMeta = topicOverride
+      ? {
+          topicId: topicOverride.id,
+          weekLabel: topicOverride.weekLabel,
+          topicTitle: topicOverride.topicTitle,
+        }
+      : existing
+      ? {
+          topicId: existing.topicId,
+          weekLabel: existing.weekLabel,
+          topicTitle: existing.topicTitle,
+        }
+      : resolveTopicForTrackAndWeek(level, targetWeekLabel, companyCode, areaCode);
+
+    await onSaveAssignment(
+      {
+        topicId: topicMeta.topicId,
+        track: level,
+        weekLabel: topicMeta.weekLabel,
+        topicTitle: topicMeta.topicTitle,
+        companyCode,
+        areaCode: areaCode.trim(),
+        memberId: memberId || existing?.memberId || undefined,
+        cmsProfileId: cmsProfileId || existing?.cmsProfileId,
+        studentName: studentName.trim(),
+        assignedByUid: existing?.assignedByUid || currentUser.id,
+        assignedByName: existing?.assignedByName || currentUser.fullName,
+        status,
+        participated,
+        completed,
+        note: note.trim(),
+        createdAt: existing?.createdAt || nowIso,
+        updatedAt: nowIso,
+      },
+      existing?.id
+    );
+  };
+
+  const syncMissingToCmsIfEnabled = async (
+    items: Array<{ fullName: string; companyCode: string; areaCode: string; level: EduTrack; note?: string }>
+  ): Promise<number> => {
+    if (!syncToCmsOnAdd || !onSaveCmsProfile || !currentUser || currentUser.role === 'MEMBER') {
+      return 0;
+    }
+    const existingKeys = new Set(
+      cmsProfiles.map(
+        (p) =>
+          `${normalizeOrgCode(p.companyCode)}|${normalizeOrgCode(p.areaCode)}|${normalizeEduText(
+            p.fullName
+          )}`
+      )
+    );
+    const toCreate = items.filter((item) => {
+      const k = `${normalizeOrgCode(item.companyCode)}|${normalizeOrgCode(
+        item.areaCode
+      )}|${normalizeEduText(item.fullName)}`;
+      if (existingKeys.has(k)) return false;
+      existingKeys.add(k);
+      return true;
+    });
+    if (toCreate.length === 0) return 0;
+
+    const nowIso = new Date().toISOString();
+    await Promise.all(
+      toCreate.map((item) =>
+        onSaveCmsProfile({
+          fullName: item.fullName.trim(),
+          companyCode: item.companyCode,
+          areaCode: item.areaCode.trim(),
+          stage: item.level,
+          ngvName: '',
+          specialty: '',
+          note: (item.note || '').trim(),
+          ownerUid: currentUser.id,
+          updatedBy: currentUser.fullName,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        })
+      )
+    );
+    return toCreate.length;
   };
 
   const handleSaveManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
+
+    // Phương án A: Lưu hàng loạt nhiều thành viên đã tích
+    if (!editingAssignId && modalEntryMode === 'MULTI' && currentUser.role !== 'MEMBER') {
+      const selectedEntries = Object.entries(selectedMembersMap);
+      if (selectedEntries.length === 0) {
+        onShowNotification('Vui lòng tích chọn ít nhất 1 thành viên trong danh sách.');
+        return;
+      }
+      setIsSavingAssign(true);
+      try {
+        const chosenMembers = selectedEntries
+          .map(([id, lv]) => ({
+            member: members.find((m) => m.id === id),
+            level: manualTargetTopic ? manualTargetTopic.track : lv,
+          }))
+          .filter((item): item is { member: Member; level: EduTrack } => Boolean(item.member));
+
+        await Promise.all(
+          chosenMembers.map(({ member, level }) =>
+            upsertSingleAssignment({
+              companyCode: aCompanyCode || member.companyCode,
+              areaCode: aAreaCode || member.areaCode || 'Chung',
+              studentName: member.fullName,
+              level,
+              participated: aParticipated,
+              completed: aCompleted,
+              note: aNote,
+              memberId: member.id,
+              topicOverride: manualTargetTopic,
+            })
+          )
+        );
+
+        const cmsAddedCount = await syncMissingToCmsIfEnabled(
+          chosenMembers.map(({ member, level }) => ({
+            fullName: member.fullName,
+            companyCode: aCompanyCode || member.companyCode,
+            areaCode: aAreaCode || member.areaCode || 'Chung',
+            level,
+            note: aNote,
+          }))
+        );
+
+        setIsManualModalOpen(false);
+        setManualTargetTopic(null);
+        setSelectedMembersMap({});
+        onShowNotification(
+          `Đã thêm ${chosenMembers.length} thành viên vào LMS${
+            cmsAddedCount > 0 ? ` & đồng bộ ${cmsAddedCount} hồ sơ sang CMS` : ''
+          }!`
+        );
+      } catch (err: any) {
+        onShowNotification(`Lỗi lưu hàng loạt: ${err?.message || 'Thử lại sau'}`);
+      } finally {
+        setIsSavingAssign(false);
+      }
+      return;
+    }
+
+    // Nhập tay / Chỉnh sửa 1 dòng
     if (!aAreaCode.trim() || !aStudentName.trim()) {
       onShowNotification('Vui lòng nhập đầy đủ Khu vực (KV) và Họ tên (Name).');
       return;
@@ -684,60 +886,82 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       const existing = editingAssignId
         ? assignments.find((a) => a.id === editingAssignId)
         : null;
-      const nowIso = new Date().toISOString();
-      const { participated, completed, status } = deriveAssignmentStatus(aParticipated, aCompleted);
 
-      const targetWeekLabel =
-        manualTargetTopic?.weekLabel ||
-        existing?.weekLabel ||
-        (sheetWeekFilter !== 'ALL' ? sheetWeekFilter : defaultWeek.weekLabel);
+      await upsertSingleAssignment({
+        companyCode: aCompanyCode,
+        areaCode: aAreaCode,
+        studentName: aStudentName,
+        level: aLevel,
+        participated: aParticipated,
+        completed: aCompleted,
+        note: aNote,
+        memberId: aMemberId || undefined,
+        existing,
+        topicOverride: manualTargetTopic,
+      });
 
-      const topicMeta = manualTargetTopic
-        ? {
-            topicId: manualTargetTopic.id,
-            weekLabel: manualTargetTopic.weekLabel,
-            topicTitle: manualTargetTopic.topicTitle,
-          }
-        : existing
-        ? {
-            topicId: existing.topicId,
-            weekLabel: existing.weekLabel,
-            topicTitle: existing.topicTitle,
-          }
-        : resolveTopicForTrackAndWeek(aLevel, targetWeekLabel, aCompanyCode, aAreaCode);
-
-      await onSaveAssignment(
-        {
-          topicId: topicMeta.topicId,
-          track: aLevel,
-          weekLabel: topicMeta.weekLabel,
-          topicTitle: topicMeta.topicTitle,
-          companyCode: aCompanyCode,
-          areaCode: aAreaCode.trim(),
-          memberId: aMemberId || existing?.memberId || undefined,
-          cmsProfileId: existing?.cmsProfileId,
-          studentName: aStudentName.trim(),
-          assignedByUid: existing?.assignedByUid || currentUser.id,
-          assignedByName: existing?.assignedByName || currentUser.fullName,
-          status,
-          participated,
-          completed,
-          note: aNote.trim(),
-          createdAt: existing?.createdAt || nowIso,
-          updatedAt: nowIso,
-        },
-        editingAssignId || undefined
-      );
+      const cmsAddedCount = !editingAssignId
+        ? await syncMissingToCmsIfEnabled([
+            {
+              fullName: aStudentName,
+              companyCode: aCompanyCode,
+              areaCode: aAreaCode,
+              level: aLevel,
+              note: aNote,
+            },
+          ])
+        : 0;
 
       setIsManualModalOpen(false);
       setManualTargetTopic(null);
       onShowNotification(
-        editingAssignId ? 'Đã cập nhật thông tin LMS!' : 'Đã thêm dòng dữ liệu LMS mới!'
+        editingAssignId
+          ? 'Đã cập nhật thông tin LMS!'
+          : `Đã thêm dòng dữ liệu LMS mới${cmsAddedCount > 0 ? ' & đồng bộ sang CMS' : ''}!`
       );
     } catch (err: any) {
       onShowNotification(`Lỗi lưu dữ liệu: ${err?.message || 'Thử lại sau'}`);
     } finally {
       setIsSavingAssign(false);
+    }
+  };
+
+  const handleBulkTickConfirmSubmit = async () => {
+    if (!bulkTickConfirm || !currentUser) return;
+    const { field, areaLabel, targetRows } = bulkTickConfirm;
+    if (targetRows.length === 0) {
+      setBulkTickConfirm(null);
+      return;
+    }
+    setIsBulkTicking(true);
+    try {
+      await Promise.all(
+        targetRows.map((row) =>
+          upsertSingleAssignment({
+            companyCode:
+              row.assignment?.companyCode || row.companyCode || currentUser.companyCode || 'HT',
+            areaCode: row.assignment?.areaCode || row.areaCode || currentUser.areaCode || 'Chung',
+            studentName: row.assignment?.studentName || row.name,
+            level: row.level,
+            participated: field === 'participated' ? true : true,
+            completed: field === 'completed' ? true : row.completed,
+            note: row.assignment?.note || '',
+            memberId: row.assignment?.memberId,
+            cmsProfileId: row.assignment?.cmsProfileId || row.cmsProfileId,
+            existing: row.assignment || null,
+          })
+        )
+      );
+      setBulkTickConfirm(null);
+      onShowNotification(
+        `Đã tick nhanh ${field === 'participated' ? 'Tham gia' : 'Hoàn thành'} cho ${
+          targetRows.length
+        } nhân sự (${areaLabel})!`
+      );
+    } catch (err: any) {
+      onShowNotification(`Lỗi tick nhanh hàng loạt: ${err?.message || 'Thử lại sau'}`);
+    } finally {
+      setIsBulkTicking(false);
     }
   };
 
@@ -772,14 +996,97 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
 
   const memberCandidatesForAssign = useMemo(
     () =>
-      members.filter(
-        (m) =>
-          canViewMemberDetail(currentUser, m) &&
-          (!aCompanyCode || m.companyCode === aCompanyCode) &&
-          (!aAreaCode || m.areaCode === aAreaCode)
-      ),
+      members
+        .filter(
+          (m) =>
+            canViewMemberDetail(currentUser, m) &&
+            (!aCompanyCode || normalizeOrgCode(m.companyCode) === normalizeOrgCode(aCompanyCode)) &&
+            (!aAreaCode || normalizeOrgCode(m.areaCode) === normalizeOrgCode(aAreaCode))
+        )
+        .sort((a, b) => a.fullName.localeCompare(b.fullName, 'vi')),
     [members, currentUser, aCompanyCode, aAreaCode]
   );
+
+  // Tập nhân sự đã tồn tại trong Tuần / Chủ đề đang thao tác (để chống trùng khi chọn nhiều)
+  const existingKeysInModalScope = useMemo(() => {
+    const keys = new Set<string>();
+    const memberIds = new Set<string>();
+    const existingLevelMap = new Map<string, EduTrack>();
+
+    if (manualTargetTopic) {
+      assignments
+        .filter((a) => a.topicId === manualTargetTopic.id)
+        .forEach((a) => {
+          const k = `${normalizeOrgCode(a.companyCode)}|${normalizeOrgCode(
+            a.areaCode
+          )}|${normalizeEduText(a.studentName)}`;
+          keys.add(k);
+          existingLevelMap.set(k, a.track);
+          if (a.memberId) memberIds.add(a.memberId);
+        });
+    } else {
+      const allRowsForWeek = buildLmsManagementRows({
+        viewer: currentUser,
+        cmsProfiles,
+        assignments,
+        topics,
+        filters: { weekFilter: sheetWeekFilter },
+      });
+      allRowsForWeek.forEach((r) => {
+        const k = `${normalizeOrgCode(r.companyCode)}|${normalizeOrgCode(
+          r.areaCode
+        )}|${normalizeEduText(r.name)}`;
+        keys.add(k);
+        existingLevelMap.set(k, r.level);
+        if (r.assignment?.memberId) memberIds.add(r.assignment.memberId);
+      });
+    }
+    return { keys, memberIds, existingLevelMap };
+  }, [manualTargetTopic, assignments, currentUser, cmsProfiles, topics, sheetWeekFilter]);
+
+  const filteredModalMemberCandidates = useMemo(() => {
+    const q = normalizeEduText(memberSearchQuery);
+    return memberCandidatesForAssign.filter((m) => {
+      if (!q) return true;
+      return (
+        normalizeEduText(m.fullName).includes(q) ||
+        normalizeEduText(m.unitCode).includes(q) ||
+        normalizeEduText(m.departmentCode).includes(q)
+      );
+    });
+  }, [memberCandidatesForAssign, memberSearchQuery]);
+
+  // Phương án C: Kiểm tra bảng Sheet 1 có đang lọc trên 1 KV cụ thể không
+  const areaFocusInfo = useMemo(() => {
+    const distinctKeys = new Set<string>();
+    managementRows.forEach((r) => {
+      distinctKeys.add(`${normalizeOrgCode(r.companyCode)}|${normalizeOrgCode(r.areaCode)}`);
+    });
+    const isSingleAreaFocused =
+      managementRows.length > 0 && (areaFilter !== 'ALL' || distinctKeys.size === 1);
+
+    const firstRow = managementRows[0];
+    const areaLabel =
+      areaFilter !== 'ALL'
+        ? `${companyFilter !== 'ALL' ? `${companyFilter} · ` : ''}KV ${areaFilter}`
+        : firstRow
+        ? `${firstRow.companyCode ? `${firstRow.companyCode} · ` : ''}KV ${firstRow.areaCode || '—'}`
+        : 'KV đang lọc';
+
+    const editableUnparticipated = managementRows.filter(
+      (r) => canModifyRow(r) && !r.participated
+    );
+    const editableUncompleted = managementRows.filter(
+      (r) => canModifyRow(r) && !r.completed
+    );
+
+    return {
+      isSingleAreaFocused,
+      areaLabel,
+      editableUnparticipated,
+      editableUncompleted,
+    };
+  }, [managementRows, areaFilter, companyFilter, currentUser, isAdmin]);
 
   if (!currentUser) {
     return (
@@ -1022,13 +1329,64 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                 </button>
               )}
 
+              {/* Phương án C: Tick nhanh theo KV đang lọc (chỉ mở khóa khi đang lọc 1 KV cụ thể) */}
+              {currentUser.role !== 'MEMBER' && managementRows.length > 0 && (
+                areaFocusInfo.isSingleAreaFocused ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={areaFocusInfo.editableUnparticipated.length === 0}
+                      onClick={() =>
+                        setBulkTickConfirm({
+                          field: 'participated',
+                          areaLabel: areaFocusInfo.areaLabel,
+                          targetRows: areaFocusInfo.editableUnparticipated,
+                        })
+                      }
+                      className="px-3 h-9 rounded-xl border border-blue-200 dark:border-blue-800/70 bg-blue-50/80 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
+                      title={`Đánh dấu Tham gia cho các nhân sự chưa tick thuộc ${areaFocusInfo.areaLabel}`}
+                    >
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      <span>
+                        Tick Tham gia ({areaFocusInfo.editableUnparticipated.length})
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={areaFocusInfo.editableUncompleted.length === 0}
+                      onClick={() =>
+                        setBulkTickConfirm({
+                          field: 'completed',
+                          areaLabel: areaFocusInfo.areaLabel,
+                          targetRows: areaFocusInfo.editableUncompleted,
+                        })
+                      }
+                      className="px-3 h-9 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
+                      title={`Đánh dấu Hoàn thành cho các nhân sự chưa tick thuộc ${areaFocusInfo.areaLabel}`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>
+                        Tick Hoàn thành ({areaFocusInfo.editableUncompleted.length})
+                      </span>
+                    </button>
+                  </>
+                ) : (
+                  <span className="px-3 h-9 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-[11px] font-semibold inline-flex items-center whitespace-nowrap">
+                    Chọn 1 KV để tick nhanh
+                  </span>
+                )
+              )}
+
               <button
                 type="button"
                 onClick={() => openManualModal()}
                 className="px-3.5 h-9 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Thêm thủ công</span>
+                <span>
+                  {currentUser.role === 'MEMBER' ? 'Tự đăng ký' : 'Thêm thành viên'}
+                </span>
               </button>
             </div>
           </div>
@@ -2234,7 +2592,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         </div>
       )}
 
-      {/* MODAL: ADD / EDIT MANUAL ROW OR TOPIC ASSIGNMENT */}
+      {/* MODAL: ADD / EDIT MANUAL ROW OR TOPIC ASSIGNMENT (PHƯƠNG ÁN A + B) */}
       {isManualModalOpen && (
         <div
           onClick={() => setIsManualModalOpen(false)}
@@ -2243,12 +2601,16 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveManualSubmit}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs"
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs"
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="font-black text-base text-slate-900 dark:text-white">
-                  {editingAssignId ? 'Cập nhật thông tin LMS' : 'Thêm dòng LMS thủ công'}
+                  {editingAssignId
+                    ? 'Cập nhật thông tin LMS'
+                    : modalEntryMode === 'MULTI'
+                    ? 'Chọn nhiều thành viên thêm vào LMS'
+                    : 'Thêm dòng LMS thủ công'}
                 </h3>
                 <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-bold mt-0.5">
                   {manualTargetTopic
@@ -2267,6 +2629,34 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
               </button>
             </div>
 
+            {/* Mode Switcher when Adding as Manager */}
+            {!editingAssignId && currentUser.role !== 'MEMBER' && (
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => setModalEntryMode('MULTI')}
+                  className={`h-8.5 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    modalEntryMode === 'MULTI'
+                      ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  Chọn nhiều từ Thành viên ({memberCandidatesForAssign.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalEntryMode('SINGLE')}
+                  className={`h-8.5 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    modalEntryMode === 'SINGLE'
+                      ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  Nhập tên thủ công (1 dòng)
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -2280,6 +2670,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                     setACompanyCode(nextComp);
                     const allowedAreas = getScopedAreaOptions(currentUser, areas, nextComp, members);
                     if (allowedAreas[0]?.code) setAAreaCode(allowedAreas[0].code);
+                    setSelectedMembersMap({});
                   }}
                   options={scopedCompanyOptionsForAssign.map((c) => ({
                     value: c.code,
@@ -2304,7 +2695,10 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                       areaOptionsForAssign.length <= 1
                     }
                     value={aAreaCode}
-                    onChange={setAAreaCode}
+                    onChange={(nextArea) => {
+                      setAAreaCode(nextArea);
+                      setSelectedMembersMap({});
+                    }}
                     options={areaOptionsForAssign.map((a) => ({
                       value: a.code,
                       label: `KV ${a.code} (${a.name})`,
@@ -2326,66 +2720,270 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
               </div>
             </div>
 
-            {memberCandidatesForAssign.length > 0 && !editingAssignId && (
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Chọn nhanh từ danh sách thành viên KV {aAreaCode} (tùy chọn)
-                </label>
-                <CustomSelect
-                  size="sm"
-                  value={aMemberId}
-                  onChange={(id) => {
-                    setAMemberId(id);
-                    const found = members.find((m) => m.id === id);
-                    if (found) setAStudentName(found.fullName);
-                  }}
-                  options={[
-                    { value: '', label: '-- Nhập thủ công hoặc chọn từ danh sách --' },
-                    ...memberCandidatesForAssign.map((m) => ({
-                      value: m.id,
-                      label: m.fullName,
-                      badge: m.unitCode || m.departmentCode,
-                    })),
-                  ]}
-                  searchable
-                  ariaLabel="Chọn nhanh thành viên"
-                />
+            {/* PHƯƠNG ÁN A: MULTI-SELECT CHECKLIST */}
+            {!editingAssignId && modalEntryMode === 'MULTI' && currentUser.role !== 'MEMBER' ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                  <div className="sm:col-span-6 relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder={`Tìm thành viên KV ${aAreaCode}...`}
+                      value={memberSearchQuery}
+                      onChange={(e) => setMemberSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-6 flex items-center gap-2">
+                    <div className="flex-1">
+                      <CustomSelect
+                        size="sm"
+                        disabled={Boolean(manualTargetTopic)}
+                        value={aLevel}
+                        onChange={(val) => {
+                          const nextLv = val as EduTrack;
+                          setALevel(nextLv);
+                          setSelectedMembersMap((prev) => {
+                            const updated: Record<string, EduTrack> = {};
+                            Object.keys(prev).forEach((k) => {
+                              updated[k] = nextLv;
+                            });
+                            return updated;
+                          });
+                        }}
+                        options={EDU_TRACK_ORDER.map((lv) => ({
+                          value: lv,
+                          label: `Level chung: ${EDU_TRACK_LABELS[lv]}`,
+                        }))}
+                        menuMinWidth={160}
+                        ariaLabel="Level chung cho nhóm đang chọn"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Select / Clear Toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400 tabular-nums">
+                    Đã chọn:{' '}
+                    <strong className="text-blue-700 dark:text-blue-300">
+                      {Object.keys(selectedMembersMap).length}
+                    </strong>{' '}
+                    / {filteredModalMemberCandidates.length} thành viên hiển thị
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: Record<string, EduTrack> = { ...selectedMembersMap };
+                        filteredModalMemberCandidates.forEach((m) => {
+                          const k = `${normalizeOrgCode(
+                            aCompanyCode || m.companyCode
+                          )}|${normalizeOrgCode(aAreaCode || m.areaCode)}|${normalizeEduText(
+                            m.fullName
+                          )}`;
+                          const alreadyExists =
+                            existingKeysInModalScope.keys.has(k) ||
+                            existingKeysInModalScope.memberIds.has(m.id);
+                          if (!alreadyExists) {
+                            next[m.id] = manualTargetTopic ? manualTargetTopic.track : aLevel;
+                          }
+                        });
+                        setSelectedMembersMap(next);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold hover:bg-blue-100 cursor-pointer"
+                    >
+                      Chọn tất cả chưa có
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMembersMap({})}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 cursor-pointer"
+                    >
+                      Bỏ chọn
+                    </button>
+                  </div>
+                </div>
+
+                {/* Scrollable Checklist */}
+                <div className="max-h-[250px] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredModalMemberCandidates.length === 0 ? (
+                    <div className="p-6 text-center text-slate-500 dark:text-slate-400">
+                      Không tìm thấy thành viên nào thuộc KV {aAreaCode}. Bạn có thể chuyển sang tab{' '}
+                      <strong>Nhập tên thủ công</strong> ở trên.
+                    </div>
+                  ) : (
+                    filteredModalMemberCandidates.map((m) => {
+                      const k = `${normalizeOrgCode(
+                        aCompanyCode || m.companyCode
+                      )}|${normalizeOrgCode(aAreaCode || m.areaCode)}|${normalizeEduText(
+                        m.fullName
+                      )}`;
+                      const alreadyExists =
+                        existingKeysInModalScope.keys.has(k) ||
+                        existingKeysInModalScope.memberIds.has(m.id);
+                      const existingLv = existingKeysInModalScope.existingLevelMap.get(k);
+                      const isChecked = Object.prototype.hasOwnProperty.call(
+                        selectedMembersMap,
+                        m.id
+                      );
+                      const memberLv =
+                        selectedMembersMap[m.id] ||
+                        (manualTargetTopic ? manualTargetTopic.track : aLevel);
+
+                      return (
+                        <div
+                          key={m.id}
+                          className={`px-3 py-2.5 flex items-center justify-between gap-2 transition ${
+                            alreadyExists
+                              ? 'bg-slate-50/80 dark:bg-slate-800/30 opacity-65'
+                              : isChecked
+                              ? 'bg-blue-50/50 dark:bg-blue-950/25'
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            disabled={alreadyExists}
+                            onClick={() => {
+                              setSelectedMembersMap((prev) => {
+                                const next = { ...prev };
+                                if (Object.prototype.hasOwnProperty.call(next, m.id)) {
+                                  delete next[m.id];
+                                } else {
+                                  next[m.id] = manualTargetTopic
+                                    ? manualTargetTopic.track
+                                    : aLevel;
+                                }
+                                return next;
+                              });
+                            }}
+                            className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            <span
+                              className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${
+                                alreadyExists
+                                  ? 'bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-500'
+                                  : isChecked
+                                  ? 'bg-blue-600 border-blue-600 text-white'
+                                  : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'
+                              }`}
+                            >
+                              {(alreadyExists || isChecked) && (
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              )}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-bold text-slate-900 dark:text-white truncate">
+                                {m.fullName}
+                              </div>
+                              {(m.unitCode || m.departmentCode) && (
+                                <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                  Đội / Tổ: {m.unitCode || m.departmentCode}
+                                </div>
+                              )}
+                            </div>
+                          </button>
+
+                          {alreadyExists ? (
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 shrink-0 whitespace-nowrap">
+                              Đã có{existingLv ? ` · ${EDU_TRACK_LABELS[existingLv]}` : ''}
+                            </span>
+                          ) : isChecked && !manualTargetTopic ? (
+                            <div className="inline-flex items-center gap-1 shrink-0">
+                              {EDU_TRACK_ORDER.map((lv) => (
+                                <button
+                                  key={lv}
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedMembersMap((prev) => ({
+                                      ...prev,
+                                      [m.id]: lv,
+                                    }))
+                                  }
+                                  className={`px-2 py-1 rounded-md text-[10px] font-extrabold border transition cursor-pointer ${
+                                    memberLv === lv
+                                      ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                  }`}
+                                >
+                                  {EDU_TRACK_LABELS[lv]}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
+            ) : (
+              /* SINGLE / MANUAL ROW MODE */
+              <>
+                {memberCandidatesForAssign.length > 0 && !editingAssignId && (
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Chọn nhanh từ danh sách thành viên KV {aAreaCode} (tùy chọn)
+                    </label>
+                    <CustomSelect
+                      size="sm"
+                      value={aMemberId}
+                      onChange={(id) => {
+                        setAMemberId(id);
+                        const found = members.find((m) => m.id === id);
+                        if (found) setAStudentName(found.fullName);
+                      }}
+                      options={[
+                        { value: '', label: '-- Nhập thủ công hoặc chọn từ danh sách --' },
+                        ...memberCandidatesForAssign.map((m) => ({
+                          value: m.id,
+                          label: m.fullName,
+                          badge: m.unitCode || m.departmentCode,
+                        })),
+                      ]}
+                      searchable
+                      ariaLabel="Chọn nhanh thành viên"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Name (Họ tên) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Nhập họ tên..."
+                      value={aStudentName}
+                      onChange={(e) => setAStudentName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Level <span className="text-rose-500">*</span>
+                    </label>
+                    <CustomSelect
+                      size="sm"
+                      disabled={Boolean(manualTargetTopic)}
+                      value={aLevel}
+                      onChange={(val) => setALevel(val as EduTrack)}
+                      options={EDU_TRACK_ORDER.map((lv) => ({
+                        value: lv,
+                        label: EDU_TRACK_LABELS[lv],
+                      }))}
+                      menuMinWidth={140}
+                      ariaLabel="Chọn Level"
+                    />
+                  </div>
+                </div>
+              </>
             )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="sm:col-span-2">
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Name (Họ tên) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Nhập họ tên..."
-                  value={aStudentName}
-                  onChange={(e) => setAStudentName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Level <span className="text-rose-500">*</span>
-                </label>
-                <CustomSelect
-                  size="sm"
-                  disabled={Boolean(manualTargetTopic)}
-                  value={aLevel}
-                  onChange={(val) => setALevel(val as EduTrack)}
-                  options={EDU_TRACK_ORDER.map((lv) => ({
-                    value: lv,
-                    label: EDU_TRACK_LABELS[lv],
-                  }))}
-                  menuMinWidth={140}
-                  ariaLabel="Chọn Level"
-                />
-              </div>
-            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -2439,9 +3037,36 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
               </button>
             </div>
 
+            {/* PHƯƠNG ÁN B: TỰ ĐỘNG ĐỒNG BỘ SANG CMS ĐỂ TUẦN SAU TỰ HIỆN SẴN */}
+            {!editingAssignId && currentUser.role !== 'MEMBER' && onSaveCmsProfile && (
+              <button
+                type="button"
+                onClick={() => setSyncToCmsOnAdd((v) => !v)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 flex items-center justify-between gap-3 text-left cursor-pointer"
+              >
+                <div>
+                  <div className="font-bold text-slate-800 dark:text-slate-100">
+                    Tự động lưu hồ sơ sang CMS (nếu chưa có)
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Từ tuần sau danh sách sẽ tự động nạp sẵn trên Sheet 1, không cần chọn lại.
+                  </div>
+                </div>
+                <span
+                  className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${
+                    syncToCmsOnAdd
+                      ? 'bg-emerald-600 border-emerald-600 text-white'
+                      : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'
+                  }`}
+                >
+                  {syncToCmsOnAdd && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                </span>
+              </button>
+            )}
+
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Ghi chú
+                Ghi chú {modalEntryMode === 'MULTI' && !editingAssignId ? '(áp dụng chung)' : ''}
               </label>
               <input
                 type="text"
@@ -2462,14 +3087,106 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isSavingAssign}
-                className="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                disabled={
+                  isSavingAssign ||
+                  (!editingAssignId &&
+                    modalEntryMode === 'MULTI' &&
+                    currentUser.role !== 'MEMBER' &&
+                    Object.keys(selectedMembersMap).length === 0)
+                }
+                className="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{isSavingAssign ? 'Đang lưu...' : 'Lưu thông tin'}</span>
+                <span>
+                  {isSavingAssign
+                    ? 'Đang lưu...'
+                    : !editingAssignId &&
+                      modalEntryMode === 'MULTI' &&
+                      currentUser.role !== 'MEMBER'
+                    ? `Thêm ${Object.keys(selectedMembersMap).length} thành viên`
+                    : 'Lưu thông tin'}
+                </span>
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* PHƯƠNG ÁN C: HỘP XÁC NHẬN AN TOÀN KHI TICK NHANH THEO KV */}
+      {bulkTickConfirm && (
+        <div
+          onClick={() => !isBulkTicking && setBulkTickConfirm(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-xs"
+          >
+            <div>
+              <h3 className="font-black text-base text-slate-900 dark:text-white">
+                Xác nhận tick nhanh hàng loạt
+              </h3>
+              <p className="text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                Bạn sắp đánh dấu{' '}
+                <strong
+                  className={
+                    bulkTickConfirm.field === 'completed'
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : 'text-blue-700 dark:text-blue-300'
+                  }
+                >
+                  {bulkTickConfirm.field === 'participated'
+                    ? 'Đã Tham gia (✓)'
+                    : 'Đã Hoàn thành (✓ kèm Tham gia ✓)'}
+                </strong>{' '}
+                cho <strong>{bulkTickConfirm.targetRows.length}</strong> nhân sự thuộc{' '}
+                <strong>{bulkTickConfirm.areaLabel}</strong> (
+                {sheetWeekFilter === 'ALL' ? defaultWeek.weekLabel : sheetWeekFilter}).
+              </p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+              <div className="font-bold text-slate-700 dark:text-slate-200">
+                Danh sách áp dụng ({bulkTickConfirm.targetRows.length} người):
+              </div>
+              <div className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                {bulkTickConfirm.targetRows
+                  .slice(0, 6)
+                  .map((r) => `${r.name} (${EDU_TRACK_LABELS[r.level]})`)
+                  .join(', ')}
+                {bulkTickConfirm.targetRows.length > 6 &&
+                  ` và ${bulkTickConfirm.targetRows.length - 6} người khác...`}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isBulkTicking}
+                onClick={() => setBulkTickConfirm(null)}
+                className="px-3.5 py-2 rounded-xl font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isBulkTicking}
+                onClick={handleBulkTickConfirmSubmit}
+                className={`px-4 py-2 rounded-xl font-extrabold text-white cursor-pointer disabled:opacity-60 inline-flex items-center gap-1.5 ${
+                  bulkTickConfirm.field === 'completed'
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-blue-700 hover:bg-blue-800'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>
+                  {isBulkTicking
+                    ? 'Đang cập nhật...'
+                    : `Xác nhận tick (${bulkTickConfirm.targetRows.length})`}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

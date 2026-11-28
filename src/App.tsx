@@ -3272,7 +3272,8 @@ export default function App() {
     assignment: Omit<EduTopicAssignment, 'id'>,
     existingId?: string
   ) => {
-    const id = existingId || `asg_${firebaseUser?.uid || 'u'}_${Date.now()}`;
+    const rand = Math.random().toString(36).slice(2, 7);
+    const id = existingId || `asg_${firebaseUser?.uid || 'u'}_${Date.now()}_${rand}`;
     const clean = JSON.parse(JSON.stringify(assignment));
     await setDoc(doc(db, 'edu_assignments', id), clean);
   };
@@ -3285,7 +3286,8 @@ export default function App() {
     profile: Omit<EduCmsProfile, 'id'>,
     existingId?: string
   ) => {
-    const id = existingId || `cms_${firebaseUser?.uid || 'u'}_${Date.now()}`;
+    const rand = Math.random().toString(36).slice(2, 7);
+    const id = existingId || `cms_${firebaseUser?.uid || 'u'}_${Date.now()}_${rand}`;
     const clean = JSON.parse(JSON.stringify(profile));
     await setDoc(doc(db, 'edu_cms_profiles', id), clean);
   };
@@ -6244,6 +6246,7 @@ export default function App() {
                 onDeleteTopic={handleDeleteEduTopic}
                 onSaveAssignment={handleSaveEduAssignment}
                 onDeleteAssignment={handleDeleteEduAssignment}
+                onSaveCmsProfile={handleSaveEduCmsProfile}
                 onNavigateToCmsCurriculum={(topicId) => {
                   setCmsNavIntent({ subTab: 'CURRICULUM', topicId });
                   setActiveTab('EDU_CMS');
