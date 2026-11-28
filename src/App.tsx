@@ -6235,6 +6235,7 @@ export default function App() {
                 currentUser={effectiveCurrentUser}
                 topics={eduTopics}
                 assignments={eduAssignments}
+                cmsProfiles={eduCmsProfiles}
                 companies={effectiveCompanies}
                 areas={effectiveAreas}
                 members={allMembersRanked}

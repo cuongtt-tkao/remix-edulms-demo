@@ -155,7 +155,7 @@
     },
     "EduWeeklyTopic": {
       "title": "EduWeeklyTopic",
-      "description": "Weekly topic & CMS lesson curriculum for LMS tracks (TĐ-I, TĐ-II, NGV)",
+      "description": "Weekly topic & CMS lesson curriculum for LMS tracks (TĐM, TĐ1, TĐ2, NGV)",
       "type": "object",
       "properties": {
         "weekNumber": { "type": "number" },
@@ -163,7 +163,7 @@
         "weekLabel": { "type": "string", "maxLength": 60 },
         "startDate": { "type": "string", "maxLength": 15 },
         "endDate": { "type": "string", "maxLength": 15 },
-        "track": { "type": "string", "enum": ["TD_I", "TD_II", "NGV"] },
+        "track": { "type": "string", "enum": ["TD_MOI", "TD_I", "TD_II", "NGV"] },
         "companyCode": { "type": "string", "maxLength": 30 },
         "areaCode": { "type": "string", "maxLength": 40 },
         "topicTitle": { "type": "string", "maxLength": 200 },
@@ -179,20 +179,23 @@
     },
     "EduTopicAssignment": {
       "title": "EduTopicAssignment",
-      "description": "Assignment linking Tên KV & Tên TĐ to a weekly LMS topic",
+      "description": "Assignment linking Tên KV, Tên TĐ & Level with Tham gia / Hoàn thành flags to LMS",
       "type": "object",
       "properties": {
         "topicId": { "type": "string", "maxLength": 128 },
-        "track": { "type": "string", "enum": ["TD_I", "TD_II", "NGV"] },
+        "track": { "type": "string", "enum": ["TD_MOI", "TD_I", "TD_II", "NGV"] },
         "weekLabel": { "type": "string", "maxLength": 60 },
         "topicTitle": { "type": "string", "maxLength": 200 },
         "companyCode": { "type": "string", "maxLength": 30 },
         "areaCode": { "type": "string", "maxLength": 40 },
         "memberId": { "type": "string", "maxLength": 128 },
+        "cmsProfileId": { "type": "string", "maxLength": 128 },
         "studentName": { "type": "string", "maxLength": 120 },
         "assignedByUid": { "type": "string", "maxLength": 128 },
         "assignedByName": { "type": "string", "maxLength": 100 },
         "status": { "type": "string", "enum": ["REGISTERED", "IN_PROGRESS", "COMPLETED"] },
+        "participated": { "type": "boolean" },
+        "completed": { "type": "boolean" },
         "note": { "type": "string", "maxLength": 500 },
         "createdAt": { "type": "string", "maxLength": 50 },
         "updatedAt": { "type": "string", "maxLength": 50 }

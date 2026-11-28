@@ -29,7 +29,6 @@ import {
 } from 'lucide-react';
 import { UserAccount, ROLE_DISPLAY_META, canAccessAdminPanel, AppLogoConfig } from '../types/edulms';
 import { AppLogoMark } from './AppLogoMark';
-import { PWAInstallButton } from './PWAInstallButton';
 import {
   getBrowserNotificationPermission,
   requestBrowserNotificationPermission,
@@ -187,8 +186,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
       {/* Right: Utility buttons + Unified Account Mini Menu */}
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        <PWAInstallButton variant="navbar" />
-
         <button
           type="button"
           onClick={onOpenRulesModal}

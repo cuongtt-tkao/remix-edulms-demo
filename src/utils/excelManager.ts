@@ -15,7 +15,6 @@ import {
   EduCmsProfile,
   EDU_TRACK_LABELS,
   EDU_CMS_STAGE_LABELS,
-  EDU_ASSIGNMENT_STATUS_LABELS,
   canExportExcel,
 } from '../types/edulms';
 
@@ -28,6 +27,13 @@ import {
   isMemberInManagerCluster,
   normalizeOrgCode,
 } from './rbac';
+import {
+  buildLmsAnalyticsSummary,
+  buildLmsAreaAnalytics,
+  buildLmsManagementRows,
+  formatEduPercent,
+  LmsManagementRow,
+} from './eduAnalytics';
 
 function getDateStamp(): string {
   const now = new Date();
@@ -546,8 +552,152 @@ export function exportDisciplesExcel(
   return { count: filtered.length, fileName };
 }
 
+function appendEduLmsTwoSheets(
+  wb: XLSX.WorkBook,
+  rows: LmsManagementRow[],
+  weekLabelText: string
+): void {
+  // Sheet 1: Quản lý (Name | KV | Level | Tham gia | Hoàn thành)
+  const sheet1Rows = rows.map((r, idx) => ({
+    STT: idx + 1,
+    Name: r.name,
+    KV: r.areaCode || '—',
+    Sion: r.companyCode || '—',
+    Level: EDU_TRACK_LABELS[r.level] || r.level,
+    'Tham gia': r.participated ? '✓' : '',
+    'Hoàn thành': r.completed ? '✓' : '',
+    Tuần: r.assignment?.weekLabel || weekLabelText,
+    'Ghi chú': r.note || '',
+  }));
+
+  const ws1 = XLSX.utils.json_to_sheet(
+    sheet1Rows.length
+      ? sheet1Rows
+      : [{ 'Thông báo': 'Chưa có nhân sự LMS trong phạm vi đang lọc' }]
+  );
+  ws1['!cols'] = [
+    { wch: 6 },
+    { wch: 26 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 28 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Quản lý');
+
+  // Sheet 2: Phân tích (TĐM, TĐ1, TĐ2, NGV + Tổng cộng + Phân tích theo KV)
+  const { levelRows, totalRow } = buildLmsAnalyticsSummary(rows);
+  const areaRows = buildLmsAreaAnalytics(rows);
+
+  const sheet2AoA: Array<Array<string | number>> = [
+    ['PHÂN TÍCH KẾT QUẢ LMS THEO LEVEL', '', '', '', '', '', '', `Phạm vi: ${weekLabelText}`],
+    [],
+    [
+      'Level',
+      'SL',
+      'SL Tham gia',
+      'Tham gia / SL (%)',
+      'Đánh giá (Tham gia)',
+      'SL Hoàn thành',
+      'Hoàn thành / SL (%)',
+      'Đánh giá (Hoàn thành)',
+    ],
+    ...[...levelRows, totalRow].map((item) => [
+      item.label,
+      item.totalCount,
+      item.participatedCount,
+      formatEduPercent(item.participatedRate),
+      item.participatedRating.label,
+      item.completedCount,
+      formatEduPercent(item.completedRate),
+      item.completedRating.label,
+    ]),
+    [],
+    ['Thang đánh giá:', '<50%: Yếu', '50–59%: Trung bình', '60–69%: Khá', '70–79%: Tốt', '80–89%: Xuất sắc', '90–100%: Siêu xuất sắc'],
+  ];
+
+  if (areaRows.length > 0) {
+    sheet2AoA.push(
+      [],
+      ['PHÂN TÍCH CHI TIẾT THEO KHU VỰC (KV)'],
+      [
+        'Sion',
+        'KV',
+        'SL',
+        'SL Tham gia',
+        'Tham gia / SL (%)',
+        'Đánh giá (Tham gia)',
+        'SL Hoàn thành',
+        'Hoàn thành / SL (%)',
+        'Đánh giá (Hoàn thành)',
+      ],
+      ...areaRows.map((ar) => [
+        ar.companyCode,
+        ar.areaCode,
+        ar.totalCount,
+        ar.participatedCount,
+        formatEduPercent(ar.participatedRate),
+        ar.participatedRating.label,
+        ar.completedCount,
+        formatEduPercent(ar.completedRate),
+        ar.completedRating.label,
+      ])
+    );
+  }
+
+  const ws2 = XLSX.utils.aoa_to_sheet(sheet2AoA);
+  ws2['!cols'] = [
+    { wch: 16 },
+    { wch: 10 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 16 },
+    { wch: 20 },
+    { wch: 24 },
+    { wch: 24 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Phân tích');
+}
+
 /**
- * 4. Xuất dữ liệu Edu (LMS Chủ đề tuần & Phân công + CMS Lộ trình & NGV) theo phân quyền 7 cấp (.xlsx)
+ * 4A. Xuất Excel trực tiếp 2 Sheet LMS (Sheet 1: Quản lý, Sheet 2: Phân tích) đồng bộ với giao diện Web
+ */
+export function exportEduLmsTwoSheetsExcel(params: {
+  viewer?: UserAccount | null;
+  rows: LmsManagementRow[];
+  weekLabel?: string;
+  companyCode?: string;
+  areaCode?: string;
+}): { rowsCount: number; fileName: string } {
+  const { viewer, rows, weekLabel = 'Tất cả tuần', companyCode = 'ALL', areaCode = 'ALL' } = params;
+  if (!viewer || !canExportExcel(viewer.role)) {
+    throw new Error('Chỉ tài khoản từ cấp TS, NQ (Cấp 4) trở lên mới được phép tải xuống Excel.');
+  }
+
+  const wb = XLSX.utils.book_new();
+  appendEduLmsTwoSheets(wb, rows, weekLabel);
+
+  const scopeTag =
+    areaCode !== 'ALL'
+      ? `${companyCode !== 'ALL' ? companyCode + '_' : ''}KV_${areaCode}`
+      : companyCode !== 'ALL'
+      ? companyCode
+      : !isAdminRole(viewer.role)
+      ? getSafeRoleBadge(viewer)
+      : 'ToanHT';
+  const safeScope = scopeTag.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `HanhThucLuc_LMS_${safeScope}_${getDateStamp()}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+
+  return { rowsCount: rows.length, fileName };
+}
+
+/**
+ * 4B. Xuất dữ liệu Edu tổng hợp từ Admin Panel (gồm 2 Sheet chuẩn Quản lý & Phân tích + Chủ đề LMS + CMS)
  */
 export function exportEduDataExcel(
   topics: EduWeeklyTopic[],
@@ -615,13 +765,27 @@ export function exportEduDataExcel(
     )
     .sort((a, b) => (a.companyCode || '').localeCompare(b.companyCode || ''));
 
-  // Sheet 1: LMS Chủ Đề Tuần
+  // Sheet 1 & Sheet 2 chuẩn Quản lý & Phân tích
+  const mgmtRows = buildLmsManagementRows({
+    viewer,
+    cmsProfiles,
+    assignments,
+    topics,
+    filters: {
+      weekFilter: 'ALL',
+      companyFilter: compFilter,
+      areaFilter: areaFilter,
+    },
+  });
+  appendEduLmsTwoSheets(wb, mgmtRows, 'Tổng hợp');
+
+  // Sheet 3: LMS Chủ Đề Tuần
   const topicRows = filteredTopics.map((t, idx) => ({
     STT: idx + 1,
     Tuần: t.weekLabel,
     'Từ Ngày': t.startDate,
     'Đến Ngày': t.endDate,
-    'Lộ Trình': EDU_TRACK_LABELS[t.track] || t.track,
+    'Level': EDU_TRACK_LABELS[t.track] || t.track,
     Sion: t.companyCode === 'ALL' ? 'Toàn hệ thống' : t.companyCode,
     'Khu Vực': t.areaCode === 'ALL' ? 'Tất cả KV' : t.areaCode,
     'Tên Chủ Đề': t.topicTitle,
@@ -640,29 +804,7 @@ export function exportEduDataExcel(
     'LMS Chủ Đề Tuần'
   );
 
-  // Sheet 2: LMS Phân Công TĐ
-  const assignRows = filteredAssignments.map((a, idx) => ({
-    STT: idx + 1,
-    Tuần: a.weekLabel,
-    'Lộ Trình': EDU_TRACK_LABELS[a.track] || a.track,
-    'Chủ Đề': a.topicTitle,
-    Sion: a.companyCode,
-    'Khu Vực': a.areaCode,
-    'Tên TĐ': a.studentName,
-    'Trạng Thái': EDU_ASSIGNMENT_STATUS_LABELS[a.status] || a.status,
-    'Người Gán': a.assignedByName,
-    'Ghi Chú': a.note || '',
-    'Cập Nhật': (a.updatedAt || '').slice(0, 10),
-  }));
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.json_to_sheet(
-      assignRows.length ? assignRows : [{ 'Thông báo': 'Chưa có dữ liệu phân công TĐ trong phạm vi' }]
-    ),
-    'LMS Phân Công TĐ'
-  );
-
-  // Sheet 3: CMS Lộ Trình & NGV
+  // Sheet 4: CMS Lộ Trình & NGV
   const cmsRows = filteredCms.map((c, idx) => ({
     STT: idx + 1,
     'Họ và Tên': c.fullName,

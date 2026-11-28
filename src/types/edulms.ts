@@ -906,11 +906,21 @@ export const DEFAULT_APPEARANCE_CONFIG: SystemAppearanceConfig = {
 };
 
 // ---------- Hệ thống Giáo dục: Edu (LMS & CMS) ----------
-export type EduTrack = 'TD_I' | 'TD_II' | 'NGV';
+export type EduTrack = 'TD_MOI' | 'TD_I' | 'TD_II' | 'NGV';
+
+export const EDU_TRACK_ORDER: EduTrack[] = ['TD_MOI', 'TD_I', 'TD_II', 'NGV'];
 
 export const EDU_TRACK_LABELS: Record<EduTrack, string> = {
-  TD_I: 'TĐ-I',
-  TD_II: 'TĐ-II',
+  TD_MOI: 'TĐM',
+  TD_I: 'TĐ1',
+  TD_II: 'TĐ2',
+  NGV: 'NGV',
+};
+
+export const EDU_TRACK_FULL_LABELS: Record<EduTrack, string> = {
+  TD_MOI: 'TĐ Mới (TĐM)',
+  TD_I: 'TĐ-I (TĐ1)',
+  TD_II: 'TĐ-II (TĐ2)',
   NGV: 'NGV',
 };
 
@@ -960,10 +970,13 @@ export interface EduTopicAssignment {
   companyCode: string; // Tên/Mã Cty
   areaCode: string; // Tên KV
   memberId?: string;
+  cmsProfileId?: string; // Liên kết tới hồ sơ CMS nếu được nạp từ CMS
   studentName: string; // Tên TĐ
   assignedByUid: string;
   assignedByName: string;
   status: EduAssignmentStatus;
+  participated?: boolean; // Dấu tích Tham gia
+  completed?: boolean; // Dấu tích Hoàn thành
   note: string;
   createdAt: string;
   updatedAt: string;

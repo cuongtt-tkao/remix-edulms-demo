@@ -548,7 +548,7 @@ service cloud.firestore {
         && data.weekLabel is string && data.weekLabel.size() > 0 && data.weekLabel.size() <= 60
         && data.startDate is string && data.startDate.size() <= 15
         && data.endDate is string && data.endDate.size() <= 15
-        && data.track in ['TD_I', 'TD_II', 'NGV']
+        && data.track in ['TD_MOI', 'TD_I', 'TD_II', 'NGV']
         && data.companyCode is string && data.companyCode.size() <= 30
         && data.areaCode is string && data.areaCode.size() <= 40
         && data.topicTitle is string && data.topicTitle.size() > 0 && data.topicTitle.size() <= 200
@@ -569,20 +569,23 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'topicId', 'track', 'weekLabel', 'topicTitle', 'companyCode',
-          'areaCode', 'memberId', 'studentName', 'assignedByUid', 'assignedByName',
-          'status', 'note', 'createdAt', 'updatedAt'
+          'areaCode', 'memberId', 'cmsProfileId', 'studentName', 'assignedByUid', 'assignedByName',
+          'status', 'participated', 'completed', 'note', 'createdAt', 'updatedAt'
         ])
         && data.topicId is string && data.topicId.size() > 0 && data.topicId.size() <= 128
-        && data.track in ['TD_I', 'TD_II', 'NGV']
+        && data.track in ['TD_MOI', 'TD_I', 'TD_II', 'NGV']
         && data.weekLabel is string && data.weekLabel.size() <= 60
         && data.topicTitle is string && data.topicTitle.size() <= 200
         && data.companyCode is string && data.companyCode.size() <= 30
         && data.areaCode is string && data.areaCode.size() > 0 && data.areaCode.size() <= 40
         && (!('memberId' in data) || (data.memberId is string && data.memberId.size() <= 128))
+        && (!('cmsProfileId' in data) || (data.cmsProfileId is string && data.cmsProfileId.size() <= 128))
         && data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 120
         && data.assignedByUid is string && data.assignedByUid.size() > 0 && data.assignedByUid.size() <= 128
         && data.assignedByName is string && data.assignedByName.size() <= 100
         && data.status in ['REGISTERED', 'IN_PROGRESS', 'COMPLETED']
+        && (!('participated' in data) || data.participated is bool)
+        && (!('completed' in data) || data.completed is bool)
         && (!('note' in data) || (data.note is string && data.note.size() <= 500))
         && data.createdAt is string && data.createdAt.size() <= 50
         && data.updatedAt is string && data.updatedAt.size() <= 50;

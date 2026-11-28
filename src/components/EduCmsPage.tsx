@@ -789,8 +789,9 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   onChange={(val) => setTrackFilter(val as any)}
                   options={[
                     { value: 'ALL', label: 'Tất cả nhóm' },
-                    { value: 'TD_I', label: 'TĐ-I' },
-                    { value: 'TD_II', label: 'TĐ-II' },
+                    { value: 'TD_MOI', label: 'TĐM' },
+                    { value: 'TD_I', label: 'TĐ1' },
+                    { value: 'TD_II', label: 'TĐ2' },
                     { value: 'NGV', label: 'NGV' },
                   ]}
                   menuMinWidth={150}
