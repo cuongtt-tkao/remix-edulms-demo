@@ -812,9 +812,13 @@ service cloud.firestore {
     // ---------- Edu CMS: Kho Giáo trình chuẩn dùng chung cho LMS (edu_curriculum_templates/{templateId}) ----------
     match /edu_curriculum_templates/{templateId} {
       allow read: if isApprovedUser();
-      allow create, update: if isValidId(templateId)
+      allow create: if isValidId(templateId)
         && isAdmin()
         && isValidEduCurriculumTemplate(request.resource.data);
+      allow update: if isValidId(templateId)
+        && isAdmin()
+        && isValidEduCurriculumTemplate(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isValidId(templateId) && isAdmin();
     }
 

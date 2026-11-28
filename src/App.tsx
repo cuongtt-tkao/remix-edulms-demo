@@ -655,21 +655,28 @@ export default function App() {
     return unsubscribe;
   }, [signedIn, firebaseUser?.email, firebaseUser?.emailVerified]);
 
+  const [rolesConfigRetryTick, setRolesConfigRetryTick] = useState<number>(0);
+
   const canReadAdminRolesConfig = useMemo(() => {
-    if (!signedIn || !currentUser) return false;
+    if (!dataUnlocked || !signedIn || !currentUser) return false;
     const emailLower = (firebaseUser?.email || currentUser.email || '').trim().toLowerCase();
     if (firebaseUser?.emailVerified && isBootstrapSuperAdminEmail(emailLower)) return true;
     return currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
-  }, [signedIn, firebaseUser?.email, firebaseUser?.emailVerified, currentUser]);
+  }, [dataUnlocked, signedIn, firebaseUser?.email, firebaseUser?.emailVerified, currentUser]);
 
   useEffect(() => {
-    if (!canReadAdminRolesConfig) {
+    if (!canReadAdminRolesConfig || !firebaseUser?.uid) {
       setPreAssignedRoles([]);
       return;
     }
+    let cancelled = false;
+    let retried = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
     const unsubscribe = onSnapshot(
       doc(db, 'system_config', 'roles'),
       (snap) => {
+        if (cancelled) return;
         if (snap.exists()) {
           const data = snap.data() as SystemRolesConfig;
           if (Array.isArray(data.assignments)) {
@@ -677,7 +684,27 @@ export default function App() {
           }
         }
       },
-      (err) => {
+      async (err) => {
+        if (cancelled) return;
+        // Nếu vừa đổi quyền trên users/{uid}, kiểm tra server rồi thử kết nối lại 1 lần để tránh race condition
+        if (!retried && rolesConfigRetryTick < 2) {
+          try {
+            const serverSnap = await getDocFromServer(doc(db, 'users', firebaseUser.uid));
+            const serverRole = serverSnap.exists() ? (serverSnap.data()?.role as string | undefined) : undefined;
+            if (
+              !cancelled &&
+              (serverRole === 'ADMIN' || serverRole === 'SUPER_ADMIN' || isBootstrapSuperAdminEmail(firebaseUser.email))
+            ) {
+              retried = true;
+              retryTimer = setTimeout(() => {
+                if (!cancelled) setRolesConfigRetryTick((t) => t + 1);
+              }, 600);
+              return;
+            }
+          } catch {
+            // Tiếp tục ghi log diagnostic bên dưới
+          }
+        }
         console.warn('[Firestore] Lỗi đọc system_config/roles:', err);
         void logUserContext({
           queryPoint: 'system_config/roles',
@@ -687,8 +714,12 @@ export default function App() {
         });
       }
     );
-    return unsubscribe;
-  }, [canReadAdminRolesConfig]);
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      unsubscribe();
+    };
+  }, [canReadAdminRolesConfig, firebaseUser?.uid, firebaseUser?.email, rolesConfigRetryTick]);
 
   const managedCompKeyEarly = JSON.stringify(currentUser?.managedCompanyCodes || []);
   const managedAreaKeyEarly = JSON.stringify(currentUser?.managedAreaCodes || []);
@@ -1198,6 +1229,10 @@ export default function App() {
       (snap) => {
         if (cancelled) return;
         if (snap.exists()) {
+          if (snap.metadata.hasPendingWrites) {
+            // Chờ Firestore server xác nhận ghi xong rồi mới áp dụng quyền mới lên UI
+            return;
+          }
           if (snap.metadata.fromCache && !settled) {
             // Không mở khóa bằng cache cũ (tránh lệch quyền khi vừa bị hạ quyền/đổi vai trò trên server)
             void verifyFromServer(snap.data() as Omit<UserAccount, 'id'>, snap.id);
@@ -3393,12 +3428,12 @@ export default function App() {
     setUsersList((prev) =>
       prev.map((u) => (u.id === targetUserId ? { ...u, ...cleanPatch } : u))
     );
-    if (currentUser && currentUser.id === targetUserId) {
-      setCurrentUser((prev) => (prev ? { ...prev, ...cleanPatch } : null));
-    }
 
     try {
       await updateDoc(doc(db, 'users', targetUserId), cleanPatch);
+      if (currentUser && currentUser.id === targetUserId) {
+        setCurrentUser((prev) => (prev ? { ...prev, ...cleanPatch } : null));
+      }
 
       if (
         isAdminUser &&
