@@ -954,9 +954,25 @@ export interface EduWeeklyTopic {
   topicTitle: string; // Tên Chủ đề
   summary: string;
   learningObjectives?: string;
-  curriculumContent: string; // Giáo trình / Nội dung bài học soạn từ CMS
+  curriculumContent: string; // Giáo trình / Nội dung bài học
+  referenceLinks?: string;
+  templateId?: string; // Tham chiếu bài học mẫu từ Kho Giáo trình CMS (nếu nạp từ kho)
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EduCurriculumTemplate {
+  id: string;
+  track: EduTrack;
+  lessonCode?: string; // Ví dụ: "Bài 01", "MĐ-02"
+  title: string;
+  summary: string;
+  learningObjectives?: string;
+  curriculumContent: string;
   referenceLinks?: string;
   createdBy: string;
+  updatedBy?: string;
   createdAt: string;
   updatedAt: string;
 }

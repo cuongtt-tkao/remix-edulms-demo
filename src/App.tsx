@@ -57,6 +57,7 @@ import {
   EduWeeklyTopic,
   EduTopicAssignment,
   EduCmsProfile,
+  EduCurriculumTemplate,
   WorkScheduleRecord,
   TurboJournalItem,
   PersonalPlannerRecord,
@@ -518,13 +519,14 @@ export default function App() {
     );
   }, [appearanceConfig]);
 
-  // Hệ thống Edu: LMS (Chủ đề tuần & gán KV/TĐ) + CMS (Lộ trình TĐ Mới -> TĐ-II & NGV)
+  // Hệ thống Edu: LMS (Chủ đề tuần & Điểm danh/Phân tích) + CMS (Lộ trình TĐM->TĐ2, NGV & Kho giáo trình chuẩn)
   const [eduTopics, setEduTopics] = useState<EduWeeklyTopic[]>([]);
   const [eduAssignments, setEduAssignments] = useState<EduTopicAssignment[]>([]);
   const [eduCmsProfiles, setEduCmsProfiles] = useState<EduCmsProfile[]>([]);
+  const [eduCurriculumTemplates, setEduCurriculumTemplates] = useState<EduCurriculumTemplate[]>([]);
   const [eduLoading, setEduLoading] = useState<boolean>(false);
   const [cmsNavIntent, setCmsNavIntent] = useState<{
-    subTab: 'PROGRESSION' | 'NGV' | 'CURRICULUM';
+    subTab: 'PROGRESSION' | 'NGV' | 'TEMPLATES';
     topicId: string | null;
   }>({ subTab: 'PROGRESSION', topicId: null });
 
@@ -2200,6 +2202,7 @@ export default function App() {
       setEduTopics([]);
       setEduAssignments([]);
       setEduCmsProfiles([]);
+      setEduCurriculumTemplates([]);
       setEduLoading(false);
       return;
     }
@@ -2230,6 +2233,28 @@ export default function App() {
       }
     );
     unsubs.push(unsubTopics);
+
+    const unsubTemplates = onSnapshot(
+      collection(db, 'edu_curriculum_templates'),
+      (snap) => {
+        setEduCurriculumTemplates(
+          snap.docs.map((d) => ({
+            ...(d.data() as Omit<EduCurriculumTemplate, 'id'>),
+            id: d.id,
+          }))
+        );
+      },
+      (err) => {
+        console.warn('[Firestore] Lỗi đọc edu_curriculum_templates:', err);
+        void logUserContext({
+          queryPoint: 'edu_curriculum_templates',
+          operation: 'LIST',
+          error: err,
+          uiUser: effectiveCurrentUser,
+        });
+      }
+    );
+    unsubs.push(unsubTemplates);
 
     // edu_assignments (scoped by RBAC)
     const assignBuckets = new Map<string, Map<string, EduTopicAssignment>>();
@@ -3262,12 +3287,6 @@ export default function App() {
     await deleteDoc(doc(db, 'edu_topics', topicId));
   };
 
-  const handleSaveTopicCurriculum = async (topic: EduWeeklyTopic) => {
-    const { id, ...rest } = topic;
-    const clean = JSON.parse(JSON.stringify(rest));
-    await setDoc(doc(db, 'edu_topics', id), clean);
-  };
-
   const handleSaveEduAssignment = async (
     assignment: Omit<EduTopicAssignment, 'id'>,
     existingId?: string
@@ -3294,6 +3313,20 @@ export default function App() {
 
   const handleDeleteEduCmsProfile = async (profileId: string) => {
     await deleteDoc(doc(db, 'edu_cms_profiles', profileId));
+  };
+
+  const handleSaveEduCurriculumTemplate = async (
+    template: Omit<EduCurriculumTemplate, 'id'>,
+    existingId?: string
+  ) => {
+    const rand = Math.random().toString(36).slice(2, 7);
+    const id = existingId || `tpl_${firebaseUser?.uid || 'u'}_${Date.now()}_${rand}`;
+    const clean = JSON.parse(JSON.stringify(template));
+    await setDoc(doc(db, 'edu_curriculum_templates', id), clean);
+  };
+
+  const handleDeleteEduCurriculumTemplate = async (templateId: string) => {
+    await deleteDoc(doc(db, 'edu_curriculum_templates', templateId));
   };
 
   // ---------- Quản lý vai trò người dùng (7 cấp + phạm vi Cụm / Sion / Khu vực / Uni) ----------
@@ -6238,6 +6271,7 @@ export default function App() {
                 topics={eduTopics}
                 assignments={eduAssignments}
                 cmsProfiles={eduCmsProfiles}
+                curriculumTemplates={eduCurriculumTemplates}
                 companies={effectiveCompanies}
                 areas={effectiveAreas}
                 members={allMembersRanked}
@@ -6247,8 +6281,9 @@ export default function App() {
                 onSaveAssignment={handleSaveEduAssignment}
                 onDeleteAssignment={handleDeleteEduAssignment}
                 onSaveCmsProfile={handleSaveEduCmsProfile}
-                onNavigateToCmsCurriculum={(topicId) => {
-                  setCmsNavIntent({ subTab: 'CURRICULUM', topicId });
+                onSaveCurriculumTemplate={handleSaveEduCurriculumTemplate}
+                onNavigateToCmsTemplates={() => {
+                  setCmsNavIntent({ subTab: 'TEMPLATES', topicId: null });
                   setActiveTab('EDU_CMS');
                 }}
                 onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
@@ -6264,13 +6299,16 @@ export default function App() {
                 currentUser={effectiveCurrentUser}
                 cmsProfiles={eduCmsProfiles}
                 topics={eduTopics}
+                curriculumTemplates={eduCurriculumTemplates}
                 companies={effectiveCompanies}
                 areas={effectiveAreas}
+                members={allMembersRanked}
                 initialSubTab={cmsNavIntent.subTab}
-                initialTopicId={cmsNavIntent.topicId}
                 onSaveCmsProfile={handleSaveEduCmsProfile}
                 onDeleteCmsProfile={handleDeleteEduCmsProfile}
-                onSaveTopicCurriculum={handleSaveTopicCurriculum}
+                onSaveCurriculumTemplate={handleSaveEduCurriculumTemplate}
+                onDeleteCurriculumTemplate={handleDeleteEduCurriculumTemplate}
+                onNavigateToLmsTopics={() => setActiveTab('EDU_LMS')}
                 onOpenAuthModal={() => openAuthModalWithMode('LOGIN')}
                 onShowNotification={showNotification}
               />

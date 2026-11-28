@@ -540,7 +540,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'weekNumber', 'year', 'weekLabel', 'startDate', 'endDate',
           'track', 'companyCode', 'areaCode', 'topicTitle', 'summary',
-          'learningObjectives', 'curriculumContent', 'referenceLinks',
+          'learningObjectives', 'curriculumContent', 'referenceLinks', 'templateId',
           'createdBy', 'createdAt', 'updatedAt'
         ])
         && data.weekNumber is number && data.weekNumber >= 1 && data.weekNumber <= 53
@@ -556,7 +556,31 @@ service cloud.firestore {
         && (!('learningObjectives' in data) || (data.learningObjectives is string && data.learningObjectives.size() <= 1000))
         && data.curriculumContent is string && data.curriculumContent.size() <= 20000
         && (!('referenceLinks' in data) || (data.referenceLinks is string && data.referenceLinks.size() <= 1000))
+        && (!('templateId' in data) || (data.templateId is string && data.templateId.size() <= 128))
         && data.createdBy is string && data.createdBy.size() <= 100
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    function isValidEduCurriculumTemplate(data) {
+      return data.keys().hasAll([
+          'track', 'title', 'curriculumContent',
+          'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'track', 'lessonCode', 'title', 'summary', 'learningObjectives',
+          'curriculumContent', 'referenceLinks',
+          'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.track in ['TD_MOI', 'TD_I', 'TD_II', 'NGV']
+        && (!('lessonCode' in data) || (data.lessonCode is string && data.lessonCode.size() <= 30))
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 1000))
+        && (!('learningObjectives' in data) || (data.learningObjectives is string && data.learningObjectives.size() <= 1000))
+        && data.curriculumContent is string && data.curriculumContent.size() <= 20000
+        && (!('referenceLinks' in data) || (data.referenceLinks is string && data.referenceLinks.size() <= 1000))
+        && data.createdBy is string && data.createdBy.size() <= 100
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 100))
         && data.createdAt is string && data.createdAt.size() <= 50
         && data.updatedAt is string && data.updatedAt.size() <= 50;
     }
@@ -783,6 +807,15 @@ service cloud.firestore {
         && isAdmin()
         && isValidEduTopic(request.resource.data);
       allow delete: if isValidId(topicId) && isAdmin();
+    }
+
+    // ---------- Edu CMS: Kho Giáo trình chuẩn dùng chung cho LMS (edu_curriculum_templates/{templateId}) ----------
+    match /edu_curriculum_templates/{templateId} {
+      allow read: if isApprovedUser();
+      allow create, update: if isValidId(templateId)
+        && isAdmin()
+        && isValidEduCurriculumTemplate(request.resource.data);
+      allow delete: if isValidId(templateId) && isAdmin();
     }
 
     // ---------- Edu LMS: Gán Tên KV & Tên TĐ vào Chủ đề tuần (edu_assignments/{assignmentId}) ----------

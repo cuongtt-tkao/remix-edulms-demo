@@ -89,6 +89,36 @@ export function getISOWeekInfo(date: Date = new Date()): { week: number; year: n
   };
 }
 
+export function getWeekDateRange(week: number, year: number): { start: string; end: string } {
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const dayNum = jan4.getUTCDay() || 7;
+  const monWeek1Ms = jan4.getTime() + (1 - dayNum) * 86400000;
+  const mon = new Date(monWeek1Ms + (week - 1) * 7 * 86400000);
+  const sun = new Date(mon.getTime() + 6 * 86400000);
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
+      d.getUTCDate()
+    ).padStart(2, '0')}`;
+  return { start: fmt(mon), end: fmt(sun) };
+}
+
+export function shiftWeekLabel(weekLabel: string, delta: number): string {
+  const m = weekLabel.match(/(\d+)\s*\/\s*(\d{4})/);
+  if (!m) {
+    const cur = getISOWeekInfo();
+    return delta === 0 ? cur.weekLabel : shiftWeekLabel(cur.weekLabel, delta);
+  }
+  const week = Number(m[1]);
+  const year = Number(m[2]);
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const dayNum = jan4.getUTCDay() || 7;
+  const thuWeek1Ms = jan4.getTime() + (4 - dayNum) * 86400000;
+  const targetThu = new Date(thuWeek1Ms + (week - 1 + delta) * 7 * 86400000);
+  return getISOWeekInfo(
+    new Date(targetThu.getUTCFullYear(), targetThu.getUTCMonth(), targetThu.getUTCDate())
+  ).weekLabel;
+}
+
 export function parseWeekLabelToIdSuffix(weekLabel: string): string {
   const m = weekLabel.match(/(\d+)\s*\/\s*(\d{4})/);
   if (m) {
@@ -271,6 +301,7 @@ export function buildLmsManagementRows(params: {
     const pArea = normalizeOrgCode(profile.areaCode);
     const pComp = normalizeOrgCode(profile.companyCode);
 
+    // Ưu tiên khớp theo cmsProfileId (kể cả khác level) để tránh tách thành 2 dòng trùng tên
     const matched = scopedAssignments.filter((a) => {
       if (a.cmsProfileId && a.cmsProfileId === profile.id) return true;
       const sameName = normalizeEduText(a.studentName) === pName;
@@ -295,7 +326,7 @@ export function buildLmsManagementRows(params: {
       name: profile.fullName,
       companyCode: profile.companyCode,
       areaCode: profile.areaCode,
-      level: profile.stage,
+      level: primary?.track || profile.stage,
       participated,
       completed,
       cmsProfileId: profile.id,

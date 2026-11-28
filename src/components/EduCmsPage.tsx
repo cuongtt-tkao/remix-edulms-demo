@@ -15,14 +15,19 @@ import {
   Lock,
   Sparkles,
   BookOpen,
+  ExternalLink,
+  Check,
 } from 'lucide-react';
 import {
   EduCmsProfile,
   EduCmsStage,
   EDU_CMS_STAGE_LABELS,
+  EduCurriculumTemplate,
   EduWeeklyTopic,
   EDU_TRACK_LABELS,
+  EDU_TRACK_ORDER,
   EduTrack,
+  Member,
   UserAccount,
   Company,
   Area,
@@ -33,20 +38,29 @@ import {
   canViewEduRecord,
   getScopedAreaOptions,
   getScopedCompanyOptions,
+  getScopedMemberOptions,
   isAdminRole,
+  normalizeOrgCode,
 } from '../utils/rbac';
+import { normalizeEduText } from '../utils/eduAnalytics';
 
 interface EduCmsPageProps {
   currentUser: UserAccount | null;
   cmsProfiles: EduCmsProfile[];
   topics: EduWeeklyTopic[];
+  curriculumTemplates?: EduCurriculumTemplate[];
   companies: Company[];
   areas: Area[];
-  initialSubTab?: 'PROGRESSION' | 'NGV' | 'CURRICULUM';
-  initialTopicId?: string | null;
+  members?: Member[];
+  initialSubTab?: 'PROGRESSION' | 'NGV' | 'TEMPLATES';
   onSaveCmsProfile: (profile: Omit<EduCmsProfile, 'id'>, existingId?: string) => Promise<void>;
   onDeleteCmsProfile: (profileId: string) => Promise<void>;
-  onSaveTopicCurriculum: (topic: EduWeeklyTopic) => Promise<void>;
+  onSaveCurriculumTemplate?: (
+    template: Omit<EduCurriculumTemplate, 'id'>,
+    existingId?: string
+  ) => Promise<void>;
+  onDeleteCurriculumTemplate?: (templateId: string) => Promise<void>;
+  onNavigateToLmsTopics?: () => void;
   onOpenAuthModal: () => void;
   onShowNotification: (msg: string) => void;
 }
@@ -55,18 +69,21 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
   currentUser,
   cmsProfiles,
   topics,
+  curriculumTemplates = [],
   companies,
   areas,
+  members = [],
   initialSubTab = 'PROGRESSION',
-  initialTopicId = null,
   onSaveCmsProfile,
   onDeleteCmsProfile,
-  onSaveTopicCurriculum,
+  onSaveCurriculumTemplate,
+  onDeleteCurriculumTemplate,
+  onNavigateToLmsTopics,
   onOpenAuthModal,
   onShowNotification,
 }) => {
   const isAdmin = isAdminRole(currentUser?.role);
-  const [subTab, setSubTab] = useState<'PROGRESSION' | 'NGV' | 'CURRICULUM'>(initialSubTab);
+  const [subTab, setSubTab] = useState<'PROGRESSION' | 'NGV' | 'TEMPLATES'>(initialSubTab);
 
   useEffect(() => {
     setSubTab(initialSubTab);
@@ -76,10 +93,12 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<'ALL' | 'TD_MOI' | 'TD_I' | 'TD_II'>('ALL');
   const [companyFilter, setCompanyFilter] = useState('ALL');
+  const [areaFilter, setAreaFilter] = useState('ALL');
 
-  // Profile Modal
+  // ---------- Profile Modal (Multi-select KV + Single/Edit) ----------
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [modalEntryMode, setModalEntryMode] = useState<'MULTI' | 'SINGLE'>('MULTI');
   const [pFullName, setPFullName] = useState('');
   const [pCompanyCode, setPCompanyCode] = useState(
     currentUser?.companyCode || companies[0]?.code || ''
@@ -92,6 +111,8 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
   const [pSpecialty, setPSpecialty] = useState('');
   const [pTopicId, setPTopicId] = useState('');
   const [pNote, setPNote] = useState('');
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Record<string, boolean>>({});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   const [confirmDelete, setConfirmDelete] = useState<{
@@ -99,47 +120,177 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     onConfirm: () => Promise<void>;
   } | null>(null);
 
-  // ---------- Curriculum Authoring State ----------
+  // ---------- Master Curriculum Template Library State ----------
   const [trackFilter, setTrackFilter] = useState<'ALL' | EduTrack>('ALL');
-  const [selectedTopicId, setSelectedTopicId] = useState<string>(initialTopicId || '');
-  const [draftTitle, setDraftTitle] = useState('');
-  const [draftSummary, setDraftSummary] = useState('');
-  const [draftObjectives, setDraftObjectives] = useState('');
-  const [draftCurriculum, setDraftCurriculum] = useState('');
-  const [draftRefs, setDraftRefs] = useState('');
-  const [isSavingLesson, setIsSavingLesson] = useState(false);
+  const [tplSearchQuery, setTplSearchQuery] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [tplTrack, setTplTrack] = useState<EduTrack>('TD_MOI');
+  const [tplLessonCode, setTplLessonCode] = useState('');
+  const [tplTitle, setTplTitle] = useState('');
+  const [tplSummary, setTplSummary] = useState('');
+  const [tplObjectives, setTplObjectives] = useState('');
+  const [tplCurriculum, setTplCurriculum] = useState('');
+  const [tplRefs, setTplRefs] = useState('');
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
-  const sortedTopics = useMemo(() => {
-    return [...topics]
-      .filter((t) => trackFilter === 'ALL' || t.track === trackFilter)
+  const sortedTemplates = useMemo(() => {
+    const q = normalizeEduText(tplSearchQuery);
+    return [...curriculumTemplates]
+      .filter((t) => {
+        if (trackFilter !== 'ALL' && t.track !== trackFilter) return false;
+        if (q) {
+          const hay = `${t.lessonCode || ''} ${t.title} ${t.summary || ''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })
       .sort((a, b) => {
-        if (b.year !== a.year) return b.year - a.year;
-        return b.weekNumber - a.weekNumber;
+        const trackOrderA = EDU_TRACK_ORDER.indexOf(a.track);
+        const trackOrderB = EDU_TRACK_ORDER.indexOf(b.track);
+        if (trackOrderA !== trackOrderB) return trackOrderA - trackOrderB;
+        const codeCmp = (a.lessonCode || '').localeCompare(b.lessonCode || '', 'vi', {
+          numeric: true,
+        });
+        if (codeCmp !== 0) return codeCmp;
+        return a.title.localeCompare(b.title, 'vi');
       });
-  }, [topics, trackFilter]);
+  }, [curriculumTemplates, trackFilter, tplSearchQuery]);
 
   useEffect(() => {
-    if (initialTopicId) {
-      setSelectedTopicId(initialTopicId);
-    } else if (!selectedTopicId && sortedTopics.length > 0) {
-      setSelectedTopicId(sortedTopics[0].id);
+    if (isCreatingTemplate) return;
+    if (sortedTemplates.length === 0) {
+      if (selectedTemplateId) setSelectedTemplateId('');
+      return;
     }
-  }, [initialTopicId, sortedTopics, selectedTopicId]);
+    if (!selectedTemplateId || !sortedTemplates.some((t) => t.id === selectedTemplateId)) {
+      setSelectedTemplateId(sortedTemplates[0].id);
+    }
+  }, [sortedTemplates, selectedTemplateId, isCreatingTemplate]);
 
-  const activeTopic = useMemo(
-    () => topics.find((t) => t.id === selectedTopicId) || null,
-    [topics, selectedTopicId]
+  const activeTemplate = useMemo(
+    () =>
+      isCreatingTemplate
+        ? null
+        : curriculumTemplates.find((t) => t.id === selectedTemplateId) || null,
+    [curriculumTemplates, selectedTemplateId, isCreatingTemplate]
   );
 
   useEffect(() => {
-    if (activeTopic) {
-      setDraftTitle(activeTopic.topicTitle || '');
-      setDraftSummary(activeTopic.summary || '');
-      setDraftObjectives(activeTopic.learningObjectives || '');
-      setDraftCurriculum(activeTopic.curriculumContent || '');
-      setDraftRefs(activeTopic.referenceLinks || '');
+    if (isCreatingTemplate) return;
+    if (activeTemplate) {
+      setTplTrack(activeTemplate.track);
+      setTplLessonCode(activeTemplate.lessonCode || '');
+      setTplTitle(activeTemplate.title || '');
+      setTplSummary(activeTemplate.summary || '');
+      setTplObjectives(activeTemplate.learningObjectives || '');
+      setTplCurriculum(activeTemplate.curriculumContent || '');
+      setTplRefs(activeTemplate.referenceLinks || '');
+    } else {
+      setTplLessonCode('');
+      setTplTitle('');
+      setTplSummary('');
+      setTplObjectives('');
+      setTplCurriculum('');
+      setTplRefs('');
     }
-  }, [activeTopic]);
+  }, [activeTemplate, isCreatingTemplate]);
+
+  const startCreateTemplate = () => {
+    if (!isAdmin) return;
+    setIsCreatingTemplate(true);
+    setSelectedTemplateId('');
+    setTplTrack(trackFilter !== 'ALL' ? trackFilter : 'TD_MOI');
+    setTplLessonCode('');
+    setTplTitle('');
+    setTplSummary('');
+    setTplObjectives('');
+    setTplCurriculum('');
+    setTplRefs('');
+  };
+
+  const handleSelectTemplate = (tplId: string) => {
+    setIsCreatingTemplate(false);
+    setSelectedTemplateId(tplId);
+  };
+
+  const handleSaveTemplateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin || !onSaveCurriculumTemplate || !currentUser) return;
+    if (!tplTitle.trim()) {
+      onShowNotification('Vui lòng nhập Tên Giáo trình / Bài học.');
+      return;
+    }
+    setIsSavingTemplate(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const existing = !isCreatingTemplate && activeTemplate ? activeTemplate : null;
+      await onSaveCurriculumTemplate(
+        {
+          track: tplTrack,
+          lessonCode: tplLessonCode.trim().slice(0, 30),
+          title: tplTitle.trim().slice(0, 200),
+          summary: tplSummary.trim().slice(0, 1000),
+          learningObjectives: tplObjectives.trim().slice(0, 1000),
+          curriculumContent: tplCurriculum.trim().slice(0, 20000),
+          referenceLinks: tplRefs.trim().slice(0, 1000),
+          createdBy: existing?.createdBy || currentUser.fullName.slice(0, 100),
+          updatedBy: currentUser.fullName.slice(0, 100),
+          createdAt: existing?.createdAt || nowIso,
+          updatedAt: nowIso,
+        },
+        existing?.id
+      );
+      setIsCreatingTemplate(false);
+      onShowNotification(
+        existing
+          ? 'Đã cập nhật Giáo trình chuẩn trong Kho!'
+          : 'Đã thêm Giáo trình mới vào Kho chuẩn!'
+      );
+    } catch (err: any) {
+      onShowNotification(`Lỗi lưu giáo trình: ${err?.message || 'Thử lại sau'}`);
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
+  // ---------- RBAC Scoped Filters & Data ----------
+  const scopedFilterCompanies = useMemo(
+    () => getScopedCompanyOptions(currentUser, companies, members),
+    [currentUser, companies, members]
+  );
+
+  const scopedFilterAreas = useMemo(
+    () =>
+      getScopedAreaOptions(
+        currentUser,
+        areas,
+        companyFilter === 'ALL' ? '' : companyFilter,
+        members
+      ),
+    [currentUser, areas, companyFilter, members]
+  );
+
+  useEffect(() => {
+    if (
+      companyFilter !== 'ALL' &&
+      !scopedFilterCompanies.some(
+        (c) => normalizeOrgCode(c.code) === normalizeOrgCode(companyFilter)
+      )
+    ) {
+      setCompanyFilter('ALL');
+      setAreaFilter('ALL');
+    }
+  }, [scopedFilterCompanies, companyFilter]);
+
+  useEffect(() => {
+    if (
+      areaFilter !== 'ALL' &&
+      !scopedFilterAreas.some((a) => normalizeOrgCode(a.code) === normalizeOrgCode(areaFilter))
+    ) {
+      setAreaFilter('ALL');
+    }
+  }, [scopedFilterAreas, areaFilter]);
 
   const scopedCmsProfiles = useMemo(
     () => cmsProfiles.filter((p) => canViewEduRecord(currentUser, p)),
@@ -155,10 +306,27 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     [scopedCmsProfiles]
   );
 
-  const filteredLearners = useMemo(() => {
+  const orgScopedLearners = useMemo(() => {
     return learnersList.filter((p) => {
+      if (
+        companyFilter !== 'ALL' &&
+        normalizeOrgCode(p.companyCode) !== normalizeOrgCode(companyFilter)
+      ) {
+        return false;
+      }
+      if (
+        areaFilter !== 'ALL' &&
+        normalizeOrgCode(p.areaCode) !== normalizeOrgCode(areaFilter)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [learnersList, companyFilter, areaFilter]);
+
+  const filteredLearners = useMemo(() => {
+    return orgScopedLearners.filter((p) => {
       if (stageFilter !== 'ALL' && p.stage !== stageFilter) return false;
-      if (companyFilter !== 'ALL' && p.companyCode !== companyFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         return (
@@ -169,11 +337,22 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
       }
       return true;
     });
-  }, [learnersList, stageFilter, companyFilter, searchQuery]);
+  }, [orgScopedLearners, stageFilter, searchQuery]);
 
   const filteredNgvs = useMemo(() => {
     return ngvList.filter((p) => {
-      if (companyFilter !== 'ALL' && p.companyCode !== companyFilter) return false;
+      if (
+        companyFilter !== 'ALL' &&
+        normalizeOrgCode(p.companyCode) !== normalizeOrgCode(companyFilter)
+      ) {
+        return false;
+      }
+      if (
+        areaFilter !== 'ALL' &&
+        normalizeOrgCode(p.areaCode) !== normalizeOrgCode(areaFilter)
+      ) {
+        return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         return (
@@ -184,35 +363,86 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
       }
       return true;
     });
-  }, [ngvList, companyFilter, searchQuery]);
+  }, [ngvList, companyFilter, areaFilter, searchQuery]);
 
   const canModifyProfile = (p: EduCmsProfile): boolean =>
     canModifyEduRecord(currentUser, p);
 
   const scopedCompanyOptions = useMemo(
-    () => getScopedCompanyOptions(currentUser, companies),
-    [currentUser, companies]
+    () => getScopedCompanyOptions(currentUser, companies, members),
+    [currentUser, companies, members]
   );
 
   const scopedAreaOptions = useMemo(
-    () => getScopedAreaOptions(currentUser, areas, pCompanyCode),
-    [currentUser, areas, pCompanyCode]
+    () => getScopedAreaOptions(currentUser, areas, pCompanyCode, members),
+    [currentUser, areas, pCompanyCode, members]
   );
+
+  const scopedMembersForModal = useMemo(
+    () =>
+      members.filter((m) =>
+        canViewEduRecord(currentUser, {
+          companyCode: m.companyCode,
+          areaCode: m.areaCode,
+          memberId: m.id,
+        })
+      ),
+    [members, currentUser]
+  );
+
+  const modalMemberCandidates = useMemo(
+    () => getScopedMemberOptions(scopedMembersForModal, pCompanyCode, pAreaCode),
+    [scopedMembersForModal, pCompanyCode, pAreaCode]
+  );
+
+  const filteredModalMemberCandidates = useMemo(() => {
+    const q = normalizeEduText(memberSearchQuery);
+    if (!q) return modalMemberCandidates;
+    return modalMemberCandidates.filter(
+      (m) =>
+        m.fullName.toLowerCase().includes(q) ||
+        (m.code || '').toLowerCase().includes(q) ||
+        (m.areaCode || '').toLowerCase().includes(q)
+    );
+  }, [modalMemberCandidates, memberSearchQuery]);
+
+  const existingCmsStageMap = useMemo(() => {
+    const map = new Map<string, EduCmsStage>();
+    cmsProfiles.forEach((p) => {
+      const k = `${normalizeOrgCode(p.companyCode)}|${normalizeOrgCode(
+        p.areaCode
+      )}|${normalizeEduText(p.fullName)}`;
+      if (!map.has(k)) {
+        map.set(k, p.stage);
+      }
+    });
+    return map;
+  }, [cmsProfiles]);
+
+  const ngvSuggestionsForModal = useMemo(() => {
+    const normComp = normalizeOrgCode(pCompanyCode);
+    return ngvList.filter((n) => !normComp || normalizeOrgCode(n.companyCode) === normComp);
+  }, [ngvList, pCompanyCode]);
 
   const openCreateModal = (defaultStage: EduCmsStage) => {
     setEditingProfileId(null);
     setPFullName('');
+    const prefComp =
+      companyFilter !== 'ALL'
+        ? companyFilter
+        : currentUser?.companyCode || scopedCompanyOptions[0]?.code || companies[0]?.code || '';
     const defComp =
-      scopedCompanyOptions.find((c) => c.code === currentUser?.companyCode)?.code ||
+      scopedCompanyOptions.find((c) => normalizeOrgCode(c.code) === normalizeOrgCode(prefComp))
+        ?.code ||
       scopedCompanyOptions[0]?.code ||
-      currentUser?.companyCode ||
-      companies[0]?.code ||
-      '';
-    const defAreas = getScopedAreaOptions(currentUser, areas, defComp);
+      prefComp;
+    const defAreas = getScopedAreaOptions(currentUser, areas, defComp, members);
+    const prefArea =
+      areaFilter !== 'ALL' ? areaFilter : currentUser?.areaCode || defAreas[0]?.code || '';
     const defArea =
-      defAreas.find((a) => a.code === currentUser?.areaCode)?.code ||
+      defAreas.find((a) => normalizeOrgCode(a.code) === normalizeOrgCode(prefArea))?.code ||
       defAreas[0]?.code ||
-      currentUser?.areaCode ||
+      prefArea ||
       areas[0]?.code ||
       '';
     setPCompanyCode(defComp);
@@ -222,11 +452,15 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     setPSpecialty('');
     setPTopicId('');
     setPNote('');
+    setMemberSearchQuery('');
+    setSelectedMemberIds({});
+    setModalEntryMode(currentUser?.role !== 'MEMBER' ? 'MULTI' : 'SINGLE');
     setIsModalOpen(true);
   };
 
   const openEditModal = (p: EduCmsProfile) => {
     setEditingProfileId(p.id);
+    setModalEntryMode('SINGLE');
     setPFullName(p.fullName);
     setPCompanyCode(p.companyCode);
     setPAreaCode(p.areaCode);
@@ -235,12 +469,74 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     setPSpecialty(p.specialty || '');
     setPTopicId(p.currentTopicId || '');
     setPNote(p.note || '');
+    setSelectedMemberIds({});
     setIsModalOpen(true);
   };
 
   const handleSaveProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser || !pFullName.trim()) {
+    if (!currentUser) return;
+
+    if (!editingProfileId && modalEntryMode === 'MULTI' && currentUser.role !== 'MEMBER') {
+      const chosenIds = Object.keys(selectedMemberIds).filter((id) => selectedMemberIds[id]);
+      if (chosenIds.length === 0) {
+        onShowNotification('Vui lòng tích chọn ít nhất 1 thành viên trong danh sách.');
+        return;
+      }
+      const chosenMembers = chosenIds
+        .map((id) => members.find((m) => m.id === id))
+        .filter((m): m is Member => Boolean(m));
+
+      if (chosenMembers.length === 0) {
+        onShowNotification('Không tìm thấy thông tin thành viên đã chọn.');
+        return;
+      }
+
+      setIsSavingProfile(true);
+      try {
+        const nowIso = new Date().toISOString();
+        const chosenTopic = topics.find((t) => t.id === pTopicId);
+        await Promise.all(
+          chosenMembers.map((m) => {
+            const comp = (pCompanyCode || m.companyCode || currentUser.companyCode || 'HT').slice(
+              0,
+              30
+            );
+            const area = (pAreaCode || m.areaCode || currentUser.areaCode || 'Chung')
+              .trim()
+              .slice(0, 40);
+            const fullName = m.fullName.trim().slice(0, 120);
+            return onSaveCmsProfile({
+              fullName,
+              companyCode: comp,
+              areaCode: area,
+              stage: pStage,
+              ngvName: (pStage === 'NGV' ? fullName : pNgvName.trim()).slice(0, 120),
+              specialty: pSpecialty.trim().slice(0, 200),
+              currentTopicId: chosenTopic?.id || undefined,
+              currentTopicTitle: chosenTopic?.topicTitle || undefined,
+              note: pNote.trim().slice(0, 500),
+              ownerUid: currentUser.id,
+              updatedBy: currentUser.fullName.slice(0, 100),
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            });
+          })
+        );
+        setIsModalOpen(false);
+        setSelectedMemberIds({});
+        onShowNotification(
+          `Đã thêm ${chosenMembers.length} hồ sơ (${EDU_CMS_STAGE_LABELS[pStage]}) vào CMS!`
+        );
+      } catch (err: any) {
+        onShowNotification(`Lỗi lưu CMS hàng loạt: ${err?.message || 'Thử lại sau'}`);
+      } finally {
+        setIsSavingProfile(false);
+      }
+      return;
+    }
+
+    if (!pFullName.trim()) {
       onShowNotification('Vui lòng nhập họ tên.');
       return;
     }
@@ -251,19 +547,20 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
         : null;
       const chosenTopic = topics.find((t) => t.id === pTopicId);
       const nowIso = new Date().toISOString();
+      const safeName = pFullName.trim().slice(0, 120);
       await onSaveCmsProfile(
         {
-          fullName: pFullName.trim(),
-          companyCode: pCompanyCode,
-          areaCode: pAreaCode,
+          fullName: safeName,
+          companyCode: pCompanyCode.slice(0, 30),
+          areaCode: pAreaCode.trim().slice(0, 40),
           stage: pStage,
-          ngvName: pStage === 'NGV' ? pFullName.trim() : pNgvName.trim(),
-          specialty: pSpecialty.trim(),
+          ngvName: (pStage === 'NGV' ? safeName : pNgvName.trim()).slice(0, 120),
+          specialty: pSpecialty.trim().slice(0, 200),
           currentTopicId: chosenTopic?.id || undefined,
           currentTopicTitle: chosenTopic?.topicTitle || undefined,
-          note: pNote.trim(),
+          note: pNote.trim().slice(0, 500),
           ownerUid: existing?.ownerUid || currentUser.id,
-          updatedBy: currentUser.fullName,
+          updatedBy: currentUser.fullName.slice(0, 100),
           createdAt: existing?.createdAt || nowIso,
           updatedAt: nowIso,
         },
@@ -295,7 +592,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
           currentTopicTitle: p.currentTopicTitle,
           note: p.note,
           ownerUid: p.ownerUid,
-          updatedBy: currentUser.fullName,
+          updatedBy: currentUser.fullName.slice(0, 100),
           createdAt: p.createdAt,
           updatedAt: new Date().toISOString(),
         },
@@ -309,32 +606,6 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     }
   };
 
-  const handleSaveCurriculumSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeTopic || !isAdmin) return;
-    if (!draftTitle.trim()) {
-      onShowNotification('Tên Chủ đề không được để trống.');
-      return;
-    }
-    setIsSavingLesson(true);
-    try {
-      await onSaveTopicCurriculum({
-        ...activeTopic,
-        topicTitle: draftTitle.trim(),
-        summary: draftSummary.trim(),
-        learningObjectives: draftObjectives.trim(),
-        curriculumContent: draftCurriculum,
-        referenceLinks: draftRefs.trim(),
-        updatedAt: new Date().toISOString(),
-      });
-      onShowNotification('Đã lưu Giáo trình / Bài học đồng bộ sang LMS!');
-    } catch (err: any) {
-      onShowNotification(`Lỗi lưu giáo trình: ${err?.message || 'Thử lại sau'}`);
-    } finally {
-      setIsSavingLesson(false);
-    }
-  };
-
   if (!currentUser) {
     return (
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-md mx-auto text-center shadow-sm border border-slate-200 dark:border-slate-800 my-10">
@@ -345,7 +616,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
           Đăng nhập để truy cập Edu CMS
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-          Quản lý lộ trình TĐ Mới → TĐ-II, danh sách NGV và hệ thống giáo trình bài học LMS.
+          Quản lý lộ trình TĐ Mới → TĐ-II, danh sách NGV và Kho Giáo trình chuẩn dùng chung cho LMS.
         </p>
         <button
           type="button"
@@ -358,8 +629,6 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
     );
   }
 
-  const areaOptions = areas.filter((a) => a.companyCode === pCompanyCode);
-
   return (
     <div className="space-y-2.5 sm:space-y-4">
       {/* Header & Sub-tab Switcher */}
@@ -368,14 +637,14 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
           <div className="min-w-0">
             <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-1.5 sm:gap-2">
               <BookMarked className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
-              <span className="truncate">Edu CMS — Lộ trình &amp; Giáo trình</span>
+              <span className="truncate">Edu CMS — Lộ trình &amp; Kho Giáo trình</span>
             </h1>
             <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Theo dõi chuyển cấp <strong>TĐ Mới → TĐ-II</strong>, phân công <strong>NGV</strong> và biên soạn nội dung giáo trình cho các chủ đề LMS.
+              Theo dõi chuyển cấp <strong>TĐ Mới → TĐ-II</strong>, phân công <strong>NGV</strong> và quản trị <strong>Kho Giáo trình chuẩn</strong> để nạp nhanh sang LMS.
             </p>
           </div>
 
-          {subTab !== 'CURRICULUM' && currentUser.role !== 'MEMBER' && (
+          {subTab !== 'TEMPLATES' && currentUser.role !== 'MEMBER' && (
             <button
               type="button"
               onClick={() => openCreateModal(subTab === 'NGV' ? 'NGV' : 'TD_MOI')}
@@ -383,6 +652,17 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
             >
               <Plus className="w-4 h-4" />
               <span>{subTab === 'NGV' ? 'Thêm NGV' : 'Thêm TĐ'}</span>
+            </button>
+          )}
+
+          {subTab === 'TEMPLATES' && isAdmin && (
+            <button
+              type="button"
+              onClick={startCreateTemplate}
+              className="px-3 sm:px-4 h-9 sm:h-10 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition shrink-0 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tạo Giáo trình mẫu</span>
             </button>
           )}
         </div>
@@ -400,7 +680,9 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
           >
             <Users className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
             <span className="truncate sm:hidden">Lộ trình ({learnersList.length})</span>
-            <span className="truncate hidden sm:inline">TĐ Mới → TĐ-II ({learnersList.length})</span>
+            <span className="truncate hidden sm:inline">
+              TĐ Mới → TĐ-II ({learnersList.length})
+            </span>
           </button>
 
           <button
@@ -418,23 +700,33 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
 
           <button
             type="button"
-            onClick={() => setSubTab('CURRICULUM')}
+            onClick={() => setSubTab('TEMPLATES')}
             className={`h-9 px-1.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-2 transition cursor-pointer ${
-              subTab === 'CURRICULUM'
+              subTab === 'TEMPLATES'
                 ? 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 shadow-xs'
                 : 'text-slate-600 dark:text-slate-300'
             }`}
           >
             <FileText className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
-            <span className="truncate sm:hidden">Giáo trình ({topics.length})</span>
-            <span className="truncate hidden sm:inline">Soạn Giáo trình LMS ({topics.length})</span>
+            <span className="truncate sm:hidden">
+              Giáo trình ({curriculumTemplates.length})
+            </span>
+            <span className="truncate hidden sm:inline">
+              Kho Giáo trình chuẩn ({curriculumTemplates.length})
+            </span>
           </button>
         </div>
 
-        {/* Filters for Progression & NGV (2 rows max on mobile) */}
-        {subTab !== 'CURRICULUM' && (
+        {/* Filters for Progression & NGV */}
+        {subTab !== 'TEMPLATES' && (
           <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 text-xs">
-            <div className="col-span-2 sm:col-span-5 relative">
+            <div
+              className={
+                subTab === 'PROGRESSION'
+                  ? 'col-span-2 sm:col-span-4 relative'
+                  : 'col-span-2 sm:col-span-6 relative'
+              }
+            >
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -446,7 +738,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
             </div>
 
             {subTab === 'PROGRESSION' && (
-              <div className="col-span-1 sm:col-span-4">
+              <div className="col-span-2 sm:col-span-2">
                 <CustomSelect
                   size="sm"
                   value={stageFilter}
@@ -462,20 +754,40 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               </div>
             )}
 
-            <div className={subTab === 'PROGRESSION' ? 'col-span-1 sm:col-span-3' : 'col-span-2 sm:col-span-7'}>
+            <div className="col-span-1 sm:col-span-3">
               <CustomSelect
                 size="sm"
                 value={companyFilter}
-                onChange={setCompanyFilter}
+                onChange={(nextComp) => {
+                  setCompanyFilter(nextComp);
+                  setAreaFilter('ALL');
+                }}
                 options={[
                   { value: 'ALL', label: 'Tất cả Sion' },
-                  ...companies.map((c) => ({
+                  ...scopedFilterCompanies.map((c) => ({
                     value: c.code,
                     label: c.name,
                     badge: c.code,
                   })),
                 ]}
                 ariaLabel="Lọc Công ty"
+              />
+            </div>
+
+            <div className="col-span-1 sm:col-span-3">
+              <CustomSelect
+                size="sm"
+                value={areaFilter}
+                onChange={setAreaFilter}
+                options={[
+                  { value: 'ALL', label: 'Tất cả KV' },
+                  ...scopedFilterAreas.map((a) => ({
+                    value: a.code,
+                    label: `KV ${a.code}`,
+                    badge: a.companyCode,
+                  })),
+                ]}
+                ariaLabel="Lọc Khu vực"
               />
             </div>
           </div>
@@ -502,7 +814,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   {st.label}
                 </div>
                 <div className={`text-lg sm:text-2xl font-black tabular-nums mt-0.5 ${st.color}`}>
-                  {learnersList.filter((l) => l.stage === st.key).length}
+                  {orgScopedLearners.filter((l) => l.stage === st.key).length}
                 </div>
               </div>
             ))}
@@ -511,7 +823,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             {filteredLearners.length === 0 ? (
               <div className="p-10 text-center text-xs text-slate-500">
-                Chưa có học viên nào trong danh sách lộ trình TĐ Mới → TĐ-II.
+                Chưa có học viên nào khớp bộ lọc trong lộ trình TĐ Mới → TĐ-II.
               </div>
             ) : (
               <>
@@ -561,7 +873,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handlePromoteStage(p, nextStage)}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
                               >
                                 <span>Lên {EDU_CMS_STAGE_LABELS[nextStage]}</span>
                                 <ArrowRight className="w-3 h-3" />
@@ -650,7 +962,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => handlePromoteStage(p, nextStage)}
-                                    className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                                    className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
                                     title={`Chuyển lên ${EDU_CMS_STAGE_LABELS[nextStage]}`}
                                   >
                                     <span>Lên {EDU_CMS_STAGE_LABELS[nextStage]}</span>
@@ -701,13 +1013,15 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden">
           {filteredNgvs.length === 0 ? (
             <div className="p-10 text-center text-xs text-slate-500">
-              Chưa có hồ sơ NGV nào được thêm.
+              Chưa có hồ sơ NGV nào khớp bộ lọc.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-5">
               {filteredNgvs.map((ngv) => {
                 const menteeCount = learnersList.filter(
-                  (l) => l.ngvName?.toLowerCase() === ngv.fullName.toLowerCase()
+                  (l) =>
+                    normalizeOrgCode(l.companyCode) === normalizeOrgCode(ngv.companyCode) &&
+                    normalizeEduText(l.ngvName) === normalizeEduText(ngv.fullName)
                 ).length;
                 const canEdit = canModifyProfile(ngv);
                 return (
@@ -747,6 +1061,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                             type="button"
                             onClick={() => openEditModal(ngv)}
                             className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 cursor-pointer"
+                            title="Chỉnh sửa"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
@@ -759,6 +1074,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                               })
                             }
                             className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 cursor-pointer"
+                            title="Xóa"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -773,14 +1089,14 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
         </div>
       )}
 
-      {/* SUB-TAB 3: CURRICULUM / LESSON AUTHORING LINKED TO LMS TOPICS */}
-      {subTab === 'CURRICULUM' && (
+      {/* SUB-TAB 3: KHO GIÁO TRÌNH CHUẨN (STANDALONE TEMPLATE LIBRARY) */}
+      {subTab === 'TEMPLATES' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* Left Topic Selector */}
+          {/* Left Library List */}
           <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-slate-200 dark:border-slate-800 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                Chọn Chủ đề LMS ({sortedTopics.length})
+                Kho Giáo trình ({sortedTemplates.length})
               </h3>
               <div className="w-36 shrink-0">
                 <CustomSelect
@@ -788,7 +1104,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   value={trackFilter}
                   onChange={(val) => setTrackFilter(val as any)}
                   options={[
-                    { value: 'ALL', label: 'Tất cả nhóm' },
+                    { value: 'ALL', label: 'Tất cả Level' },
                     { value: 'TD_MOI', label: 'TĐM' },
                     { value: 'TD_I', label: 'TĐ1' },
                     { value: 'TD_II', label: 'TĐ2' },
@@ -796,25 +1112,50 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   ]}
                   menuMinWidth={150}
                   align="right"
-                  ariaLabel="Lọc nhóm đối tượng"
+                  ariaLabel="Lọc Level giáo trình"
                 />
               </div>
             </div>
 
-            {sortedTopics.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-500">
-                Chưa có Chủ đề tuần nào. Admin hãy tạo chủ đề ở tab <strong>LMS</strong> trước.
+            <div className="relative text-xs">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Tìm mã bài, tên giáo trình..."
+                value={tplSearchQuery}
+                onChange={(e) => setTplSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            {sortedTemplates.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500 space-y-2.5">
+                <p>
+                  {curriculumTemplates.length === 0
+                    ? 'Kho Giáo trình chuẩn chưa có bài học mẫu nào.'
+                    : 'Không tìm thấy giáo trình mẫu phù hợp bộ lọc.'}
+                </p>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={startCreateTemplate}
+                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tạo Giáo trình mẫu đầu tiên</span>
+                  </button>
+                )}
               </div>
             ) : (
-              <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
-                {sortedTopics.map((t) => {
-                  const selected = t.id === activeTopic?.id;
-                  const hasContent = Boolean(t.curriculumContent?.trim());
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                {sortedTemplates.map((tpl) => {
+                  const selected = !isCreatingTemplate && tpl.id === activeTemplate?.id;
+                  const hasContent = Boolean(tpl.curriculumContent?.trim());
                   return (
                     <button
-                      key={t.id}
+                      key={tpl.id}
                       type="button"
-                      onClick={() => setSelectedTopicId(t.id)}
+                      onClick={() => handleSelectTemplate(tpl.id)}
                       className={`w-full text-left p-3 rounded-2xl border transition cursor-pointer ${
                         selected
                           ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600'
@@ -822,47 +1163,79 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2 text-[10px] mb-1">
-                        <span className="font-black text-emerald-700 dark:text-emerald-300">
-                          {EDU_TRACK_LABELS[t.track]} • {t.weekLabel}
+                        <span className="font-black text-emerald-700 dark:text-emerald-300 truncate">
+                          {EDU_TRACK_LABELS[tpl.track]}
+                          {tpl.lessonCode ? ` · ${tpl.lessonCode}` : ''}
                         </span>
                         <span
-                          className={`px-1.5 py-0.5 rounded font-bold ${
+                          className={`px-1.5 py-0.5 rounded font-bold shrink-0 ${
                             hasContent
                               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
                               : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                           }`}
                         >
-                          {hasContent ? 'Đã có bài' : 'Trống'}
+                          {hasContent ? 'Đầy đủ' : 'Nháp'}
                         </span>
                       </div>
                       <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-2">
-                        {t.topicTitle}
+                        {tpl.title}
                       </div>
                     </button>
                   );
                 })}
               </div>
             )}
+
+            {onNavigateToLmsTopics && (
+              <button
+                type="button"
+                onClick={onNavigateToLmsTopics}
+                className="w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-[11px] font-bold text-blue-700 dark:text-blue-300 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Mở LMS để gắn vào Chủ đề tuần</span>
+              </button>
+            )}
           </div>
 
-          {/* Right Curriculum Authoring Studio */}
+          {/* Right Template Editor / Reader */}
           <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800">
-            {!activeTopic ? (
-              <div className="p-10 text-center text-xs text-slate-500">
-                Chọn một Chủ đề bên trái để xem hoặc soạn nội dung giáo trình.
+            {!isCreatingTemplate && !activeTemplate ? (
+              <div className="p-10 text-center text-xs text-slate-500 space-y-3">
+                <p>
+                  Chọn một Giáo trình mẫu bên trái để xem/chỉnh sửa, hoặc tạo mới để dùng chung khi mở Chủ đề tuần ở <strong>Edu LMS</strong>.
+                </p>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={startCreateTemplate}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Tạo Giáo trình mẫu</span>
+                  </button>
+                )}
               </div>
             ) : (
-              <form onSubmit={handleSaveCurriculumSubmit} className="space-y-4 text-xs">
+              <form onSubmit={handleSaveTemplateSubmit} className="space-y-4 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
                   <div>
                     <div className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-700 dark:text-amber-300">
                       <Sparkles className="w-3.5 h-3.5" />
                       <span>
-                        {EDU_TRACK_LABELS[activeTopic.track]} • {activeTopic.weekLabel}
+                        {isCreatingTemplate
+                          ? 'Soạn Giáo trình mẫu mới'
+                          : `${EDU_TRACK_LABELS[tplTrack]}${
+                              tplLessonCode ? ` · ${tplLessonCode}` : ''
+                            }`}
                       </span>
                     </div>
                     <h3 className="font-black text-base text-slate-900 dark:text-white mt-0.5">
-                      {isAdmin ? 'Biên soạn Giáo trình / Bài học LMS' : 'Nội dung Giáo trình / Bài học'}
+                      {isAdmin
+                        ? isCreatingTemplate
+                          ? 'Thêm Giáo trình vào Kho chuẩn'
+                          : 'Biên soạn Giáo trình mẫu'
+                        : 'Xem Giáo trình chuẩn'}
                     </h3>
                   </div>
 
@@ -873,30 +1246,66 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   )}
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Tên Chủ đề
-                  </label>
-                  <input
-                    type="text"
-                    readOnly={!isAdmin}
-                    value={draftTitle}
-                    onChange={(e) => setDraftTitle(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-900 dark:text-white"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-3">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Level đối tượng
+                    </label>
+                    <CustomSelect
+                      size="sm"
+                      disabled={!isAdmin}
+                      value={tplTrack}
+                      onChange={(val) => setTplTrack(val as EduTrack)}
+                      options={EDU_TRACK_ORDER.map((lv) => ({
+                        value: lv,
+                        label: EDU_TRACK_LABELS[lv],
+                      }))}
+                      ariaLabel="Chọn Level giáo trình"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Mã bài (tùy chọn)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly={!isAdmin}
+                      maxLength={30}
+                      value={tplLessonCode}
+                      onChange={(e) => setTplLessonCode(e.target.value)}
+                      placeholder="VD: Bài 01"
+                      className="w-full px-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-6">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Tên Giáo trình / Bài học <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      readOnly={!isAdmin}
+                      maxLength={200}
+                      value={tplTitle}
+                      onChange={(e) => setTplTitle(e.target.value)}
+                      placeholder="VD: Đức tin và Sự cầu nguyện trong đời sống"
+                      className="w-full px-3.5 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-900 dark:text-white"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Tóm tắt nội dung tuần
+                      Tóm tắt trọng tâm
                     </label>
                     <textarea
                       rows={3}
                       readOnly={!isAdmin}
-                      value={draftSummary}
-                      onChange={(e) => setDraftSummary(e.target.value)}
-                      placeholder="Ý chính của buổi học..."
+                      maxLength={1000}
+                      value={tplSummary}
+                      onChange={(e) => setTplSummary(e.target.value)}
+                      placeholder="Ý chính của bài học..."
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
                     />
                   </div>
@@ -907,8 +1316,9 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                     <textarea
                       rows={3}
                       readOnly={!isAdmin}
-                      value={draftObjectives}
-                      onChange={(e) => setDraftObjectives(e.target.value)}
+                      maxLength={1000}
+                      value={tplObjectives}
+                      onChange={(e) => setTplObjectives(e.target.value)}
                       placeholder="Sau bài học, TĐ nắm vững điều gì..."
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
                     />
@@ -918,13 +1328,14 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                     <BookOpen className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Nội dung Giáo trình / Bài học chi tiết</span>
+                    <span>Nội dung Giáo trình chi tiết</span>
                   </label>
                   <textarea
                     rows={12}
                     readOnly={!isAdmin}
-                    value={draftCurriculum}
-                    onChange={(e) => setDraftCurriculum(e.target.value)}
+                    maxLength={20000}
+                    value={tplCurriculum}
+                    onChange={(e) => setTplCurriculum(e.target.value)}
                     placeholder="I. Lời dẫn nhập&#10;II. Nội dung trọng tâm & Kinh Thánh nền tảng&#10;III. Câu hỏi thảo luận & Thực hành trong tuần..."
                     className="w-full px-3.5 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 leading-relaxed text-xs sm:text-sm"
                   />
@@ -937,23 +1348,65 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   <input
                     type="text"
                     readOnly={!isAdmin}
-                    value={draftRefs}
-                    onChange={(e) => setDraftRefs(e.target.value)}
+                    maxLength={1000}
+                    value={tplRefs}
+                    onChange={(e) => setTplRefs(e.target.value)}
                     placeholder="Link slide, video hoặc tên sách tham khảo..."
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
                   />
                 </div>
 
                 {isAdmin && (
-                  <div className="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <button
-                      type="submit"
-                      disabled={isSavingLesson}
-                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold flex items-center gap-2 shadow-xs cursor-pointer disabled:opacity-60"
-                    >
-                      <Save className="w-4 h-4" />
-                      <span>{isSavingLesson ? 'Đang lưu...' : 'Lưu Giáo trình vào Chủ đề LMS'}</span>
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div>
+                      {!isCreatingTemplate && activeTemplate && onDeleteCurriculumTemplate && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmDelete({
+                              title: `Xóa giáo trình mẫu "${activeTemplate.title}" khỏi Kho?`,
+                              onConfirm: async () => {
+                                await onDeleteCurriculumTemplate(activeTemplate.id);
+                                setSelectedTemplateId('');
+                              },
+                            })
+                          }
+                          className="px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Xóa mẫu</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 ml-auto">
+                      {isCreatingTemplate && sortedTemplates.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingTemplate(false);
+                            setSelectedTemplateId(sortedTemplates[0].id);
+                          }}
+                          className="px-4 py-2 rounded-xl font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                        >
+                          Hủy
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={isSavingTemplate}
+                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold flex items-center gap-2 shadow-xs cursor-pointer disabled:opacity-60 whitespace-nowrap"
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>
+                          {isSavingTemplate
+                            ? 'Đang lưu...'
+                            : isCreatingTemplate
+                            ? 'Lưu Giáo trình mới'
+                            : 'Cập nhật Giáo trình mẫu'}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </form>
@@ -962,7 +1415,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
         </div>
       )}
 
-      {/* MODAL: CREATE / EDIT CMS PROFILE */}
+      {/* MODAL: CREATE / EDIT CMS PROFILE (MULTI-SELECT KV + SINGLE) */}
       {isModalOpen && (
         <div
           onClick={() => setIsModalOpen(false)}
@@ -971,12 +1424,14 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveProfileSubmit}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs"
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs"
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="font-black text-base text-slate-900 dark:text-white">
                 {editingProfileId
                   ? 'Chỉnh sửa Hồ sơ CMS'
+                  : modalEntryMode === 'MULTI'
+                  ? 'Chọn nhiều thành viên thêm vào CMS'
                   : pStage === 'NGV'
                   ? 'Thêm NGV Mới'
                   : 'Thêm Học viên (TĐ Mới → TĐ-II)'}
@@ -990,19 +1445,32 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               </button>
             </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Họ và Tên <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={pFullName}
-                onChange={(e) => setPFullName(e.target.value)}
-                placeholder={pStage === 'NGV' ? 'Tên NGV...' : 'Tên TĐ...'}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
-              />
-            </div>
+            {!editingProfileId && currentUser.role !== 'MEMBER' && (
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => setModalEntryMode('MULTI')}
+                  className={`h-8.5 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    modalEntryMode === 'MULTI'
+                      ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  Chọn nhiều từ KV ({modalMemberCandidates.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalEntryMode('SINGLE')}
+                  className={`h-8.5 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    modalEntryMode === 'SINGLE'
+                      ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  Nhập thủ công (1 người)
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -1015,8 +1483,9 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   value={pCompanyCode}
                   onChange={(nextC) => {
                     setPCompanyCode(nextC);
-                    const allowedAreas = getScopedAreaOptions(currentUser, areas, nextC);
+                    const allowedAreas = getScopedAreaOptions(currentUser, areas, nextC, members);
                     if (allowedAreas[0]?.code) setPAreaCode(allowedAreas[0].code);
+                    setSelectedMemberIds({});
                   }}
                   options={scopedCompanyOptions.map((c) => ({
                     value: c.code,
@@ -1029,7 +1498,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               </div>
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Khu vực
+                  Khu vực (KV)
                 </label>
                 {scopedAreaOptions.length > 0 ? (
                   <CustomSelect
@@ -1041,7 +1510,10 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                       scopedAreaOptions.length <= 1
                     }
                     value={pAreaCode}
-                    onChange={setPAreaCode}
+                    onChange={(nextA) => {
+                      setPAreaCode(nextA);
+                      setSelectedMemberIds({});
+                    }}
                     options={scopedAreaOptions.map((a) => ({
                       value: a.code,
                       label: `KV ${a.code}`,
@@ -1062,7 +1534,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               </div>
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Cấp độ
+                  Cấp độ / Giai đoạn
                 </label>
                 <CustomSelect
                   size="sm"
@@ -1081,6 +1553,147 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               </div>
             </div>
 
+            {!editingProfileId && modalEntryMode === 'MULTI' && currentUser.role !== 'MEMBER' ? (
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder={`Tìm thành viên trong KV ${pAreaCode || '...'}...`}
+                    value={memberSearchQuery}
+                    onChange={(e) => setMemberSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400 tabular-nums">
+                    Đã chọn:{' '}
+                    <strong className="text-blue-700 dark:text-blue-300">
+                      {Object.values(selectedMemberIds).filter(Boolean).length}
+                    </strong>{' '}
+                    / {filteredModalMemberCandidates.length} thành viên hiển thị
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: Record<string, boolean> = { ...selectedMemberIds };
+                        filteredModalMemberCandidates.forEach((m) => {
+                          const k = `${normalizeOrgCode(
+                            pCompanyCode || m.companyCode
+                          )}|${normalizeOrgCode(pAreaCode || m.areaCode)}|${normalizeEduText(
+                            m.fullName
+                          )}`;
+                          if (!existingCmsStageMap.has(k)) {
+                            next[m.id] = true;
+                          }
+                        });
+                        setSelectedMemberIds(next);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold hover:bg-blue-100 cursor-pointer"
+                    >
+                      Chọn tất cả chưa có
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMemberIds({})}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 cursor-pointer"
+                    >
+                      Bỏ chọn
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-[240px] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredModalMemberCandidates.length === 0 ? (
+                    <div className="p-6 text-center text-slate-500 dark:text-slate-400">
+                      Không tìm thấy thành viên nào thuộc KV {pAreaCode || 'đang chọn'}. Bạn có thể chuyển sang tab{' '}
+                      <strong>Nhập thủ công</strong>.
+                    </div>
+                  ) : (
+                    filteredModalMemberCandidates.map((m) => {
+                      const k = `${normalizeOrgCode(
+                        pCompanyCode || m.companyCode
+                      )}|${normalizeOrgCode(pAreaCode || m.areaCode)}|${normalizeEduText(
+                        m.fullName
+                      )}`;
+                      const existingStage = existingCmsStageMap.get(k);
+                      const alreadyExists = Boolean(existingStage);
+                      const isChecked = Boolean(selectedMemberIds[m.id]);
+
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          disabled={alreadyExists}
+                          onClick={() =>
+                            setSelectedMemberIds((prev) => ({
+                              ...prev,
+                              [m.id]: !prev[m.id],
+                            }))
+                          }
+                          className={`w-full px-3 py-2.5 flex items-center justify-between gap-2 text-left transition ${
+                            alreadyExists
+                              ? 'bg-slate-50/80 dark:bg-slate-800/30 opacity-65 cursor-not-allowed'
+                              : isChecked
+                              ? 'bg-blue-50/60 dark:bg-blue-950/30 cursor-pointer'
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span
+                              className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                                isChecked
+                                  ? 'bg-blue-700 border-blue-700 text-white'
+                                  : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900'
+                              }`}
+                            >
+                              {isChecked && <Check className="w-3 h-3" />}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-bold text-slate-900 dark:text-white truncate">
+                                {m.fullName}
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                {m.companyCode} · KV {m.areaCode}
+                                {m.unitCode ? ` · Uni ${m.unitCode}` : ''}
+                              </div>
+                            </div>
+                          </div>
+
+                          {existingStage ? (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold shrink-0">
+                              Đã có ({EDU_CMS_STAGE_LABELS[existingStage]})
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300 shrink-0">
+                              → {EDU_CMS_STAGE_LABELS[pStage]}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Họ và Tên <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={120}
+                  value={pFullName}
+                  onChange={(e) => setPFullName(e.target.value)}
+                  placeholder={pStage === 'NGV' ? 'Tên NGV...' : 'Tên TĐ...'}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold"
+                />
+              </div>
+            )}
+
             {pStage === 'NGV' ? (
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -1088,6 +1701,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 </label>
                 <input
                   type="text"
+                  maxLength={200}
                   value={pSpecialty}
                   onChange={(e) => setPSpecialty(e.target.value)}
                   placeholder="Ví dụ: Phụ trách nhóm TĐ-I, TĐ-II hoặc chủ đề tuần..."
@@ -1102,6 +1716,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                   </label>
                   <input
                     type="text"
+                    maxLength={120}
                     list="cms-ngv-suggestions"
                     value={pNgvName}
                     onChange={(e) => setPNgvName(e.target.value)}
@@ -1109,7 +1724,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
                   />
                   <datalist id="cms-ngv-suggestions">
-                    {ngvList.map((n) => (
+                    {ngvSuggestionsForModal.map((n) => (
                       <option key={n.id} value={n.fullName} />
                     ))}
                   </datalist>
@@ -1143,6 +1758,7 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
               </label>
               <textarea
                 rows={2}
+                maxLength={500}
                 value={pNote}
                 onChange={(e) => setPNote(e.target.value)}
                 placeholder="Ghi chú tình hình học tập hoặc lịch học..."
@@ -1164,7 +1780,13 @@ export const EduCmsPage: React.FC<EduCmsPageProps> = ({
                 className="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{isSavingProfile ? 'Đang lưu...' : 'Lưu Hồ Sơ'}</span>
+                <span>
+                  {isSavingProfile
+                    ? 'Đang lưu...'
+                    : !editingProfileId && modalEntryMode === 'MULTI'
+                    ? `Lưu (${Object.values(selectedMemberIds).filter(Boolean).length} người)`
+                    : 'Lưu Hồ Sơ'}
+                </span>
               </button>
             </div>
           </form>

@@ -1,12 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import {
   BarChart3,
+  BookMarked,
   BookOpen,
   Calendar,
   Check,
   CheckCircle2,
   CheckSquare,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Download,
   ExternalLink,
@@ -16,6 +19,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Table2,
   Trash2,
   UserPlus,
@@ -29,6 +33,7 @@ import {
   EDU_TRACK_LABELS,
   EDU_TRACK_ORDER,
   EduCmsProfile,
+  EduCurriculumTemplate,
   EduTopicAssignment,
   EduTrack,
   EduWeeklyTopic,
@@ -56,10 +61,12 @@ import {
   deriveAssignmentStatus,
   formatEduPercent,
   getISOWeekInfo,
+  getWeekDateRange,
   isAssignmentCompleted,
   isAssignmentParticipated,
   normalizeEduText,
   parseWeekLabelToIdSuffix,
+  shiftWeekLabel,
 } from '../utils/eduAnalytics';
 import { exportEduLmsTwoSheetsExcel } from '../utils/excelManager';
 
@@ -68,6 +75,7 @@ interface EduLmsPageProps {
   topics: EduWeeklyTopic[];
   assignments: EduTopicAssignment[];
   cmsProfiles?: EduCmsProfile[];
+  curriculumTemplates?: EduCurriculumTemplate[];
   companies: Company[];
   areas: Area[];
   members: Member[];
@@ -80,7 +88,11 @@ interface EduLmsPageProps {
   ) => Promise<void>;
   onDeleteAssignment: (assignmentId: string) => Promise<void>;
   onSaveCmsProfile?: (profile: Omit<EduCmsProfile, 'id'>, existingId?: string) => Promise<void>;
-  onNavigateToCmsCurriculum: (topicId: string) => void;
+  onSaveCurriculumTemplate?: (
+    template: Omit<EduCurriculumTemplate, 'id'>,
+    existingId?: string
+  ) => Promise<void>;
+  onNavigateToCmsTemplates?: () => void;
   onOpenAuthModal: () => void;
   onShowNotification: (msg: string) => void;
 }
@@ -155,6 +167,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   topics,
   assignments,
   cmsProfiles = [],
+  curriculumTemplates = [],
   companies,
   areas,
   members,
@@ -164,7 +177,8 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   onSaveAssignment,
   onDeleteAssignment,
   onSaveCmsProfile,
-  onNavigateToCmsCurriculum,
+  onSaveCurriculumTemplate,
+  onNavigateToCmsTemplates,
   onOpenAuthModal,
   onShowNotification,
 }) => {
@@ -184,13 +198,14 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [savingRowKeys, setSavingRowKeys] = useState<Record<string, boolean>>({});
   const [showWeekCurriculumPreview, setShowWeekCurriculumPreview] = useState(false);
+  const [previewTopic, setPreviewTopic] = useState<EduWeeklyTopic | null>(null);
 
   // Tab 3 (Topics & Curriculum) state
   const [activeTrack, setActiveTrack] = useState<EduTrack>('TD_MOI');
   const [topicWeekFilter, setTopicWeekFilter] = useState<string>('ALL');
   const [expandedLessonIds, setExpandedLessonIds] = useState<Record<string, boolean>>({});
 
-  // Topic Create / Edit Modal (Admin)
+  // Topic & Curriculum Create / Edit Modal (Admin - trọn vẹn ngay tại LMS)
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
   const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
   const [tTrack, setTTrack] = useState<EduTrack>('TD_MOI');
@@ -202,8 +217,12 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
   const [tAreaCode, setTAreaCode] = useState<string>('ALL');
   const [tTitle, setTTitle] = useState<string>('');
   const [tSummary, setTSummary] = useState<string>('');
+  const [tObjectives, setTObjectives] = useState<string>('');
   const [tCurriculum, setTCurriculum] = useState<string>('');
+  const [tRefs, setTRefs] = useState<string>('');
+  const [tTemplateId, setTTemplateId] = useState<string>('');
   const [isSavingTopic, setIsSavingTopic] = useState(false);
+  const [isSavingTemplateFromTopic, setIsSavingTemplateFromTopic] = useState(false);
 
   // Manual Row / Topic Assignment Modal
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -216,6 +235,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
     currentUser?.areaCode || areas[0]?.code || ''
   );
   const [aMemberId, setAMemberId] = useState<string>('');
+  const [aCmsProfileId, setACmsProfileId] = useState<string>('');
   const [aStudentName, setAStudentName] = useState<string>('');
   const [aLevel, setALevel] = useState<EduTrack>('TD_MOI');
   const [aParticipated, setAParticipated] = useState<boolean>(true);
@@ -267,6 +287,9 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       return Number(m[2]) * 100 + Number(m[1]);
     };
     map.set(defaultWeek.weekLabel, parseSortScore(defaultWeek.weekLabel));
+    if (sheetWeekFilter && sheetWeekFilter !== 'ALL') {
+      map.set(sheetWeekFilter, parseSortScore(sheetWeekFilter));
+    }
     topics.forEach((t) => {
       if (t.weekLabel) map.set(t.weekLabel, parseSortScore(t.weekLabel));
     });
@@ -276,7 +299,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
     return Array.from(map.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([label]) => label);
-  }, [topics, assignments, defaultWeek.weekLabel]);
+  }, [topics, assignments, defaultWeek.weekLabel, sheetWeekFilter]);
 
   // Rows for Sheet 1 (Quản lý) and Sheet 2 (Phân tích)
   const managementRows = useMemo(
@@ -554,18 +577,51 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
     }
   };
 
+  const sortedTemplatesForModal = useMemo(() => {
+    return [...curriculumTemplates].sort((a, b) => {
+      const aMatch = a.track === tTrack ? 0 : 1;
+      const bMatch = b.track === tTrack ? 0 : 1;
+      if (aMatch !== bMatch) return aMatch - bMatch;
+      return (a.lessonCode || a.title).localeCompare(b.lessonCode || b.title, 'vi', {
+        numeric: true,
+      });
+    });
+  }, [curriculumTemplates, tTrack]);
+
+  const applyTemplateToTopicDraft = (tplId: string) => {
+    setTTemplateId(tplId);
+    if (!tplId) return;
+    const tpl = curriculumTemplates.find((item) => item.id === tplId);
+    if (!tpl) return;
+    setTTitle(tpl.title);
+    setTSummary(tpl.summary || '');
+    setTObjectives(tpl.learningObjectives || '');
+    setTCurriculum(tpl.curriculumContent || '');
+    setTRefs(tpl.referenceLinks || '');
+    onShowNotification(`Đã nạp nội dung từ giáo trình "${tpl.title}".`);
+  };
+
   const openCreateTopic = () => {
     setEditingTopicId(null);
-    setTTrack(activeTrack);
-    setTWeekNum(defaultWeek.week);
-    setTYear(defaultWeek.year);
-    setTStartDate(defaultDates.start);
-    setTEndDate(defaultDates.end);
+    const activeMatch =
+      sheetWeekFilter !== 'ALL' ? sheetWeekFilter.match(/(\d+)\s*\/\s*(\d{4})/) : null;
+    const initWeek = activeMatch ? Number(activeMatch[1]) : defaultWeek.week;
+    const initYear = activeMatch ? Number(activeMatch[2]) : defaultWeek.year;
+    const initRange = getWeekDateRange(initWeek, initYear);
+
+    setTTrack(workspaceTab === 'TOPICS' ? activeTrack : levelFilter !== 'ALL' ? levelFilter : 'TD_MOI');
+    setTWeekNum(initWeek);
+    setTYear(initYear);
+    setTStartDate(initRange.start);
+    setTEndDate(initRange.end);
     setTCompanyCode('ALL');
     setTAreaCode('ALL');
     setTTitle('');
     setTSummary('');
+    setTObjectives('');
     setTCurriculum('');
+    setTRefs('');
+    setTTemplateId('');
     setIsTopicModalOpen(true);
   };
 
@@ -580,7 +636,10 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
     setTAreaCode(topic.areaCode || 'ALL');
     setTTitle(topic.topicTitle);
     setTSummary(topic.summary || '');
+    setTObjectives(topic.learningObjectives || '');
     setTCurriculum(topic.curriculumContent || '');
+    setTRefs(topic.referenceLinks || '');
+    setTTemplateId(topic.templateId || '');
     setIsTopicModalOpen(true);
   };
 
@@ -594,14 +653,13 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
     try {
       const existing = editingTopicId ? topics.find((t) => t.id === editingTopicId) : null;
       const nowIso = new Date().toISOString();
+      const safeWeek = Math.max(1, Math.min(53, Number(tWeekNum) || 1));
+      const safeYear = Number(tYear) || defaultWeek.year;
       await onSaveTopic(
         {
-          weekNumber: Math.max(1, Math.min(53, Number(tWeekNum) || 1)),
-          year: Number(tYear) || defaultWeek.year,
-          weekLabel: `Tuần ${String(Math.max(1, Math.min(53, Number(tWeekNum) || 1))).padStart(
-            2,
-            '0'
-          )} / ${Number(tYear) || defaultWeek.year}`,
+          weekNumber: safeWeek,
+          year: safeYear,
+          weekLabel: `Tuần ${String(safeWeek).padStart(2, '0')} / ${safeYear}`,
           startDate: tStartDate,
           endDate: tEndDate,
           track: tTrack,
@@ -609,9 +667,10 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
           areaCode: tCompanyCode === 'ALL' ? 'ALL' : tAreaCode,
           topicTitle: tTitle.trim(),
           summary: tSummary.trim(),
-          learningObjectives: existing?.learningObjectives || '',
+          learningObjectives: tObjectives.trim(),
           curriculumContent: tCurriculum.trim(),
-          referenceLinks: existing?.referenceLinks || '',
+          referenceLinks: tRefs.trim(),
+          templateId: tTemplateId || undefined,
           createdBy: existing?.createdBy || currentUser?.fullName || 'Admin',
           createdAt: existing?.createdAt || nowIso,
           updatedAt: nowIso,
@@ -619,11 +678,43 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         editingTopicId || undefined
       );
       setIsTopicModalOpen(false);
-      onShowNotification(editingTopicId ? 'Đã cập nhật Chủ đề tuần!' : 'Đã tạo Chủ đề tuần mới!');
+      onShowNotification(
+        editingTopicId ? 'Đã cập nhật Chủ đề & Giáo trình!' : 'Đã tạo Chủ đề & Giáo trình tuần mới!'
+      );
     } catch (err: any) {
       onShowNotification(`Lỗi lưu chủ đề: ${err?.message || 'Thử lại sau'}`);
     } finally {
       setIsSavingTopic(false);
+    }
+  };
+
+  const handleSaveTopicAsTemplate = async () => {
+    if (!onSaveCurriculumTemplate || !isAdmin) return;
+    if (!tTitle.trim()) {
+      onShowNotification('Vui lòng nhập Tên Chủ đề trước khi lưu vào Kho giáo trình.');
+      return;
+    }
+    setIsSavingTemplateFromTopic(true);
+    try {
+      const nowIso = new Date().toISOString();
+      await onSaveCurriculumTemplate({
+        track: tTrack,
+        lessonCode: '',
+        title: tTitle.trim(),
+        summary: tSummary.trim(),
+        learningObjectives: tObjectives.trim(),
+        curriculumContent: tCurriculum.trim(),
+        referenceLinks: tRefs.trim(),
+        createdBy: currentUser?.fullName || 'Admin',
+        updatedBy: currentUser?.fullName || 'Admin',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+      onShowNotification(`Đã lưu "${tTitle.trim()}" vào Kho Giáo trình chuẩn (CMS)!`);
+    } catch (err: any) {
+      onShowNotification(`Lỗi lưu vào Kho CMS: ${err?.message || 'Thử lại sau'}`);
+    } finally {
+      setIsSavingTemplateFromTopic(false);
     }
   };
 
@@ -642,6 +733,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       setACompanyCode(existing.companyCode);
       setAAreaCode(existing.areaCode);
       setAMemberId(existing.memberId || '');
+      setACmsProfileId(existing.cmsProfileId || row?.cmsProfileId || '');
       setAStudentName(existing.studentName);
       setALevel(existing.track);
       setAParticipated(isAssignmentParticipated(existing));
@@ -652,6 +744,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       setACompanyCode(row.companyCode || currentUser?.companyCode || companies[0]?.code || '');
       setAAreaCode(row.areaCode || currentUser?.areaCode || areas[0]?.code || '');
       setAMemberId('');
+      setACmsProfileId(row.cmsProfileId || '');
       setAStudentName(row.name);
       setALevel(row.level);
       setAParticipated(row.participated);
@@ -680,6 +773,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       setACompanyCode(defComp);
       setAAreaCode(defArea);
       setAMemberId(isMemberOnly ? currentUser.memberId || `m-${currentUser.id}` : '');
+      setACmsProfileId('');
       setAStudentName(isMemberOnly ? currentUser.fullName : '');
       setALevel(topic?.track || (levelFilter !== 'ALL' ? levelFilter : 'TD_MOI'));
       setAParticipated(true);
@@ -896,11 +990,41 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         completed: aCompleted,
         note: aNote,
         memberId: aMemberId || undefined,
+        cmsProfileId: aCmsProfileId || existing?.cmsProfileId,
         existing,
         topicOverride: manualTargetTopic,
       });
 
-      const cmsAddedCount = !editingAssignId
+      // Nếu dòng đang liên kết với CMS và quản lý đổi Level -> đồng bộ sang CMS để không tách thành 2 dòng
+      if (aCmsProfileId && onSaveCmsProfile && currentUser.role !== 'MEMBER') {
+        const linkedCms = cmsProfiles.find((p) => p.id === aCmsProfileId);
+        if (
+          linkedCms &&
+          linkedCms.stage !== aLevel &&
+          canModifyEduRecord(currentUser, linkedCms)
+        ) {
+          await onSaveCmsProfile(
+            {
+              fullName: linkedCms.fullName,
+              companyCode: linkedCms.companyCode,
+              areaCode: linkedCms.areaCode,
+              stage: aLevel,
+              ngvName: linkedCms.ngvName,
+              specialty: linkedCms.specialty,
+              currentTopicId: linkedCms.currentTopicId,
+              currentTopicTitle: linkedCms.currentTopicTitle,
+              note: linkedCms.note,
+              ownerUid: linkedCms.ownerUid,
+              updatedBy: currentUser.fullName,
+              createdAt: linkedCms.createdAt,
+              updatedAt: new Date().toISOString(),
+            },
+            linkedCms.id
+          );
+        }
+      }
+
+      const cmsAddedCount = !editingAssignId && !aCmsProfileId
         ? await syncMissingToCmsIfEnabled([
             {
               fullName: aStudentName,
@@ -915,7 +1039,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
       setIsManualModalOpen(false);
       setManualTargetTopic(null);
       onShowNotification(
-        editingAssignId
+        editingAssignId || aCmsProfileId
           ? 'Đã cập nhật thông tin LMS!'
           : `Đã thêm dòng dữ liệu LMS mới${cmsAddedCount > 0 ? ' & đồng bộ sang CMS' : ''}!`
       );
@@ -1207,20 +1331,48 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
               />
             </div>
 
-            <div className="col-span-1 sm:col-span-3">
-              <CustomSelect
-                size="sm"
-                value={sheetWeekFilter}
-                onChange={setSheetWeekFilter}
-                options={[
-                  { value: 'ALL', label: 'Tất cả tuần (Tổng hợp)' },
-                  ...allSheetWeekOptions.map((w) => ({
-                    value: w,
-                    label: w === defaultWeek.weekLabel ? `${w} (Hiện tại)` : w,
-                  })),
-                ]}
-                ariaLabel="Chọn Tuần"
-              />
+            <div className="col-span-1 sm:col-span-3 flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setSheetWeekFilter((prev) =>
+                    prev === 'ALL' ? defaultWeek.weekLabel : shiftWeekLabel(prev, -1)
+                  )
+                }
+                title="Tuần trước"
+                aria-label="Chuyển sang tuần trước"
+                className="w-8 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0 cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <CustomSelect
+                  size="sm"
+                  value={sheetWeekFilter}
+                  onChange={setSheetWeekFilter}
+                  options={[
+                    { value: 'ALL', label: 'Tất cả tuần (Tổng hợp)' },
+                    ...allSheetWeekOptions.map((w) => ({
+                      value: w,
+                      label: w === defaultWeek.weekLabel ? `${w} (Hiện tại)` : w,
+                    })),
+                  ]}
+                  ariaLabel="Chọn Tuần"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setSheetWeekFilter((prev) =>
+                    prev === 'ALL' ? defaultWeek.weekLabel : shiftWeekLabel(prev, 1)
+                  )
+                }
+                title="Tuần sau"
+                aria-label="Chuyển sang tuần sau"
+                className="w-8 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0 cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
 
             <div className="col-span-1 sm:col-span-2">
@@ -1288,7 +1440,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 sm:px-5 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 dark:text-slate-300 tabular-nums">
               <span className="font-bold text-slate-900 dark:text-white">
-                {sheetWeekFilter === 'ALL' ? 'Tổng hợp tất cả tuần' : sheetWeekFilter}
+                {sheetWeekFilter === 'ALL' ? 'Tổng hợp theo đầu người (các tuần)' : sheetWeekFilter}
               </span>
               <span aria-hidden="true">·</span>
               <span>
@@ -1421,12 +1573,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setActiveTrack(t.track);
-                        setTopicWeekFilter(t.weekLabel);
-                        setExpandedLessonIds((prev) => ({ ...prev, [t.id]: true }));
-                        setWorkspaceTab('TOPICS');
-                      }}
+                      onClick={() => setPreviewTopic(t)}
                       className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold shrink-0 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
                     >
                       Đọc bài
@@ -2224,14 +2371,26 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                           </div>
 
                           {isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => onNavigateToCmsCurriculum(topic.id)}
-                              className="px-3 py-1 rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 text-[11px] font-bold flex items-center gap-1 hover:bg-amber-50 cursor-pointer"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              <span>Soạn chi tiết trong CMS</span>
-                            </button>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => openEditTopic(topic)}
+                                className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>Sửa Chủ đề &amp; Giáo trình</span>
+                              </button>
+                              {onNavigateToCmsTemplates && (
+                                <button
+                                  type="button"
+                                  onClick={onNavigateToCmsTemplates}
+                                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 hover:bg-slate-50 cursor-pointer"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span>Kho Giáo trình CMS</span>
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -2253,7 +2412,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                         ) : (
                           <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-700 text-xs text-slate-500">
                             Chưa có nội dung bài học chi tiết cho chủ đề này.
-                            {isAdmin && ' Bấm "Soạn chi tiết trong CMS" để viết giáo trình.'}
+                            {isAdmin && ' Bấm "Sửa Chủ đề & Giáo trình" để biên soạn hoặc nạp từ Kho CMS.'}
                           </div>
                         )}
 
@@ -2388,7 +2547,7 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
         </div>
       )}
 
-      {/* MODAL: ADMIN CREATE / EDIT WEEKLY TOPIC */}
+      {/* MODAL: ADMIN CREATE / EDIT WEEKLY TOPIC & FULL CURRICULUM */}
       {isTopicModalOpen && (
         <div
           onClick={() => setIsTopicModalOpen(false)}
@@ -2397,12 +2556,19 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveTopicSubmit}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs"
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs"
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-black text-base text-slate-900 dark:text-white">
-                {editingTopicId ? 'Chỉnh sửa Chủ đề Tuần' : 'Tạo Chủ đề Tuần Mới'}
-              </h3>
+              <div>
+                <h3 className="font-black text-base text-slate-900 dark:text-white">
+                  {editingTopicId
+                    ? 'Chỉnh sửa Chủ đề & Giáo trình Tuần'
+                    : 'Tạo Chủ đề & Soạn Giáo trình Tuần'}
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Biên soạn đầy đủ chủ đề, mục tiêu và bài học ngay tại LMS hoặc nạp nhanh từ Kho Giáo trình CMS.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsTopicModalOpen(false)}
@@ -2411,6 +2577,45 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Nạp nhanh từ Kho Giáo trình chuẩn (CMS) */}
+            {curriculumTemplates.length > 0 && (
+              <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="font-extrabold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Nạp nhanh từ Kho Giáo trình chuẩn (CMS)</span>
+                  </label>
+                  {onNavigateToCmsTemplates && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsTopicModalOpen(false);
+                        onNavigateToCmsTemplates();
+                      }}
+                      className="text-[11px] font-bold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer"
+                    >
+                      Quản lý kho CMS →
+                    </button>
+                  )}
+                </div>
+                <CustomSelect
+                  size="sm"
+                  value={tTemplateId}
+                  onChange={applyTemplateToTopicDraft}
+                  options={[
+                    { value: '', label: '-- Tự soạn hoặc chọn 1 bài học mẫu từ Kho CMS --' },
+                    ...sortedTemplatesForModal.map((tpl) => ({
+                      value: tpl.id,
+                      label: tpl.lessonCode ? `${tpl.lessonCode} · ${tpl.title}` : tpl.title,
+                      badge: EDU_TRACK_LABELS[tpl.track],
+                    })),
+                  ]}
+                  searchable
+                  ariaLabel="Nạp từ Kho Giáo trình CMS"
+                />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -2438,7 +2643,15 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                   min={1}
                   max={53}
                   value={tWeekNum}
-                  onChange={(e) => setTWeekNum(Number(e.target.value) || 1)}
+                  onChange={(e) => {
+                    const nextW = Math.max(1, Math.min(53, Number(e.target.value) || 1));
+                    setTWeekNum(nextW);
+                    if (!editingTopicId) {
+                      const r = getWeekDateRange(nextW, tYear);
+                      setTStartDate(r.start);
+                      setTEndDate(r.end);
+                    }
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold tabular-nums"
                 />
               </div>
@@ -2451,7 +2664,15 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                   min={2024}
                   max={2099}
                   value={tYear}
-                  onChange={(e) => setTYear(Number(e.target.value) || defaultWeek.year)}
+                  onChange={(e) => {
+                    const nextY = Number(e.target.value) || defaultWeek.year;
+                    setTYear(nextY);
+                    if (!editingTopicId && nextY >= 2020 && nextY <= 2100) {
+                      const r = getWeekDateRange(tWeekNum, nextY);
+                      setTStartDate(r.start);
+                      setTEndDate(r.end);
+                    }
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold tabular-nums"
                 />
               </div>
@@ -2545,48 +2766,96 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
               />
             </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Tóm tắt trọng tâm tuần
-              </label>
-              <textarea
-                rows={2}
-                placeholder="Ghi chú ngắn mục đích, yêu cầu thực hành của tuần..."
-                value={tSummary}
-                onChange={(e) => setTSummary(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tóm tắt trọng tâm tuần
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Ý chính của buổi học..."
+                  value={tSummary}
+                  onChange={(e) => setTSummary(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Mục tiêu học tập &amp; thực hành
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Sau bài học, TĐ nắm vững điều gì..."
+                  value={tObjectives}
+                  onChange={(e) => setTObjectives(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Nội dung Giáo trình / Bài học nhanh
+              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                <span>Nội dung Giáo trình / Bài học chi tiết</span>
               </label>
               <textarea
-                rows={4}
-                placeholder="Nhập dàn ý bài học hoặc nội dung giáo trình..."
+                rows={8}
+                placeholder="I. Lời dẫn nhập&#10;II. Nội dung trọng tâm & Kinh Thánh nền tảng&#10;III. Câu hỏi thảo luận & Thực hành trong tuần..."
                 value={tCurriculum}
                 onChange={(e) => setTCurriculum(e.target.value)}
+                className="w-full px-3.5 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 leading-relaxed text-xs sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Tài liệu / Link tham khảo (tùy chọn)
+              </label>
+              <input
+                type="text"
+                placeholder="Link slide, video hoặc tên sách tham khảo..."
+                value={tRefs}
+                onChange={(e) => setTRefs(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setIsTopicModalOpen(false)}
-                className="px-4 py-2 rounded-xl font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="submit"
-                disabled={isSavingTopic}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>{isSavingTopic ? 'Đang lưu...' : 'Lưu Chủ đề Tuần'}</span>
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div>
+                {onSaveCurriculumTemplate && isAdmin && (
+                  <button
+                    type="button"
+                    disabled={isSavingTemplateFromTopic || !tTitle.trim()}
+                    onClick={handleSaveTopicAsTemplate}
+                    className="px-3.5 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-800 dark:text-amber-300 font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <BookMarked className="w-3.5 h-3.5" />
+                    <span>
+                      {isSavingTemplateFromTopic
+                        ? 'Đang lưu mẫu...'
+                        : 'Lưu thành mẫu vào Kho CMS'}
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsTopicModalOpen(false)}
+                  className="px-4 py-2 rounded-xl font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingTopic}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isSavingTopic ? 'Đang lưu...' : 'Lưu Chủ đề & Giáo trình'}</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -3184,6 +3453,103 @@ export const EduLmsPage: React.FC<EduLmsPageProps> = ({
                     ? 'Đang cập nhật...'
                     : `Xác nhận tick (${bulkTickConfirm.targetRows.length})`}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK CURRICULUM READER MODAL (XEM NHANH TẠI SHEET 1) */}
+      {previewTopic && (
+        <div
+          onClick={() => setPreviewTopic(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[88vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs"
+          >
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="min-w-0">
+                <div className="text-[11px] font-extrabold text-emerald-700 dark:text-emerald-300">
+                  {EDU_TRACK_LABELS[previewTopic.track]} · {previewTopic.weekLabel}
+                </div>
+                <h3 className="font-black text-base sm:text-lg text-slate-900 dark:text-white mt-0.5">
+                  {previewTopic.topicTitle}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewTopic(null)}
+                className="p-1.5 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {previewTopic.summary && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-200 leading-relaxed">
+                <div className="font-bold text-slate-900 dark:text-white mb-1">Tóm tắt tuần:</div>
+                {previewTopic.summary}
+              </div>
+            )}
+
+            {previewTopic.learningObjectives && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
+                <div className="font-bold text-amber-900 dark:text-amber-200 mb-1">
+                  Mục tiêu học tập &amp; thực hành:
+                </div>
+                {previewTopic.learningObjectives}
+              </div>
+            )}
+
+            <div className="p-4 rounded-2xl bg-white dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed">
+              {previewTopic.curriculumContent?.trim()
+                ? previewTopic.curriculumContent
+                : 'Chủ đề này chưa có nội dung giáo trình chi tiết.'}
+            </div>
+
+            {previewTopic.referenceLinks && (
+              <div className="text-[11px] text-slate-600 dark:text-slate-300 break-all">
+                <strong>Tài liệu tham khảo:</strong> {previewTopic.referenceLinks}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = previewTopic;
+                    setPreviewTopic(null);
+                    openEditTopic(target);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Sửa giáo trình này</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const target = previewTopic;
+                  setPreviewTopic(null);
+                  setActiveTrack(target.track);
+                  setTopicWeekFilter(target.weekLabel);
+                  setExpandedLessonIds((prev) => ({ ...prev, [target.id]: true }));
+                  setWorkspaceTab('TOPICS');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
+              >
+                Mở tab Chủ đề
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewTopic(null)}
+                className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-extrabold cursor-pointer"
+              >
+                Đóng
               </button>
             </div>
           </div>

@@ -171,11 +171,31 @@
         "learningObjectives": { "type": "string", "maxLength": 1000 },
         "curriculumContent": { "type": "string", "maxLength": 20000 },
         "referenceLinks": { "type": "string", "maxLength": 1000 },
+        "templateId": { "type": "string", "maxLength": 128 },
         "createdBy": { "type": "string", "maxLength": 100 },
         "createdAt": { "type": "string", "maxLength": 50 },
         "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["weekNumber", "year", "weekLabel", "startDate", "endDate", "track", "companyCode", "areaCode", "topicTitle", "curriculumContent", "createdBy", "createdAt", "updatedAt"]
+    },
+    "EduCurriculumTemplate": {
+      "title": "EduCurriculumTemplate",
+      "description": "Reusable CMS curriculum lesson templates organized by track (TĐM, TĐ1, TĐ2, NGV)",
+      "type": "object",
+      "properties": {
+        "track": { "type": "string", "enum": ["TD_MOI", "TD_I", "TD_II", "NGV"] },
+        "lessonCode": { "type": "string", "maxLength": 30 },
+        "title": { "type": "string", "maxLength": 200 },
+        "summary": { "type": "string", "maxLength": 1000 },
+        "learningObjectives": { "type": "string", "maxLength": 1000 },
+        "curriculumContent": { "type": "string", "maxLength": 20000 },
+        "referenceLinks": { "type": "string", "maxLength": 1000 },
+        "createdBy": { "type": "string", "maxLength": 100 },
+        "updatedBy": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["track", "title", "curriculumContent", "createdBy", "createdAt", "updatedAt"]
     },
     "EduTopicAssignment": {
       "title": "EduTopicAssignment",
@@ -355,6 +375,10 @@
     "/edu_cms_profiles/{profileId}": {
       "schema": "EduCmsProfile",
       "description": "CMS learner progression (TĐ Mới -> TĐ-II) and NGV mentor roster"
+    },
+    "/edu_curriculum_templates/{templateId}": {
+      "schema": "EduCurriculumTemplate",
+      "description": "CMS reusable curriculum lesson library for LMS topics"
     },
     "/work_schedules/{scheduleId}": {
       "schema": "WorkSchedule",

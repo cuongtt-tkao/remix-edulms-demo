@@ -670,7 +670,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         {
           id: 'EDU_LMS',
           label: 'LMS',
-          subLabel: 'TĐ-I · TĐ-II · NGV',
+          subLabel: 'TĐM · TĐ1 · TĐ2 · NGV · Chủ đề tuần',
           icon: GraduationCap,
           accent: 'text-emerald-400',
           visible: true,
@@ -678,7 +678,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({
         {
           id: 'EDU_CMS',
           label: 'CMS',
-          subLabel: 'TĐ Mới→TĐ-II · NGV · Giáo trình',
+          subLabel: 'Lộ trình TĐ · NGV · Kho giáo trình',
           icon: BookMarked,
           accent: 'text-amber-300',
           visible: true,
